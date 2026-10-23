@@ -63,7 +63,33 @@ export function getPillLabel(tasks: BackgroundTaskState[]): string {
     }
   }
 
-  return `${n} background ${n === 1 ? 'task' : 'tasks'}`
+  // Mixed types: one count per family so shells, monitors and agents stay
+  // distinguishable in the footer (FnHarness).
+  const monitors = count(
+    tasks,
+    t =>
+      (t.type === 'local_bash' && t.kind === 'monitor') ||
+      t.type === 'monitor_mcp',
+  )
+  const shells = count(
+    tasks,
+    t => t.type === 'local_bash' && t.kind !== 'monitor',
+  )
+  const agents = count(
+    tasks,
+    t =>
+      t.type === 'local_agent' ||
+      t.type === 'remote_agent' ||
+      t.type === 'in_process_teammate',
+  )
+  const others = n - monitors - shells - agents
+  const parts = [
+    `${shells} ${shells === 1 ? 'shell' : 'shells'}`,
+    `${monitors} ${monitors === 1 ? 'monitor' : 'monitors'}`,
+    `${agents} ${agents === 1 ? 'agent' : 'agents'}`,
+  ]
+  if (others > 0) parts.push(`${others} other`)
+  return parts.join(' · ')
 }
 
 /**

@@ -195,7 +195,7 @@ export function BackgroundTaskStatus(t0) {
   if (runningTasks.length === 0) {
     // FnHarness keeps the pill visible even when idle so the tasks dialog is
     // always one ↓ away, as a permanent footer entry.
-    return <SummaryPill selected={tasksSelected} onClick={onOpenDialog}>0 shells · 0 agents</SummaryPill>;
+    return <SummaryPill selected={tasksSelected} onClick={onOpenDialog}>0 shells · 0 monitors · 0 agents</SummaryPill>;
   }
   let t8;
   if ($[37] !== runningTasks) {
