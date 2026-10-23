@@ -35,6 +35,10 @@ export type ProviderPreset = {
   defaultModel: string
   /** OpenAI proper rejects `max_tokens` on newer models. */
   maxTokensParam: 'max_tokens' | 'max_completion_tokens'
+  /** Real context window of the backend; drives auto-compact (defaults to the Claude value). */
+  contextWindow?: number
+  /** Default max output tokens; keep it small on short-context local models. */
+  maxOutputTokens?: number
 }
 
 export const PROVIDER_PRESETS: Record<string, ProviderPreset> = {
@@ -51,6 +55,17 @@ export const PROVIDER_PRESETS: Record<string, ProviderPreset> = {
     keyOptional: true,
     defaultModel: 'default',
     maxTokensParam: 'max_tokens',
+  },
+  qwen36: {
+    label: 'Qwen3.6 35B heretic (local)',
+    // Through llm-tap (:8090) so requests show up in reports/llm_monitor.html;
+    // the llama-server itself listens on :8082.
+    baseUrl: 'http://localhost:8090/v1',
+    keyOptional: true,
+    defaultModel: 'qwen36-35b-heretic-q4km',
+    maxTokensParam: 'max_tokens',
+    contextWindow: 32768,
+    maxOutputTokens: 4096,
   },
   lmstudio: {
     label: 'LM Studio',
@@ -132,6 +147,8 @@ export type MultimodelProfile = {
   model: string
   smallModel: string
   maxTokensParam: 'max_tokens' | 'max_completion_tokens'
+  contextWindow?: number
+  maxOutputTokens?: number
 }
 
 type Env = Record<string, string | undefined>
@@ -184,6 +201,8 @@ export function resolveProfile(env: Env): MultimodelProfile | null {
     model,
     smallModel: env.CLAUDE_MULTIMODEL_SMALL_MODEL || model,
     maxTokensParam: preset.maxTokensParam,
+    contextWindow: preset.contextWindow,
+    maxOutputTokens: preset.maxOutputTokens,
   }
 }
 
