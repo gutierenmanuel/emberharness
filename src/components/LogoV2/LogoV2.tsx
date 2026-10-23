@@ -250,7 +250,7 @@ export function LogoV2() {
   }
   const layoutMode = getLayoutMode(columns);
   const userTheme = resolveThemeSetting(getGlobalConfig().theme);
-  const borderTitle = ` ${color("startupAccent", userTheme)("Welcome to FnHarness")} ${color("inactive", userTheme)(`v${version}`)} `;
+  const borderTitle = ` ${color("startupAccent", userTheme)("Welcome to FnHarness")} ${color("inactive", userTheme)(`v${MACRO.FNHARNESS_VERSION}`)} `;
   const compactBorderTitle = color("startupAccent", userTheme)(" Welcome to FnHarness ");
   if (layoutMode === "compact") {
     let welcomeMessage = formatWelcomeMessage(username);

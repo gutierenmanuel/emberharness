@@ -52,7 +52,7 @@ async function main(): Promise<void> {
   if (args.length === 1 && (args[0] === '--version' || args[0] === '-v' || args[0] === '-V')) {
     // MACRO.VERSION is inlined at build time
     // biome-ignore lint/suspicious/noConsole:: intentional console output
-    console.log(`${MACRO.VERSION} (Claude Code)`);
+    console.log(`FnHarness ${MACRO.FNHARNESS_VERSION} (base Claude Code ${MACRO.VERSION})`);
     return;
   }
 

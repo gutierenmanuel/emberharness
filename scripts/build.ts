@@ -3,7 +3,13 @@ import { dirname } from 'path'
 
 const pkg = await Bun.file(new URL('../package.json', import.meta.url)).json() as {
   name: string
+  /** FnHarness's own SemVer, shown in the UI and bumped by scripts/release.ts. */
   version: string
+  /**
+   * Claude Code snapshot the fork is based on. It stays the MACRO.VERSION
+   * because it travels in the user agent and headers sent to Anthropic.
+   */
+  upstreamVersion: string
 }
 
 const args = process.argv.slice(2)
@@ -117,7 +123,7 @@ const outfile = compile
     ? './cli-dev'
     : './cli'
 const buildTime = new Date().toISOString()
-const version = dev ? getDevVersion(pkg.version) : pkg.version
+const version = dev ? getDevVersion(pkg.upstreamVersion) : pkg.upstreamVersion
 
 mkdirSync(dirname(outfile), { recursive: true })
 
@@ -143,6 +149,7 @@ const defines = {
   'process.env.CLAUDE_CODE_VERIFY_PLAN': JSON.stringify('false'),
   'process.env.CCR_FORCE_BUNDLE': JSON.stringify('true'),
   'MACRO.VERSION': JSON.stringify(version),
+  'MACRO.FNHARNESS_VERSION': JSON.stringify(pkg.version),
   'MACRO.BUILD_TIME': JSON.stringify(buildTime),
   'MACRO.PACKAGE_URL': JSON.stringify(pkg.name),
   'MACRO.NATIVE_PACKAGE_URL': 'undefined',
