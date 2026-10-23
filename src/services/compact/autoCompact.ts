@@ -64,6 +64,20 @@ export const WARNING_THRESHOLD_BUFFER_TOKENS = 20_000
 export const ERROR_THRESHOLD_BUFFER_TOKENS = 20_000
 export const MANUAL_COMPACT_BUFFER_TOKENS = 3_000
 
+/**
+ * The fixed buffers above assume ~200k windows. On short local-model windows
+ * (e.g. 32k) they swallow the whole context: auto-compact fires at half the
+ * window and the warning shows from the first turn. Each buffer is capped at a
+ * fraction of the effective window, which leaves 200k+ windows unchanged.
+ */
+export function scaledBuffer(
+  buffer: number,
+  effectiveContextWindow: number,
+  maxFraction: number,
+): number {
+  return Math.min(buffer, Math.floor(effectiveContextWindow * maxFraction))
+}
+
 // Stop trying autocompact after this many consecutive failures.
 // BQ 2026-03-10: 1,279 sessions had 50+ consecutive failures (up to 3,272)
 // in a single session, wasting ~250K API calls/day globally.
@@ -73,7 +87,8 @@ export function getAutoCompactThreshold(model: string): number {
   const effectiveContextWindow = getEffectiveContextWindowSize(model)
 
   const autocompactThreshold =
-    effectiveContextWindow - AUTOCOMPACT_BUFFER_TOKENS
+    effectiveContextWindow -
+    scaledBuffer(AUTOCOMPACT_BUFFER_TOKENS, effectiveContextWindow, 0.1)
 
   // Override for easier testing of autocompact
   const envPercent = process.env.CLAUDE_AUTOCOMPACT_PCT_OVERRIDE
@@ -110,8 +125,10 @@ export function calculateTokenWarningState(
     Math.round(((threshold - tokenUsage) / threshold) * 100),
   )
 
-  const warningThreshold = threshold - WARNING_THRESHOLD_BUFFER_TOKENS
-  const errorThreshold = threshold - ERROR_THRESHOLD_BUFFER_TOKENS
+  const warningThreshold =
+    threshold - scaledBuffer(WARNING_THRESHOLD_BUFFER_TOKENS, threshold, 0.15)
+  const errorThreshold =
+    threshold - scaledBuffer(ERROR_THRESHOLD_BUFFER_TOKENS, threshold, 0.08)
 
   const isAboveWarningThreshold = tokenUsage >= warningThreshold
   const isAboveErrorThreshold = tokenUsage >= errorThreshold
