@@ -1283,6 +1283,14 @@ export type SessionCronTask = {
   prompt: string
   createdAt: number
   recurring?: boolean
+  /** Self-paced /loop wake-up (ScheduleWakeup): one-shot pinned to `fireAt`. */
+  wakeup?: boolean
+  /** Exact epoch ms to fire at; overrides `cron` timing (wake-ups only). */
+  fireAt?: number
+  /** True for the single 20 minute fallback wake-up of a self-paced loop. */
+  fallback?: boolean
+  /** Why the model chose this delay (wake-ups only, shown in the fire notice). */
+  reason?: string
   /**
    * When set, the task was created by an in-process teammate (not the team lead).
    * The scheduler routes fires to that teammate's pendingUserMessages queue

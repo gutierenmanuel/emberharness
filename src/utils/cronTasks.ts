@@ -67,6 +67,14 @@ export type CronTask = {
    * REPL's. Never written to disk (teammate crons are always session-only).
    */
   agentId?: string
+  /** Runtime-only (session tasks): self-paced /loop wake-up, see ScheduleWakeup. */
+  wakeup?: boolean
+  /** Runtime-only: exact epoch ms to fire at (wake-ups); cron is display only. */
+  fireAt?: number
+  /** Runtime-only: the one 20 minute fallback wake-up of a self-paced loop. */
+  fallback?: boolean
+  /** Runtime-only: reason the model gave for the chosen delay. */
+  reason?: string
 }
 
 type CronFile = { tasks: CronTask[] }

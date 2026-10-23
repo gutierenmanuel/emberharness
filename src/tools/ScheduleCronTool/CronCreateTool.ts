@@ -57,7 +57,8 @@ export const CronCreateTool = buildTool({
   name: CRON_CREATE_TOOL_NAME,
   searchHint: 'schedule a recurring or one-shot prompt',
   maxResultSizeChars: 100_000,
-  shouldDefer: true,
+  // Not deferred: /loop depends on these, and local models rarely use ToolSearch well.
+  shouldDefer: false,
   get inputSchema(): InputSchema {
     return inputSchema()
   },
