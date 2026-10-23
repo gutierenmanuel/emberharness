@@ -1,0 +1,110 @@
+[
+  {
+    "id": 1,
+    "concept": "Lambda λ en bloques",
+    "rows": [
+      "  ▐█▙    ",
+      "   ▜█▙   ",
+      "  ▟█▘▜█▖ "
+    ]
+  },
+  {
+    "id": 2,
+    "concept": "Letras fn pixeladas",
+    "rows": [
+      " ▟▀▘ ▄▄▖ ",
+      " █▀▘ █ █ ",
+      " █   █ █ "
+    ]
+  },
+  {
+    "id": 3,
+    "concept": "Llaves alrededor de ƒ",
+    "rows": [
+      " ╭─   ─╮ ",
+      "─┤  ƒ  ├─",
+      " ╰─   ─╯ "
+    ]
+  },
+  {
+    "id": 4,
+    "concept": "Robot con arnés",
+    "rows": [
+      " ▄█▀▀▀█▄ ",
+      " █ ▀ ▀ █ ",
+      " ▀▙▄▄▄▟▀ "
+    ]
+  },
+  {
+    "id": 5,
+    "concept": "Grafo de nodos",
+    "rows": [
+      "   ▄█▄   ",
+      "  ╱   ╲  ",
+      " ▀█▀─▀█▀ "
+    ]
+  },
+  {
+    "id": 6,
+    "concept": "Composición f > g",
+    "rows": [
+      "┌──┐ ┌──┐",
+      "│ƒ ├>│ g│",
+      "└──┘ └──┘"
+    ]
+  },
+  {
+    "id": 7,
+    "concept": "Rayo",
+    "rows": [
+      "   ▗███▘ ",
+      "  ▟█▛▀▀  ",
+      "  ▝█▘    "
+    ]
+  },
+  {
+    "id": 8,
+    "concept": "Terminal con ƒ",
+    "rows": [
+      "▛▀▀▀▀▀▀▀▜",
+      "▌ > ƒ_  ▐",
+      "▙▄▄▄▄▄▄▄▟"
+    ]
+  },
+  {
+    "id": 9,
+    "concept": "Escudo con λ (arnés)",
+    "rows": [
+      " █▀▀▀▀▀█ ",
+      " ▜█ λ █▛ ",
+      "  ▝▜█▛▘  "
+    ]
+  },
+  {
+    "id": 10,
+    "concept": "Engranaje",
+    "rows": [
+      " ▗▄█▀█▄▖ ",
+      " ▐█ o █▌ ",
+      " ▝▀█▄█▀▘ "
+    ]
+  },
+  {
+    "id": 11,
+    "concept": "F y n en bloque",
+    "rows": [
+      "█▀▀ ▄▄▄  ",
+      "█▀  █ █  ",
+      "█   █ █  "
+    ]
+  },
+  {
+    "id": 12,
+    "concept": "Prompt chevron >_",
+    "rows": [
+      " ▜█▙     ",
+      "   ▜█▙   ",
+      " ▟█▘ ▀▀▀ "
+    ]
+  }
+]
