@@ -16,6 +16,8 @@
  *   CLAUDE_MULTIMODEL_SMALL_MODEL  model for background/cheap calls (defaults to MODEL)
  */
 
+import { catalogIdFor, findProvider, modelLimits, type Catalog } from './catalog.js'
+import { loadCatalog } from './catalogStore.js'
 import {
   accountsFilePath,
   loadStore,
@@ -25,6 +27,8 @@ import {
 } from './accounts.js'
 
 export type ProviderPreset = {
+  /** Extra env vars that may hold the key (catalog providers list several). */
+  extraKeyEnvs?: string[]
   /** Human readable label shown in the CLI header. */
   label: string
   baseUrl: string
@@ -149,6 +153,8 @@ export type MultimodelProfile = {
   maxTokensParam: 'max_tokens' | 'max_completion_tokens'
   contextWindow?: number
   maxOutputTokens?: number
+  /** Id of this provider in the models.dev catalog, when it has one. */
+  catalogProvider?: string
 }
 
 type Env = Record<string, string | undefined>
@@ -161,14 +167,14 @@ export class MultimodelConfigError extends Error {}
  * a half-configured provider so the user gets one clear message at startup
  * instead of an opaque 401 mid-conversation.
  */
-export function resolveProfile(env: Env): MultimodelProfile | null {
+export function resolveProfile(env: Env, catalog?: Catalog): MultimodelProfile | null {
   const provider = env.CLAUDE_MULTIMODEL_PROVIDER?.trim().toLowerCase()
   if (!provider) return null
 
-  const preset = PROVIDER_PRESETS[provider]
+  const preset = PROVIDER_PRESETS[provider] ?? presetFromCatalog(provider, catalog ?? loadCatalog(env))
   if (!preset) {
     throw new MultimodelConfigError(
-      `Unknown provider "${provider}". Available: ${Object.keys(PROVIDER_PRESETS).join(', ')}`,
+      `Unknown provider "${provider}". Available: ${Object.keys(PROVIDER_PRESETS).join(', ')}, or any OpenAI-compatible provider of the catalog (/account catalog)`,
     )
   }
 
@@ -185,6 +191,7 @@ export function resolveProfile(env: Env): MultimodelProfile | null {
   const apiKey =
     env.CLAUDE_MULTIMODEL_API_KEY ||
     (preset.apiKeyEnv ? env[preset.apiKeyEnv] : undefined) ||
+    (preset.extraKeyEnvs ?? []).map(k => env[k]).find(Boolean) ||
     undefined
   if (!apiKey && !preset.keyOptional) {
     throw new MultimodelConfigError(
@@ -203,6 +210,43 @@ export function resolveProfile(env: Env): MultimodelProfile | null {
     maxTokensParam: preset.maxTokensParam,
     contextWindow: preset.contextWindow,
     maxOutputTokens: preset.maxOutputTokens,
+    // Local servers and custom URLs have no catalog entry; hosted ones do.
+    catalogProvider: provider === 'custom' || /\/\/(localhost|127\.0\.0\.1|\[::1\])/.test(baseUrl) ? undefined : catalogIdFor(provider),
+  }
+}
+
+/** A preset derived from a catalog provider (OpenAI-compatible ones only), or undefined. */
+function presetFromCatalog(provider: string, catalog: Catalog): (ProviderPreset & { extraKeyEnvs?: string[] }) | undefined {
+  const p = findProvider(catalog, provider)
+  if (!p || p.kind !== 'openai' || !p.baseUrl) return undefined
+  return {
+    label: p.name,
+    baseUrl: p.baseUrl,
+    apiKeyEnv: p.env[0],
+    extraKeyEnvs: p.env.slice(1),
+    keyOptional: false,
+    defaultModel: p.models[0]?.id ?? 'default',
+    maxTokensParam: p.id === 'openai' ? 'max_completion_tokens' : 'max_tokens',
+  }
+}
+
+/**
+ * Context window and max output for `model` on `profile`: an explicit value
+ * on the profile (local presets such as qwen36 pin the server's real window)
+ * wins; otherwise the models.dev catalog; otherwise undefined.
+ */
+export function getModelLimits(
+  profile: MultimodelProfile | null,
+  model: string,
+  catalog?: Catalog,
+): { contextWindow?: number; maxOutputTokens?: number } {
+  if (!profile) return {}
+  const fromCatalog = profile.catalogProvider
+    ? modelLimits(catalog ?? loadCatalog(), profile.catalogProvider, model)
+    : undefined
+  return {
+    contextWindow: profile.contextWindow ?? fromCatalog?.contextWindow,
+    maxOutputTokens: profile.maxOutputTokens ?? fromCatalog?.maxOutputTokens,
   }
 }
 

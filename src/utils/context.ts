@@ -1,6 +1,6 @@
 // biome-ignore-all assist/source/organizeImports: ANT-ONLY import markers must not be reordered
 import { CONTEXT_1M_BETA_HEADER } from '../constants/betas.js'
-import { getMultimodelProfile } from '../services/api/openai-compat/profiles.js'
+import { getModelLimits, getMultimodelProfile } from '../services/api/openai-compat/profiles.js'
 import { getGlobalConfig } from './config.js'
 import { isEnvTruthy } from './envUtils.js'
 import { getCanonicalName } from './model/model.js'
@@ -68,7 +68,7 @@ export function getContextWindowForModel(
   }
 
   // Non-Anthropic backend with a known window (e.g. a 32k local model)
-  const multimodelWindow = getMultimodelProfile()?.contextWindow
+  const multimodelWindow = getModelLimits(getMultimodelProfile(), model).contextWindow
   if (multimodelWindow) {
     return multimodelWindow
   }
@@ -160,7 +160,7 @@ export function getModelMaxOutputTokens(model: string): {
   let defaultTokens: number
   let upperLimit: number
 
-  const multimodelMaxOutput = getMultimodelProfile()?.maxOutputTokens
+  const multimodelMaxOutput = getModelLimits(getMultimodelProfile(), model).maxOutputTokens
   if (multimodelMaxOutput) {
     return { default: multimodelMaxOutput, upperLimit: multimodelMaxOutput }
   }
