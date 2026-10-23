@@ -12,7 +12,7 @@
 // modelos»).
 
 import { existsSync, readFileSync, watch } from 'fs'
-import { dirname, basename } from 'path'
+import { dirname } from 'path'
 import { useSyncExternalStore } from 'react'
 import type { Store } from '../state/store.js'
 import {
@@ -118,24 +118,32 @@ function readFile(path: string): MocksState | null {
  */
 export function installMocks(store: AnyStore): void {
   const path = process.env.FNHARNESS_MOCKS
-  if (!path || installed) return
+  if (!path) return
+
+  // Puede haber varios AppStateProvider en vida del proceso (diálogos de
+  // arranque y luego el REPL): se aplica al store más reciente.
+  if (store !== activeStore) {
+    activeStore = store
+    lastNotifSeq = null
+    if (installed) applyAll(store, current)
+  }
+  if (installed) return
   installed = true
 
   const load = () => {
     const m = readFile(path)
     if (!m) return // fichero ausente o JSON a medias: conservar el estado previo
     setMocks(m)
-    applyToAppState(store, m)
-    applyNotification(store, m)
+    if (activeStore) applyAll(activeStore, m)
   }
   load()
 
   // Se vigila el directorio: el servidor puede reescribir por rename atómico.
   let timer: ReturnType<typeof setTimeout> | undefined
   try {
-    const file = basename(path)
-    const w = watch(dirname(path), (_ev, name) => {
-      if (name && name !== file) return
+    // Sin filtrar por nombre: Bun informa de un rename atómico con el nombre
+    // origen (mocks.json.tmp), no con el destino. Releer es barato y va con debounce.
+    const w = watch(dirname(path), () => {
       clearTimeout(timer)
       timer = setTimeout(load, DEBOUNCE_MS)
     })
@@ -143,4 +151,11 @@ export function installMocks(store: AnyStore): void {
   } catch {
     // sin watch no hay recarga en caliente, pero la carga inicial ya se hizo
   }
+}
+
+let activeStore: AnyStore | null = null
+
+function applyAll(store: AnyStore, m: MocksState): void {
+  applyToAppState(store, m)
+  applyNotification(store, m)
 }
