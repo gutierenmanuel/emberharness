@@ -1,10 +1,11 @@
 import { c as _c } from "react/compiler-runtime";
+import { useMockState } from '../dev/mocks.js';
 import { feature } from 'bun:bundle';
 import * as React from 'react';
 import { useSyncExternalStore } from 'react';
 import { Box, Text } from '../ink.js';
 import { getFeatureValue_CACHED_MAY_BE_STALE } from '../services/analytics/growthbook.js';
-import { calculateTokenWarningState, getEffectiveContextWindowSize, isAutoCompactEnabled } from '../services/compact/autoCompact.js';
+import { calculateTokenWarningState, getEffectiveContextWindowSize, getAutoCompactThreshold, isAutoCompactEnabled } from '../services/compact/autoCompact.js';
 import { useCompactWarningSuppression } from '../services/compact/compactWarningHook.js';
 import { getUpgradeMessage } from '../utils/model/contextWindowUpgradeCheck.js';
 type Props = {
@@ -87,9 +88,12 @@ function CollapseLabel(t0) {
 export function TokenWarning(t0) {
   const $ = _c(13);
   const {
-    tokenUsage,
+    tokenUsage: realTokenUsage,
     model
   } = t0;
+  // Modo mock (FNHARNESS_MOCKS): fuerza el % de contexto usado.
+  const mockContextPct = useMockState().contextPct;
+  const tokenUsage = mockContextPct == null ? realTokenUsage : Math.round((isAutoCompactEnabled() ? getAutoCompactThreshold(model) : getEffectiveContextWindowSize(model)) * mockContextPct / 100);
   let t1;
   if ($[0] !== model || $[1] !== tokenUsage) {
     t1 = calculateTokenWarningState(tokenUsage, model);

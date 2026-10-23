@@ -1,0 +1,169 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>fnharness lab</title>
+<style>
+  :root {
+    --bg: #0d1117; --panel: #161b22; --line: #30363d; --fg: #e6edf3; --dim: #8b949e;
+    --accent: #2f81f7; --accent-bg: #1f3a5f; --ok: #3fb950; --err: #f85149;
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; margin: 0; overflow: hidden; background: var(--bg); color: var(--fg);
+    font: 13px/1.3 system-ui, -apple-system, "Segoe UI", sans-serif; }
+  .app { display: grid; grid-template-columns: 1fr 310px; height: 100vh; }
+  iframe { width: 100%; height: 100%; border: 0; background: var(--bg); }
+  aside { background: var(--panel); border-left: 1px solid var(--line); padding: 10px 12px;
+    display: flex; flex-direction: column; gap: 8px; min-height: 0; overflow: hidden; }
+  h1 { font-size: 14px; margin: 0; display: flex; justify-content: space-between; align-items: center; }
+  h1 small { color: var(--dim); font-weight: 400; }
+  h2 { font-size: 10px; text-transform: uppercase; letter-spacing: .08em; color: var(--dim); margin: 0 0 4px; }
+  section { border-top: 1px solid var(--line); padding-top: 7px; }
+  .seg { display: grid; grid-template-columns: repeat(5, 1fr); gap: 3px; }
+  button, input[type=text] { font: inherit; color: var(--fg); background: var(--bg);
+    border: 1px solid var(--line); border-radius: 5px; padding: 4px 6px; }
+  button { cursor: pointer; }
+  button:hover { border-color: var(--accent); }
+  button.on { background: var(--accent-bg); border-color: var(--accent); }
+  .seg button { padding: 4px 0; font-size: 11px; }
+  .row { display: flex; gap: 5px; align-items: center; }
+  .row input[type=text] { flex: 1; min-width: 0; }
+  .slider { display: grid; grid-template-columns: 62px 1fr 34px; gap: 6px; align-items: center; margin: 3px 0; }
+  .slider output { text-align: right; font-variant-numeric: tabular-nums; color: var(--accent); }
+  input[type=range] { width: 100%; accent-color: var(--accent); margin: 0; }
+  .switch { display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px; }
+  .status { margin-top: auto; color: var(--dim); font-size: 11px; display: flex; justify-content: space-between; }
+  .status.bad { color: var(--err); }
+  .status.good { color: var(--ok); }
+  .danger { border-color: #6e2b2b; } .danger:hover { border-color: var(--err); }
+</style>
+</head>
+<body>
+<div class="app">
+  <iframe id="term" title="fnharness"></iframe>
+  <aside>
+    <h1>fnharness lab <small id="acct"></small></h1>
+
+    <section>
+      <h2>Modo de permisos</h2>
+      <div class="seg" id="modes"></div>
+    </section>
+
+    <section>
+      <h2>Pastilla de tareas · cuentas y modelos</h2>
+      <div id="sliders"></div>
+    </section>
+
+    <section>
+      <h2>Spinner</h2>
+      <div class="switch"><span>Activo</span><button id="spOn">off</button></div>
+      <div class="row"><input type="text" id="spText" value="Pensando mock" aria-label="Texto del spinner"></div>
+    </section>
+
+    <section>
+      <h2>Notificación y error</h2>
+      <div class="row" style="margin-bottom:5px"><input type="text" id="ntText" value="Aviso de prueba" aria-label="Texto de la notificación"><button id="ntBtn">Enviar</button></div>
+      <div class="row"><input type="text" id="erText" value="Error mock: 429 rate limit" aria-label="Texto del error"><button id="erBtn" class="danger">Enviar</button></div>
+    </section>
+
+    <section>
+      <h2>Terminal</h2>
+      <div class="row"><input type="text" id="account" aria-label="Cuenta"><button id="restart">Reiniciar</button></div>
+    </section>
+
+    <div class="status" id="status"><span>conectando…</span><span id="file"></span></div>
+  </aside>
+</div>
+
+<script>
+const $ = id => document.getElementById(id);
+const MODES = [['', 'real'], ['default', 'default'], ['acceptEdits', 'edits'], ['plan', 'plan'], ['bypassPermissions', 'bypass']];
+const SLIDERS = [
+  ['shells', 'shells', 0, 5], ['monitors', 'monitors', 0, 5], ['agents', 'agentes', 0, 5],
+  ['accounts', 'cuentas', 0, 12], ['models', 'modelos', 0, 500],
+];
+let mocks = { shells: 0, monitors: 0, agents: 0, accounts: 0, models: 0, permissionMode: null,
+  spinner: { on: false, text: '' }, contextPct: null, notification: null, error: null };
+let seq = Date.now() % 100000;
+let timer = null;
+
+function setStatus(text, cls) {
+  const s = $('status'); s.className = 'status ' + (cls || ''); s.firstElementChild.textContent = text;
+}
+
+async function post(path, body) {
+  const r = await fetch(path, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
+  if (!r.ok) throw new Error(path + ' ' + r.status);
+  return r.json();
+}
+
+// Cada cambio se envía al momento; el debounce de 40 ms solo agrupa el arrastre de un slider.
+function push() {
+  mocks.spinner = { on: mocks.spinner.on, text: $('spText').value };
+  clearTimeout(timer);
+  timer = setTimeout(() => post('/mocks', mocks)
+    .then(() => setStatus('mocks aplicados', 'good'))
+    .catch(e => setStatus(String(e), 'bad')), 40);
+}
+
+function render() {
+  $('modes').querySelectorAll('button').forEach(b => b.classList.toggle('on', b.dataset.v === (mocks.permissionMode || '')));
+  $('spOn').textContent = mocks.spinner.on ? 'on' : 'off';
+  $('spOn').classList.toggle('on', mocks.spinner.on);
+}
+
+for (const [v, label] of MODES) {
+  const b = document.createElement('button'); b.textContent = label; b.dataset.v = v;
+  b.onclick = () => { mocks.permissionMode = v || null; render(); push(); };
+  $('modes').appendChild(b);
+}
+
+for (const [key, label, min, max] of SLIDERS) {
+  const d = document.createElement('div'); d.className = 'slider';
+  d.innerHTML = `<label for="s_${key}">${label}</label><input type="range" id="s_${key}" min="${min}" max="${max}" value="0"><output id="o_${key}">0</output>`;
+  $('sliders').appendChild(d);
+  d.querySelector('input').oninput = e => { mocks[key] = +e.target.value; $('o_' + key).textContent = e.target.value; push(); };
+}
+{ // contexto: 0 = real (sin mock), 1..100 = porcentaje forzado
+  const d = document.createElement('div'); d.className = 'slider';
+  d.innerHTML = `<label for="s_ctx">contexto %</label><input type="range" id="s_ctx" min="0" max="100" value="0"><output id="o_ctx">real</output>`;
+  $('sliders').appendChild(d);
+  d.querySelector('input').oninput = e => {
+    const v = +e.target.value; mocks.contextPct = v === 0 ? null : v;
+    $('o_ctx').textContent = v === 0 ? 'real' : v; push();
+  };
+}
+
+$('spOn').onclick = () => { mocks.spinner.on = !mocks.spinner.on; render(); push(); };
+$('spText').oninput = push;
+$('ntBtn').onclick = () => { mocks.notification = { text: $('ntText').value, seq: ++seq }; push(); };
+$('erBtn').onclick = () => { mocks.error = { text: $('erText').value, seq: ++seq }; push(); };
+
+$('restart').onclick = async () => {
+  setStatus('reiniciando…');
+  try {
+    const r = await post('/restart', { account: $('account').value.trim() || undefined });
+    $('acct').textContent = r.account;
+    setTimeout(loadTerm, 700); // ttyd tarda un instante en volver a escuchar
+    setStatus('terminal reiniciada', 'good');
+  } catch (e) { setStatus(String(e), 'bad'); }
+};
+
+let ttydPort = 7690;
+function loadTerm() { $('term').src = `http://${location.hostname}:${ttydPort}/?t=${Date.now()}`; }
+
+(async () => {
+  try {
+    const st = await (await fetch('/state')).json();
+    mocks = Object.assign(mocks, st.mocks);
+    ttydPort = st.ttydPort; $('acct').textContent = st.account; $('account').value = st.account;
+    for (const [key] of SLIDERS) { $('s_' + key).value = mocks[key]; $('o_' + key).textContent = mocks[key]; }
+    $('spText').value = mocks.spinner.text || $('spText').value;
+    if (mocks.contextPct != null) { $('s_ctx').value = mocks.contextPct; $('o_ctx').textContent = mocks.contextPct; }
+    render(); loadTerm(); setStatus('listo', 'good');
+  } catch (e) { setStatus('servidor no responde', 'bad'); }
+})();
+</script>
+</body>
+</html>

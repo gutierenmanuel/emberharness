@@ -1,4 +1,5 @@
 import { feature } from 'bun:bundle';
+import { getMocks } from '../dev/mocks.js';
 import * as React from 'react';
 import { memo, useCallback, useEffect, useRef } from 'react';
 import { logEvent } from 'src/services/analytics/index.js';
@@ -92,8 +93,8 @@ function buildStatusLineCommandInput(permissionMode: PermissionMode, exceeds200k
       total_output_tokens: getTotalOutputTokens(),
       context_window_size: contextWindowSize,
       current_usage: currentUsage,
-      used_percentage: contextPercentages.used,
-      remaining_percentage: contextPercentages.remaining
+      used_percentage: getMocks().contextPct ?? contextPercentages.used,
+      remaining_percentage: getMocks().contextPct != null ? 100 - getMocks().contextPct! : contextPercentages.remaining
     },
     exceeds_200k_tokens: exceeds200kTokens,
     ...((rateLimits.five_hour || rateLimits.seven_day) && {
