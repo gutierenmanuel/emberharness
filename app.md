@@ -1,0 +1,61 @@
+---
+name: fnharness
+lang: ts
+domain: ai
+version: 0.1.0
+description: "Harness de agente de terminal (fork de Claude Code sobre Bun/Ink) que funciona con cualquier proveedor de LLM, no solo Anthropic. Un adaptador traduce la API Messages de Anthropic a OpenAI Chat Completions (streaming, tool calls, imágenes, razonamiento), de modo que herramientas, subagentes, MCP, hooks y skills corren igual sobre llama.cpp, Ollama, LM Studio, OpenAI, OpenRouter, Groq, DeepSeek, Gemini, Mistral, Together o cualquier endpoint compatible. El comando /account cambia de cuenta en caliente, guarda claves en ~/.fnharness/accounts.json con modo 0600 y recuerda la última usada. Tiene estado propio en ~/.fnharness, separado de ~/.claude, y statusbar propio que muestra la cuenta activa y el comando fnharness --resume."
+tags: [harness, agent, cli, llm, multimodel, openai-compatible, llama-cpp, ollama, claude-code, statusline]
+uses_functions: []
+uses_types: []
+framework: "bun-ink"
+entry_point: "bin/fnharness"
+dir_path: "apps/fnharness"
+repo_url: ""
+e2e_checks:
+  - id: tests
+    cmd: "PATH=$HOME/.local/bun-npm/node_modules/.bin:$PATH bun test src/services/api/openai-compat"
+    timeout_s: 120
+  - id: accounts
+    cmd: "apps/fnharness/bin/fnharness --accounts"
+    expect_stdout_contains: "llamacpp"
+    timeout_s: 20
+---
+
+# fnharness
+
+Lanzador: `fnharness` (symlink en `~/.local/bin` a `bin/fnharness`).
+
+```bash
+fnharness                          # sesión interactiva con la última cuenta usada
+fnharness --resume <session_id>    # retomar sesión
+fnharness --account llamacpp       # arrancar con una cuenta concreta (no se guarda)
+fnharness --account ollama --model qwen3:8b -p "..."
+fnharness --accounts               # cuentas disponibles
+```
+
+## /account
+
+| Comando | Efecto |
+|---|---|
+| `/account` | selector interactivo con estado (✓ listo, ✗ falta clave, ○ servidor local apagado) |
+| `/account list` | lo mismo en texto |
+| `/account <id> [modelo]` | cambia de cuenta y, opcional, de modelo; se recuerda para el próximo arranque |
+| `/account key <id> <apikey>` | guarda la clave en `~/.fnharness/accounts.json` (0600); también vale la variable `OPENAI_API_KEY`, etc. |
+| `/account add <id> <baseUrl> [modelo]` | cuenta propia OpenAI-compatible |
+| `/account remove <id>` | borra lo guardado de esa cuenta |
+
+La cuenta `claude` usa la API nativa de Anthropic; el login es propio de fnharness (`/login` la primera vez), no se comparte con `~/.claude`.
+
+## Piezas
+
+- `src/services/api/openai-compat/`: `profiles.ts` (presets y perfil activo), `accounts.ts` (almacén de cuentas), `translate.ts`, `stream.ts`, `adapter.ts`.
+- `src/commands/account/`: el comando `/account`.
+- `statusline.sh`: statusbar propio (copia adaptada del de Claude Code; sin sidecars de agentsadmin; muestra `[cuenta]`).
+- `docs/COMMANDS.md` y `docs/EDITING.md`: catálogo de comandos y guía para modificar el sistema.
+
+Build: `PATH=$HOME/.local/bun-npm/node_modules/.bin:$PATH bun run build` (genera `./cli`, ignorado por git).
+
+## Notas
+
+- El origen es un snapshot reconstruido de Claude Code: el repo se mantiene privado.
+- El coste que muestra el statusbar usa tarifas de Anthropic; con proveedores locales o ajenos no es real.

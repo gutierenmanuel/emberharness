@@ -1,0 +1,45 @@
+#!/usr/bin/env bash
+# fnharness — Claude Code harness que corre sobre cualquier proveedor de LLM.
+#
+#   fnharness                          sesión interactiva con la última cuenta usada (/account para cambiar)
+#   fnharness --resume <session_id>    retoma una sesión
+#   fnharness --account llamacpp       arranca con una cuenta concreta (no se guarda)
+#   fnharness --account ollama --model qwen3:8b -p "resume este repo"
+#   fnharness --accounts               lista las cuentas disponibles
+#
+# Estado propio en ~/.fnharness (configuración, sesiones, cuentas, claves), separado de ~/.claude.
+# Cualquier argumento no reconocido pasa tal cual al CLI.
+set -euo pipefail
+
+app="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/.." && pwd)"
+cli="$app/cli"
+
+export CLAUDE_CONFIG_DIR="${CLAUDE_CONFIG_DIR:-$HOME/.fnharness}"
+mkdir -p "$CLAUDE_CONFIG_DIR"
+
+# Primera vez: registrar el statusbar propio (no pisa un settings.json existente).
+settings="$CLAUDE_CONFIG_DIR/settings.json"
+if [[ ! -f "$settings" ]]; then
+  printf '{\n  "statusLine": {"type": "command", "command": "%s/statusline.sh", "padding": 1, "refreshInterval": 2}\n}\n' "$app" > "$settings"
+fi
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --account)     export CLAUDE_MULTIMODEL_ACCOUNT="$2"; shift 2 ;;
+    --model)       export CLAUDE_MULTIMODEL_MODEL="$2"; shift 2 ;;
+    --small-model) export CLAUDE_MULTIMODEL_SMALL_MODEL="$2"; shift 2 ;;
+    --base-url)    export CLAUDE_MULTIMODEL_BASE_URL="$2"; shift 2 ;;
+    --api-key)     export CLAUDE_MULTIMODEL_API_KEY="$2"; shift 2 ;;
+    --accounts)
+      grep -E "^  [a-z]+: \{$" "$app/src/services/api/openai-compat/profiles.ts" | tr -d ' :{' | grep -vx custom | sed '1i claude'
+      exit 0 ;;
+    -h|--help)     sed -n '2,11p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    *) break ;;
+  esac
+done
+
+if [[ ! -x "$cli" ]]; then
+  echo "fnharness: compilando por primera vez..." >&2
+  (cd "$app" && PATH="$HOME/.local/bun-npm/node_modules/.bin:$PATH" bun install && bun run build) >&2
+fi
+exec "$cli" "$@"
