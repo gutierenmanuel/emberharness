@@ -20,7 +20,8 @@
     "compile": "bun run ./scripts/build.ts --compile",
     "release": "bun run ./scripts/release.ts",
     "test": "bun test",
-    "dev": "bun run ./src/entrypoints/cli.tsx"
+    "dev": "bun run ./src/entrypoints/cli.tsx",
+    "lab": "bun run lab/server.ts"
   },
   "dependencies": {
     "@alcalzone/ansi-tokenize": "^0.3.0",
