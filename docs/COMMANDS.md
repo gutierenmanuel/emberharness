@@ -10,7 +10,7 @@ Con `fnharness --account ...` (o `CLAUDE_MULTIMODEL_PROVIDER`) el harness habla 
 
 - **Sí**: el comando es local o es un prompt que se envía al modelo activo; funciona con cualquier backend.
 - **No (OAuth)**: declara `availability: ['claude-ai']` o exige `isClaudeAISubscriber()`; queda oculto o inactivo sin suscripción de claude.ai.
-- **No (flag)**: depende de un feature flag de compilación (`feature(...)` de `bun:bundle`) o de un gate remoto (GrowthBook/Statsig, `tengu_*`). El build por defecto (`bun run build`) solo activa `VOICE_MODE`; `bun run build:dev:full` activa el conjunto experimental (`BRIDGE_MODE`, `CCR_REMOTE_SETUP`, `ULTRAPLAN`, etc., ver `scripts/build.ts`).
+- **No (flag)**: depende de un feature flag de compilación (`feature(...)` de `bun:bundle`) o de un gate remoto (GrowthBook/Statsig, `tengu_*`). El build por defecto (`bun run build`) activa `VOICE_MODE`, `AGENT_TRIGGERS` y `MONITOR_TOOL`; `bun run build:dev:full` activa el conjunto experimental (`BRIDGE_MODE`, `CCR_REMOTE_SETUP`, `ULTRAPLAN`, etc., ver `scripts/build.ts`).
 - **Parcial**: funciona, pero parte de su función necesita servicios de Anthropic (por ejemplo, consultas a la API de uso).
 
 `login` y `logout` solo se ocultan con Bedrock, Vertex o Foundry (`isUsing3PServices`); con `fnharness` siguen apareciendo, pero iniciar sesión no cambia el backend activo.
@@ -135,7 +135,7 @@ El tipo indica cómo se ejecuta: `local` (texto), `local-jsx` (interfaz Ink) o `
 
 ### 2.9 Comandos condicionados por feature flag de compilación
 
-No existen en el build por defecto (solo se activa `VOICE_MODE`). Las columnas indican el flag que los incluye. En este snapshot algunos archivos fuente no están en `src/commands/` (marcados), por lo que aunque se active el flag el `require` fallaría.
+No existen en el build por defecto (solo se activan `VOICE_MODE`, `AGENT_TRIGGERS` y `MONITOR_TOOL`, que no añaden comandos propios salvo la skill `/loop`). Las columnas indican el flag que los incluye. En este snapshot algunos archivos fuente no están en `src/commands/` (marcados), por lo que aunque se active el flag el `require` fallaría.
 
 | Comando | Flag | Descripción | Fuente en el snapshot |
 |---|---|---|---|
@@ -159,6 +159,20 @@ No existen en el build por defecto (solo se activa `VOICE_MODE`). Las columnas i
 Solo se registran con `USER_TYPE=ant` y sin `IS_DEMO`. En este snapshot sus `index.js` son stubs (`isEnabled: () => false`, `isHidden: true`), así que no hacen nada. Son: `backfill-sessions`, `break-cache`, `bughunter`, `commit`, `commit-push-pr`, `ctx_viz`, `good-claude`, `issue`, `init-verifiers`, `mock-limits`, `bridge-kick`, `version`, `reset-limits`, `onboarding`, `share`, `summary`, `teleport`, `ant-trace`, `perf-issue`, `env`, `oauth-refresh`, `debug-tool-call`, `agents-platform`, `autofix-pr`.
 
 `/commit`, `/commit-push-pr`, `/init-verifiers` y `/version` tienen implementación real (tipo prompt o text), pero siguen limitados a `USER_TYPE=ant`.
+
+### 2.11 `/loop` y herramientas de planificación (flags `AGENT_TRIGGERS` y `MONITOR_TOOL`, activos por defecto)
+
+`/loop` es una skill empaquetada (no un comando integrado) y funciona con cualquier backend, porque todo es local. Las tareas son de sesión: se pierden al salir y las recurrentes caducan a los 7 días. `CLAUDE_CODE_DISABLE_CRON=1` desactiva todo el sistema.
+
+| Entrada | Qué pasa |
+|---|---|
+| `/loop 5m <prompt>` o `/loop <prompt> every 20m` | Intervalo fijo: la skill calcula la expresión cron (los segundos suben al minuto; los pasos no limpios como `7m` se redondean y se avisa) y el modelo llama a `CronCreate`; después ejecuta el prompt una vez al momento. Unidades `s`, `m`, `h`, `d`. |
+| `/loop <prompt>` (sin intervalo) | Modo dinámico: tras cada iteración el modelo elige la espera (60 a 3600 s) y llama a `ScheduleWakeup` con `prompt` (el mismo `/loop <prompt>`), `delaySeconds` y `reason`; con `stop: true` termina el bucle. Si una iteración acaba sin reprogramar se concede un único aviso de respaldo a los 20 min, y si esa tampoco reprograma el bucle termina. |
+| `/loop` o `/loop 15m` | Sin prompt: se ejecuta el prompt de mantenimiento integrado (o el contenido de `.claude/loop.md`, luego `loop.md` en el directorio de configuración (`~/.fnharness` con el wrapper); máx. 25 000 bytes). Bare `/loop` es dinámico (centinela `<<autonomous-loop>>`); con intervalo es fijo y el texto de `loop.md` se copia al crear la tarea. |
+
+Herramientas del modelo: `CronCreate`, `CronList`, `CronDelete` (cron de 5 campos en hora local, máx. 50 tareas), `ScheduleWakeup` (la espera pendiente aparece en `CronList` como tarea de un disparo) y `Monitor`.
+
+`Monitor` lanza un comando en segundo plano y entrega cada línea de stdout al modelo como notificación `<task-notification>` con un bloque `<event>`. Parámetros: `command`, `description`, `timeout_ms` (por defecto 5 min, máx. 30), `persistent` (sin plazo) y los extras `include` y `exclude` (regex por línea). Las líneas se agrupan cada 400 ms, se limpian de ANSI, se recortan a 2000 caracteres y se limitan a 100 por ventana de 10 s (el exceso se cuenta y se avisa; un flujo desbocado se detiene). Usa las mismas reglas de permisos que Bash, aparece en la pastilla del pie como `N monitors` y se detiene con `TaskStop`. No se implementó la fuente WebSocket de Claude Code.
 
 ## 3. CLI de línea de comandos
 
