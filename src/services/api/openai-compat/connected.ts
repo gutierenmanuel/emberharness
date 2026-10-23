@@ -28,7 +28,9 @@ export const PROBE_TIMEOUT_MS = 300
 
 declare global {
   // eslint-disable-next-line no-var
-  var __FNHARNESS_MOCKS__: { accounts?: number; models?: number } | undefined
+  var __FNHARNESS_MOCKS__:
+    | { accounts?: number | null; models?: number | null }
+    | undefined
 }
 
 /** Pure: the /account check-mark rule. `online` is the probe result for local servers. */
@@ -42,8 +44,9 @@ export function applyMockOverride(
   summary: ConnectedSummary | null,
   mocks = globalThis.__FNHARNESS_MOCKS__,
 ): ConnectedSummary | null {
-  const a = mocks?.accounts
-  const m = mocks?.models
+  // null and undefined both mean "use the real value".
+  const a = mocks?.accounts ?? undefined
+  const m = mocks?.models ?? undefined
   if (a === undefined && m === undefined) return summary
   if (a !== undefined && m !== undefined) return { accounts: a, models: m }
   return summary ? { accounts: a ?? summary.accounts, models: m ?? summary.models } : null

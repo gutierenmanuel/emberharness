@@ -104,3 +104,11 @@ describe('buildFakeTasks', () => {
     expect(buildFakeTasks({ shells: 0, monitors: 0, agents: 0 }, 1)).toEqual({})
   })
 })
+
+describe('contadores de la cabecera', () => {
+  test('sin accounts/models el mock no pisa el valor real', () => {
+    const m = parseMocks({ shells: 1 })
+    expect(m.accounts).toBeNull()
+    expect(m.models).toBeNull()
+  })
+})
