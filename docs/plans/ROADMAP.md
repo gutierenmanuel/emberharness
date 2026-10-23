@@ -18,6 +18,19 @@ de investigación que alimentan los bloques B y C están en `claude_code_gap.md`
 
 Orden propuesto: A → F → C → D → E → G → H, con B en paralelo por funcionalidades sueltas.
 
+## Estado (24/10/2026, v0.6.0)
+
+| # | Estado |
+|---|---|
+| A | Hecho: versión propia en `package.json`, `scripts/release.ts`, `CHANGELOG.md`, tag `v0.5.0`. |
+| B | Tandas 1 y 2 hechas: `/loop` fijo y autopaced, Cron, `ScheduleWakeup`, tool `Monitor` (probada con la cuenta claude). Pendientes en `claude_code_gap.md`. |
+| C | Hecho: catálogo models.dev con snapshot embebido (202 proveedores, 5.653 modelos) y refresco diario. |
+| D | Hecho: `/model` por cuenta, `/account catalog` y `/account add <proveedor>`. |
+| E | Hecho: «N cuentas conectadas · M modelos», calculado antes de pintar la cabecera. |
+| F | Hecho: el primer arranque solo pide tema (y confianza de carpeta). |
+| G | Hecho: `FNHARNESS_MOCKS` y `bun run lab`. |
+| H | Hecho: `test:unit` (93 tests) y `test:e2e` (binario real con backend falso y TUI en pseudo-terminal). |
+
 ## A. Versionado
 
 Hoy `package.json` dice `2.1.87`, que es la versión del snapshot de Claude Code del que parte el
