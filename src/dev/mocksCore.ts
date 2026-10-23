@@ -21,8 +21,8 @@ export type MocksState = {
   contextPct: number | null // 0-100, null = real
   notification: { text: string; seq: number } | null
   error: { text: string; seq: number } | null
-  accounts: number // 0-12, para el bloque E (no se pinta aquí)
-  models: number // 0-500, para el bloque E (no se pinta aquí)
+  accounts: number | null // 0-12, contador de la cabecera; null = valor real
+  models: number | null // 0-500, contador de la cabecera; null = valor real
 }
 
 export const EMPTY_MOCKS: MocksState = {
@@ -34,8 +34,8 @@ export const EMPTY_MOCKS: MocksState = {
   contextPct: null,
   notification: null,
   error: null,
-  accounts: 0,
-  models: 0,
+  accounts: null,
+  models: null,
 }
 
 const isObj = (v: unknown): v is Record<string, unknown> =>
@@ -77,8 +77,9 @@ export function parseMocks(input: unknown): MocksState {
         : null,
     notification: evento(input.notification),
     error: evento(input.error),
-    accounts: int(input.accounts, 0, 12, 0),
-    models: int(input.models, 0, 500, 0),
+    accounts:
+      typeof input.accounts === 'number' ? int(input.accounts, 0, 12, 0) : null,
+    models: typeof input.models === 'number' ? int(input.models, 0, 500, 0) : null,
   }
 }
 

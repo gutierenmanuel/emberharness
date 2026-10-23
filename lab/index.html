@@ -81,9 +81,10 @@ const $ = id => document.getElementById(id);
 const MODES = [['', 'real'], ['default', 'default'], ['acceptEdits', 'edits'], ['plan', 'plan'], ['bypassPermissions', 'bypass']];
 const SLIDERS = [
   ['shells', 'shells', 0, 5], ['monitors', 'monitors', 0, 5], ['agents', 'agentes', 0, 5],
-  ['accounts', 'cuentas', 0, 12], ['models', 'modelos', 0, 500],
+  // -1 = valor real (sin mock) para los contadores de la cabecera
+  ['accounts', 'cuentas', -1, 12], ['models', 'modelos', -1, 500],
 ];
-let mocks = { shells: 0, monitors: 0, agents: 0, accounts: 0, models: 0, permissionMode: null,
+let mocks = { shells: 0, monitors: 0, agents: 0, accounts: null, models: null, permissionMode: null,
   spinner: { on: false, text: '' }, contextPct: null, notification: null, error: null };
 let seq = Date.now() % 100000;
 let timer = null;
@@ -121,9 +122,15 @@ for (const [v, label] of MODES) {
 
 for (const [key, label, min, max] of SLIDERS) {
   const d = document.createElement('div'); d.className = 'slider';
-  d.innerHTML = `<label for="s_${key}">${label}</label><input type="range" id="s_${key}" min="${min}" max="${max}" value="0"><output id="o_${key}">0</output>`;
+  const start = min < 0 ? min : 0;
+  d.innerHTML = `<label for="s_${key}">${label}</label><input type="range" id="s_${key}" min="${min}" max="${max}" value="${start}"><output id="o_${key}">${start < 0 ? 'real' : 0}</output>`;
   $('sliders').appendChild(d);
-  d.querySelector('input').oninput = e => { mocks[key] = +e.target.value; $('o_' + key).textContent = e.target.value; push(); };
+  d.querySelector('input').oninput = e => {
+    const v = +e.target.value;
+    mocks[key] = v < 0 ? null : v;
+    $('o_' + key).textContent = v < 0 ? 'real' : v;
+    push();
+  };
 }
 { // contexto: 0 = real (sin mock), 1..100 = porcentaje forzado
   const d = document.createElement('div'); d.className = 'slider';
