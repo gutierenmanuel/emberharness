@@ -3,9 +3,11 @@ import { Select } from '../../components/CustomSelect/select.js'
 import { Dialog } from '../../components/design-system/Dialog.js'
 import { Box, Text } from '../../ink.js'
 import type { LocalJSXCommandCall } from '../../types/command.js'
+import { loadCatalog } from '../../services/api/openai-compat/catalogStore.js'
 import { MultimodelConfigError } from '../../services/api/openai-compat/profiles.js'
 import {
   accountsWithStatus,
+  catalogLines,
   activeAccountId,
   addAccount,
   formatAccountLine,
@@ -21,6 +23,8 @@ const HELP = [
   '/account <id> [modelo]        cambiar de cuenta (y modelo)',
   '/account key <id> <apikey>    guardar la clave de una cuenta',
   '/account add <id> <baseUrl> [modelo]   cuenta OpenAI-compatible propia',
+  '/account add <proveedor> [id] [modelo] cuenta de un proveedor del catálogo (sin URL)',
+  '/account catalog [texto]      proveedores del catálogo models.dev con su nº de modelos',
   '/account remove <id>          borrar los datos guardados de una cuenta',
 ].join('\n')
 
@@ -76,8 +80,12 @@ export const call: LocalJSXCommandCall = async (onDone, context, args) => {
     onDone(lines.join('\n'), { display: 'system' })
     return null
   }
+  if (cmd === 'catalog') {
+    onDone(catalogLines(loadCatalog(), rest.join(' ')).join('\n'), { display: 'system' })
+    return null
+  }
   if (cmd === 'key' && rest.length >= 2) return apply(() => setKey(rest[0]!, rest[1]!))
-  if (cmd === 'add' && rest.length >= 2) return apply(() => addAccount(rest[0]!, rest[1]!, rest[2]))
+  if (cmd === 'add' && rest.length >= 1) return apply(() => addAccount(rest[0]!, rest[1], rest[2]))
   if (cmd === 'remove' && rest.length >= 1) return apply(() => removeAccount(rest[0]!))
   if (cmd) return apply(() => switchAccount(cmd, rest[0]))
 

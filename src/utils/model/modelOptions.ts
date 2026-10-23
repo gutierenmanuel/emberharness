@@ -33,6 +33,7 @@ import {
 } from './model.js'
 import { has1mContext } from '../context.js'
 import { getGlobalConfig } from '../config.js'
+import { getMultimodelModelOptions } from './multimodelOptions.js'
 
 // @[MODEL LAUNCH]: Update all the available and default model option strings below.
 
@@ -498,6 +499,9 @@ function getKnownModelOption(model: string): ModelOption | null {
 }
 
 export function getModelOptions(fastMode = false): ModelOption[] {
+  // Non-Claude account: list that account's models instead of the Claude ones.
+  const multimodel = getMultimodelModelOptions(getUserSpecifiedModelSetting())
+  if (multimodel) return multimodel
   const options = getModelOptionsBase(fastMode)
 
   // Add the custom model from the ANTHROPIC_CUSTOM_MODEL_OPTION env var
