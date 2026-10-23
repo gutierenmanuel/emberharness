@@ -70,7 +70,7 @@ export function CondensedLogo() {
   }
   useEffect(t2, t3);
   const textWidth = Math.max(columns - 15, 20);
-  const truncatedVersion = truncate(version, Math.max(textWidth - 13, 6));
+  const truncatedVersion = truncate(`${MACRO.FNHARNESS_VERSION} · base ${version}`, Math.max(textWidth - 11, 6));
   const effortSuffix = getEffortSuffix(model, effortValue);
   const {
     shouldSplit,

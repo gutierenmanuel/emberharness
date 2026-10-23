@@ -1,4 +1,5 @@
 declare const MACRO: {
+  FNHARNESS_VERSION: string
   VERSION: string
   BUILD_TIME: string
   PACKAGE_URL?: string
