@@ -12,9 +12,12 @@ entry_point: "bin/fnharness"
 dir_path: "apps/fnharness"
 repo_url: ""
 e2e_checks:
-  - id: tests
-    cmd: "PATH=$HOME/.local/bun-npm/node_modules/.bin:$PATH bun test src/services/api/openai-compat"
+  - id: unit
+    cmd: "cd apps/fnharness && PATH=$HOME/.local/bun-npm/node_modules/.bin:$PATH bun test src scripts"
     timeout_s: 120
+  - id: e2e
+    cmd: "cd apps/fnharness && PATH=$HOME/.local/bun-npm/node_modules/.bin:$PATH bun run test:e2e"
+    timeout_s: 400
   - id: accounts
     cmd: "apps/fnharness/bin/fnharness --accounts"
     expect_stdout_contains: "llamacpp"
@@ -54,6 +57,16 @@ La cuenta `claude` usa la API nativa de Anthropic; el login es propio de fnharne
 - `docs/COMMANDS.md` y `docs/EDITING.md`: catálogo de comandos y guía para modificar el sistema.
 
 Build: `PATH=$HOME/.local/bun-npm/node_modules/.bin:$PATH bun run build` (genera `./cli`, ignorado por git).
+
+## Tests
+
+- `bun run test:unit`: funciones puras y lógica de los módulos (`src/**/*.test.ts`, `scripts/*.test.ts`).
+- `bun run test:e2e`: compila y conduce el `./cli` real (`tests/e2e/`). Un backend OpenAI falso responde a `-p`, y la TUI se captura en un pseudo-terminal (`script`) con `FNHARNESS_MOCKS` para comprobar cabecera, contadores y pie. No contacta con ningún proveedor real.
+- Laboratorio visual: `bun run lab` (http://127.0.0.1:7700), la TUI real con un sidebar de mocks (`lab/README.md`).
+
+## Versiones
+
+`package.json` lleva la versión de FnHarness (`version`) y la del snapshot de Claude Code del que parte (`upstreamVersion`, que es la que viaja hacia Anthropic). Publicar: `bun run release patch|minor|major` (sube versión, escribe `CHANGELOG.md` y crea el tag).
 
 ## Notas
 
