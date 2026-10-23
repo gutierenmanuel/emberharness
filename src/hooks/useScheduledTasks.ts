@@ -12,7 +12,11 @@ import { createCronScheduler } from '../utils/cronScheduler.js'
 import { removeCronTasks } from '../utils/cronTasks.js'
 import { logForDebugging } from '../utils/debug.js'
 import { enqueuePendingNotification } from '../utils/messageQueueManager.js'
-import { createScheduledTaskFireMessage } from '../utils/messages.js'
+import { handleLoopTurnEnd, noteWakeupFired } from '../utils/loopWakeup.js'
+import {
+  createScheduledTaskFireMessage,
+  createSystemMessage,
+} from '../utils/messages.js'
 import { WORKLOAD_CRON } from '../utils/workloadContext.js'
 
 type Props = {
@@ -46,6 +50,33 @@ export function useScheduledTasks({
   // a stale closure. The effect mounts once; isLoading changes every turn.
   const isLoadingRef = useRef(isLoading)
   isLoadingRef.current = isLoading
+
+  // Turn-end hook for self-paced /loop: an iteration that did not call
+  // ScheduleWakeup gets one fallback wake-up; a second miss ends the loop.
+  const wasLoadingRef = useRef(false)
+  useEffect(() => {
+    if (wasLoadingRef.current && !isLoading) {
+      const outcome = handleLoopTurnEnd()
+      if (outcome === 'fallback') {
+        setMessages(prev => [
+          ...prev,
+          createSystemMessage(
+            'Loop iteration did not reschedule: one fallback wake-up set in about 20 minutes.',
+            'info',
+          ),
+        ])
+      } else if (outcome === 'end') {
+        setMessages(prev => [
+          ...prev,
+          createSystemMessage(
+            'Loop ended: the iteration did not call ScheduleWakeup.',
+            'info',
+          ),
+        ])
+      }
+    }
+    wasLoadingRef.current = isLoading
+  }, [isLoading, setMessages])
 
   const store = useAppStateStore()
   const setAppState = useSetAppState()
@@ -107,8 +138,11 @@ export function useScheduledTasks({
           void removeCronTasks([task.id])
           return
         }
+        if (task.wakeup) noteWakeupFired(task.fallback === true)
         const msg = createScheduledTaskFireMessage(
-          `Running scheduled task (${formatCronFireTime(new Date())})`,
+          task.wakeup
+            ? `Loop wake-up (${formatCronFireTime(new Date())})${task.reason ? `: ${task.reason}` : ''}`
+            : `Running scheduled task (${formatCronFireTime(new Date())})`,
         )
         setMessages(prev => [...prev, msg])
         enqueueForLead(task.prompt)

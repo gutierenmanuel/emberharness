@@ -38,7 +38,8 @@ export const CronListTool = buildTool({
   name: CRON_LIST_TOOL_NAME,
   searchHint: 'list active cron jobs',
   maxResultSizeChars: 100_000,
-  shouldDefer: true,
+  // Not deferred: /loop depends on these, and local models rarely use ToolSearch well.
+  shouldDefer: false,
   get inputSchema(): InputSchema {
     return inputSchema()
   },

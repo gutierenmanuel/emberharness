@@ -261,7 +261,10 @@ export function createCronScheduler(
         // set in-memory here. Without this, a daemon child despawning on
         // idle loses nextFireAt and the next spawn re-anchors from 10-day-
         // old createdAt → fires every task every cycle.
-        next = t.recurring
+        next =
+          t.fireAt !== undefined
+          ? t.fireAt
+          : t.recurring
           ? (jitteredNextCronRunMs(
               t.cron,
               t.lastFiredAt ?? t.createdAt,

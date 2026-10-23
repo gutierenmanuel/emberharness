@@ -6,6 +6,7 @@ import {
   listAllCronTasks,
   removeCronTasks,
 } from '../../utils/cronTasks.js'
+import { noteCronDeleted } from '../../utils/loopWakeup.js'
 import { lazySchema } from '../../utils/lazySchema.js'
 import { getTeammateContext } from '../../utils/teammateContext.js'
 import {
@@ -36,7 +37,8 @@ export const CronDeleteTool = buildTool({
   name: CRON_DELETE_TOOL_NAME,
   searchHint: 'cancel a scheduled cron job',
   maxResultSizeChars: 100_000,
-  shouldDefer: true,
+  // Not deferred: /loop depends on these, and local models rarely use ToolSearch well.
+  shouldDefer: false,
   get inputSchema(): InputSchema {
     return inputSchema()
   },
@@ -81,6 +83,7 @@ export const CronDeleteTool = buildTool({
   },
   async call({ id }) {
     await removeCronTasks([id])
+    noteCronDeleted()
     return { data: { id } }
   },
   mapToolResultToToolResultBlockParam(output, toolUseID) {

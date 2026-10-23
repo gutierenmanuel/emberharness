@@ -9,6 +9,11 @@ external-build defines and externals. Result:
 - 54 flags bundle cleanly in this snapshot
 - 34 flags still fail to bundle
 
+FnHarness note (24/10/2026): the default build (`scripts/build.ts`, `defaultFeatures`) now
+enables `VOICE_MODE`, `AGENT_TRIGGERS` and `MONITOR_TOOL`. `AGENT_TRIGGERS_REMOTE` (cloud
+triggers, needs Anthropic services) stays off. `MONITOR_TOOL` compiles now: the tool lives in
+`src/tools/MonitorTool/`.
+
 Important: "bundle cleanly" does not always mean "runtime-safe". Some flags
 still depend on optional native modules, claude.ai OAuth, GrowthBook gates, or
 externalized `@ant/*` packages.
@@ -34,6 +39,19 @@ externalized `@ant/*` packages.
   It enables `/voice`, push-to-talk UI, voice notices, and dictation plumbing.
   Runtime still depends on claude.ai OAuth plus either the native audio module
   or a fallback recorder such as SoX.
+
+- `AGENT_TRIGGERS`
+  Local scheduling: `CronCreate`/`CronList`/`CronDelete`, `ScheduleWakeup` and
+  `/loop` (fixed interval via cron, or self-paced with `ScheduleWakeup`). Fully
+  local, so it works with OpenAI-compatible accounts. Session-scoped tasks;
+  recurring tasks expire after 7 days. `CLAUDE_CODE_DISABLE_CRON=1` turns it off.
+- `MONITOR_TOOL`
+  The `Monitor` tool: runs a shell command in the background and delivers each
+  stdout line to the model as a `<task-notification>` event (batched, filtered,
+  rate limited). Shows as a monitor in the footer pill and stops with `TaskStop`.
+  Local only; unlike Claude Code it is not disabled by
+  `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC`, which multimodel mode always sets.
+  The WebSocket source of Claude Code's Monitor is not implemented.
 
 ## Working Experimental Features
 
@@ -78,8 +96,9 @@ explicitly called out as default-on.
 
 - `AGENT_MEMORY_SNAPSHOT`
   Stores extra custom-agent memory snapshot state in the app.
-- `AGENT_TRIGGERS`
-  Enables local cron/trigger tools and bundled trigger-related skills.
+- `AGENT_TRIGGERS` (default build)
+  Enables local cron/trigger tools (`CronCreate`, `CronList`, `CronDelete`), the
+  `ScheduleWakeup` tool and the bundled `/loop` skill (fixed interval and self-paced).
 - `AGENT_TRIGGERS_REMOTE`
   Enables the remote trigger tool path.
 - `BUILTIN_EXPLORE_PLAN_AGENTS`
@@ -267,8 +286,6 @@ than a single wrapper or asset.
   Missing `src/server/parseConnectUrl.js`.
 - `EXPERIMENTAL_SKILL_SEARCH`
   Missing `src/services/skillSearch/localSearch.js`.
-- `MONITOR_TOOL`
-  Missing `src/tools/MonitorTool/MonitorTool.js`.
 - `REACTIVE_COMPACT`
   Missing `src/services/compact/reactiveCompact.js`.
 - `REVIEW_ARTIFACT`

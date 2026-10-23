@@ -60,6 +60,34 @@ Ya presentes y sin brecha relevante (verificadas): `EnterWorktree`/`ExitWorktree
 `/mcp`, `/hooks` con 27 eventos y tipos `command`, `prompt`, `agent`, `http`, skills empaquetadas
 `batch`, `simplify`, `loop` (apagada), `debug`, `verify`, `claude-api`, `update-config`.
 
+## Estado de las tandas 1 y 2 (rama quick/loop, 24/10/2026)
+
+Hecho, con tests unitarios (`bun test`) y prueba de extremo a extremo en pseudo-terminal contra un
+servidor OpenAI simulado (`scripts/mock_openai.ts`):
+
+- `AGENT_TRIGGERS` y `MONITOR_TOOL` activos en el build por defecto; `AGENT_TRIGGERS_REMOTE` fuera.
+- `/loop` de intervalo fijo (cron calculado en `src/utils/loopSchedule.ts`), `CronCreate/List/Delete`
+  ya sin diferir (los modelos locales no usan bien `ToolSearch`).
+- `ScheduleWakeup` y `/loop` autopaced, con aviso de respaldo a los 20 min y centinela
+  `<<autonomous-loop>>`. Verificado: la espera de 60 s dispara de nuevo `/loop` y el modelo se
+  reprograma.
+- `Monitor` (comando en segundo plano, una notificación por lote de líneas, filtros `include` y
+  `exclude`, plazo, `persistent`, `TaskStop`, pastilla `N monitors`).
+
+Pendiente de esas tandas:
+
+- Esc no cancela una espera de `/loop` autopaced (en Claude Code sí, con el aviso «Pending wakeup
+  cancelled»); hoy se cancela con `CronDelete` o pidiendo al modelo `stop`.
+- Los wake-ups no se restauran con `--resume` (Claude Code tampoco restaura los autopaced); las
+  tareas cron de sesión tampoco: solo existe el modo `durable: true` en `.claude/scheduled_tasks.json`.
+- No se probó el aviso de respaldo de 20 min de extremo a extremo (cubierto por tests de la máquina
+  de estados en `loopSchedule.test.ts`).
+- `Monitor`: sin fuente WebSocket; no se detiene al parar el subagente que lo creó salvo vía
+  `killShellTasksForAgent`; el límite de memoria `CLAUDE_CODE_TOOL_MEMORY_LIMIT` no se aplica.
+- Con `fixed` + prompt de mantenimiento, el texto de `loop.md` se copia al crear la tarea cron, así
+  que editarlo no afecta a un bucle ya creado (en modo dinámico sí, porque cada vuelta reentra en la skill).
+- `PushNotification` y `SleepTool` siguen sin existir.
+
 ## Detalle por funcionalidad
 
 ### 1. `/loop` (fijo y autopaced), `ScheduleWakeup` y herramientas Cron
