@@ -1,6 +1,7 @@
 import { feature } from 'bun:bundle';
 import { applyMultimodelEnv } from '../services/api/openai-compat/profiles.js';
 import { refreshCatalogInBackground } from '../services/api/openai-compat/catalogStore.js';
+import { primeConnectedSummary } from '../hooks/useConnectedSummary.js';
 
 // Must run before any module reads model/auth env vars.
 // eslint-disable-next-line custom-rules/no-top-level-side-effects
@@ -8,6 +9,9 @@ applyMultimodelEnv();
 // models.dev catalog: stale-cache refresh in the background, never blocks startup.
 // eslint-disable-next-line custom-rules/no-top-level-side-effects
 refreshCatalogInBackground();
+// Header counters (accounts/models): probe now, awaited briefly before the REPL renders.
+// eslint-disable-next-line custom-rules/no-top-level-side-effects
+primeConnectedSummary();
 
 // Define MACRO global for development (normally injected by bun build --define)
 if (typeof MACRO === 'undefined') {
