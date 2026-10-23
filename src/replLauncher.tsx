@@ -1,4 +1,5 @@
 import React from 'react';
+import { awaitConnectedSummary } from './hooks/useConnectedSummary.js';
 import type { StatsStore } from './context/stats.js';
 import type { Root } from './ink.js';
 import type { Props as REPLProps } from './screens/REPL.js';
@@ -16,6 +17,9 @@ export async function launchRepl(root: Root, appProps: AppWrapperProps, replProp
   const {
     REPL
   } = await import('./screens/REPL.js');
+  // The header is printed once into static scrollback: give the account probe
+  // (started in the entrypoint) a short window to finish first.
+  await awaitConnectedSummary(500);
   await renderAndRun(root, <App {...appProps}>
       <REPL {...replProps} />
     </App>);
