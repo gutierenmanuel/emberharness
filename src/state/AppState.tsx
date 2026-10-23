@@ -8,6 +8,7 @@ import { createDisabledBypassPermissionsContext, isBypassPermissionsModeDisabled
 import { applySettingsChange } from '../utils/settings/applySettingsChange.js';
 import type { SettingSource } from '../utils/settings/constants.js';
 import { createStore } from './store.js';
+import { installMocks } from '../dev/mocks.js';
 
 // DCE: voice context is ant-only. External builds get a passthrough.
 /* eslint-disable @typescript-eslint/no-require-imports */
@@ -55,6 +56,7 @@ export function AppStateProvider(t0) {
     t1 = $[2];
   }
   const [store] = useState(t1);
+  installMocks(store); // modo mock (FNHARNESS_MOCKS); no-op sin la variable
   let t2;
   if ($[3] !== store) {
     t2 = () => {
