@@ -1,0 +1,36 @@
+import { describe, expect, test } from 'bun:test'
+import { applyMockOverride, computeConnectedSummary, connectedAccountIds, formatConnectedLine, isAccountConnected } from './connected.js'
+
+describe('connected accounts', () => {
+  test('rule: ready, and local servers must answer', () => {
+    expect(isAccountConnected({ ready: false, baseUrl: 'https://x/v1' })).toBe(false)
+    expect(isAccountConnected({ ready: true, baseUrl: 'https://x/v1' })).toBe(true)
+    expect(isAccountConnected({ ready: true, baseUrl: null })).toBe(true)
+    expect(isAccountConnected({ ready: true, baseUrl: 'http://localhost:8082/v1' }, false)).toBe(false)
+    expect(isAccountConnected({ ready: true, baseUrl: 'http://localhost:8082/v1' }, true)).toBe(true)
+  })
+
+  test('connectedAccountIds probes only local servers', async () => {
+    const probed: string[] = []
+    const ids = await connectedAccountIds(
+      { GROQ_API_KEY: 'k' },
+      { store: { accounts: {} }, probe: async url => (probed.push(url), url.includes(':8090')) },
+    )
+    expect(ids.sort()).toEqual(['claude', 'groq', 'qwen36'])
+    expect(probed.every(u => u.startsWith('http://localhost'))).toBe(true)
+  })
+
+  test('summary counts accounts and models; offline locals are excluded', async () => {
+    const s = await computeConnectedSummary({}, { store: { accounts: {} }, probe: async () => false })
+    expect(s).toEqual({ accounts: 1, models: 0 }) // only claude
+  })
+
+  test('formatting and mock override', () => {
+    expect(formatConnectedLine(null)).toBe('… cuentas conectadas · … modelos')
+    expect(formatConnectedLine({ accounts: 3, models: 47 })).toBe('3 cuentas conectadas · 47 modelos')
+    expect(formatConnectedLine({ accounts: 1, models: 1 })).toBe('1 cuenta conectada · 1 modelo')
+    expect(applyMockOverride(null, {})).toBeNull()
+    expect(applyMockOverride(null, { accounts: 5, models: 9 })).toEqual({ accounts: 5, models: 9 })
+    expect(applyMockOverride({ accounts: 1, models: 2 }, { models: 99 })).toEqual({ accounts: 1, models: 99 })
+  })
+})

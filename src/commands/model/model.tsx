@@ -14,6 +14,8 @@ import { MODEL_ALIASES } from '../../utils/model/aliases.js';
 import { checkOpus1mAccess, checkSonnet1mAccess } from '../../utils/model/check1mAccess.js';
 import { getDefaultMainLoopModelSetting, isOpus1mMergeEnabled, renderDefaultModelSetting } from '../../utils/model/model.js';
 import { isModelAllowed } from '../../utils/model/modelAllowlist.js';
+import { persistModelForActiveAccount } from '../account/actions.js';
+import { warmActiveAccountModels } from '../../services/api/openai-compat/warmModels.js';
 import { validateModel } from '../../utils/model/validateModel.js';
 function ModelPickerWrapper(t0) {
   const $ = _c(17);
@@ -55,6 +57,7 @@ function ModelPickerWrapper(t0) {
         mainLoopModel: model,
         mainLoopModelForSession: null
       }));
+      persistModelForActiveAccount(model);
       let message = `Set model to ${chalk.bold(renderModelLabel(model))}`;
       if (effort !== undefined) {
         message = message + ` with ${chalk.bold(effort)} effort`;
@@ -196,6 +199,7 @@ function SetModelAndClose({
       }
     }
     function setModel(modelValue: string | null): void {
+      persistModelForActiveAccount(modelValue);
       setAppState(prev => ({
         ...prev,
         mainLoopModel: modelValue,
@@ -288,6 +292,8 @@ export const call: LocalJSXCommandCall = async (onDone, _context, args) => {
     });
     return <SetModelAndClose args={args} onDone={onDone} />;
   }
+  // Fill the per-account cache (GET /models, short timeout) before the picker reads it.
+  await warmActiveAccountModels();
   return <ModelPickerWrapper onDone={onDone} />;
 };
 function renderModelLabel(model: string | null): string {
