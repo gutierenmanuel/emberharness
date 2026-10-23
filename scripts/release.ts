@@ -86,7 +86,8 @@ function main(): void {
   const subjects = git(['log', '--format=%s', ...(tag ? [`${tag}..HEAD`] : [])])
     .split('\n')
     .filter(Boolean)
-  const date = new Date().toISOString().slice(0, 10).split('-').reverse().join('/')
+  // Local calendar date (toISOString is UTC and slips a day around midnight).
+  const date = new Date().toLocaleDateString('es-ES', { day: '2-digit', month: '2-digit', year: 'numeric' })
 
   const header = '# Changelog de FnHarness\n\n'
   const previous = existsSync('CHANGELOG.md')

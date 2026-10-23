@@ -1,6 +1,6 @@
 # Changelog de FnHarness
 
-## v0.6.0 (23/10/2026)
+## v0.6.0 (24/10/2026)
 
 ### Novedades
 
