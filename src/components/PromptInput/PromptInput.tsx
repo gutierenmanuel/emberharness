@@ -455,7 +455,7 @@ function PromptInput({
   // Panel shows retained-completed agents too (getVisibleAgentTasks), so the
   // pill must stay navigable whenever the panel has rows — not just when
   // something is running.
-  const tasksFooterVisible = (runningTaskCount > 0 || "external" === 'ant' && coordinatorTaskCount > 0) && !shouldHideTasksFooter(tasks, showSpinnerTree);
+  const tasksFooterVisible = !shouldHideTasksFooter(tasks, showSpinnerTree);
   const teamsFooterVisible = cachedTeams.length > 0;
   const footerItems = useMemo(() => [tasksFooterVisible && 'tasks', tmuxFooterVisible && 'tmux', bagelFooterVisible && 'bagel', teamsFooterVisible && 'teams', bridgeFooterVisible && 'bridge', companionFooterVisible && 'companion'].filter(Boolean) as FooterItem[], [tasksFooterVisible, tmuxFooterVisible, bagelFooterVisible, teamsFooterVisible, bridgeFooterVisible, companionFooterVisible]);
 

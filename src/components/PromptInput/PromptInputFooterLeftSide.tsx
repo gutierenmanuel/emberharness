@@ -325,7 +325,7 @@ function ModeIndicator({
   const hasBackgroundTasks = runningTaskCount > 0 || isViewingTeammate;
 
   // Count primary items (permission mode or coordinator mode, background tasks, and teams)
-  const primaryItemCount = (isCoordinator || hasActiveMode ? 1 : 0) + (hasBackgroundTasks ? 1 : 0) + (hasTeams ? 1 : 0);
+  const primaryItemCount = (isCoordinator || hasActiveMode ? 1 : 0) + (hasTeams ? 1 : 0);
 
   // PR indicator is short (~10 chars) — unlike the old diff indicator the
   // >=100 threshold was tuned for. Now that auto mode is effectively the
@@ -345,9 +345,9 @@ function ModeIndicator({
   // the local permission mode shown here doesn't reflect the agent's state.
   // Rendered before the tasks pill so a long pill label (e.g. ultraplan URL)
   // doesn't push the mode indicator off-screen.
-  const modePart = currentMode && hasActiveMode && !getIsRemoteMode() ? <Text color={getModeColor(currentMode)} key="mode">
-        {permissionModeSymbol(currentMode)}{' '}
-        {permissionModeTitle(currentMode).toLowerCase()} on
+  // FnHarness always shows the permission mode, including the default one.
+  const modePart = currentMode && !getIsRemoteMode() ? <Text color={getModeColor(currentMode)} dimColor={!hasActiveMode} key="mode">
+        {hasActiveMode ? `${permissionModeSymbol(currentMode)} ${permissionModeTitle(currentMode).toLowerCase()} on` : '⏵ default mode'}
         {shouldShowModeHint && <Text dimColor>
             {' '}
             <KeyboardShortcutHint shortcut={modeCycleShortcut} action="cycle" parens />
@@ -405,7 +405,7 @@ function ModeIndicator({
   // click-target Box isn't nested inside <Text wrap="truncate"> — the
   // reconciler throws on Box-in-Text. Computed here so the empty-checks
   // below still treat "pill present" as non-empty.
-  const tasksPart = hasBackgroundTasks && !hasTeammatePills && !shouldHideTasksFooter(tasks, showSpinnerTree) ? <BackgroundTaskStatus tasksSelected={tasksSelected} isViewingTeammate={isViewingTeammate} teammateFooterIndex={teammateFooterIndex} isLeaderIdle={!isLoading} onOpenDialog={onOpenTasksDialog} /> : null;
+  const tasksPart = !hasTeammatePills && !shouldHideTasksFooter(tasks, showSpinnerTree) ? <BackgroundTaskStatus tasksSelected={tasksSelected} isViewingTeammate={isViewingTeammate} teammateFooterIndex={teammateFooterIndex} isLeaderIdle={!isLoading} onOpenDialog={onOpenTasksDialog} /> : null;
   if (parts.length === 0 && !tasksPart && !modePart && showHint) {
     parts.push(<Text dimColor key="shortcuts-hint">
         ? for shortcuts
