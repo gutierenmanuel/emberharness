@@ -20,7 +20,7 @@ export function startTui(env: Record<string, string | undefined>, cwd: string, c
   const clean: Record<string, string | undefined> = { ...env, COLUMNS: String(columns), LINES: '40', TERM: 'xterm-256color' }
   delete clean.TMUX
   delete clean.TMUX_PANE
-  const proc = Bun.spawn(['script', '-qc', CLI, '/dev/null'], {
+  const proc = Bun.spawn(['script', '-qc', `stty cols ${columns} rows 40 2>/dev/null; exec ${CLI}`, '/dev/null'], {
     cwd,
     env: clean,
     stdin: 'pipe',
