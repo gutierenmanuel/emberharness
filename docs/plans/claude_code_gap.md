@@ -246,7 +246,7 @@ Pendiente de esas tandas:
 | `/autocompact [auto\|tokens]` y `--autocompact` | n/d | Ventana de autocompactación configurable (100k a 1M) | HECHO (`/autocompact` y `--autocompact`, `services/compact/autoCompactOverride.ts`; umbral en tokens, no ventana; solo sesión) |
 | `/focus` | 2.1.269 (tip) | Vista con solo el último prompt, resumen de herramientas y respuesta final | ausente |
 | `/tui fullscreen` | 2.1.110 | Renderizador alt-screen sin parpadeo | ausente |
-| `/reload-skills` | 2.1.152 | Reescanea skills sin reiniciar | ausente (`/reload-plugins` sí) |
+| `/reload-skills` | 2.1.152 | Reescanea skills sin reiniciar | HECHO (`commands/reload-skills/`, avisa al REPL con `skillChangeDetector.notifyChanged()`) |
 | `/skill-doctor` | 2.1.261 | Coste en contexto y uso de cada skill | ausente |
 | `skillOverrides` (settings) | n/d | Forzar visibilidad de skills desde ajustes | ausente |
 | `--safe-mode` | 2.1.169 | Arranca sin CLAUDE.md, skills, hooks, MCP ni plugins (diagnóstico) | HECHO (`isSafeMode()` en `utils/envUtils.ts`, con test e2e) |
