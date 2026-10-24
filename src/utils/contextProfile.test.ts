@@ -104,7 +104,7 @@ describe('filters', () => {
     expect(names(FULL_PROFILE).length).toBe(BUILTINS.length + MCP.length)
   })
   test('Simple sends exactly the six basic tools', () => {
-    expect(names(SIMPLE_PROFILE)).toEqual(['Bash', 'Edit', 'Glob', 'Grep', 'Read', 'Write'])
+    expect(names(SIMPLE_PROFILE)).toEqual(['Agent', 'Bash', 'Edit', 'Glob', 'Grep', 'Read', 'Write'])
   })
   test('Nothing sends no tools', () => {
     expect(names(preset('nothing'))).toEqual([])

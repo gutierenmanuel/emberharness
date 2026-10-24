@@ -38,8 +38,8 @@ export const CONTEXT_PRESETS: ReadonlyArray<{ name: PresetName; label: string; p
 export const FULL_PROFILE: ContextProfile = CONTEXT_PRESETS[0]!.profile
 export const SIMPLE_PROFILE: ContextProfile = CONTEXT_PRESETS[3]!.profile
 
-/** Built-in tools kept by `tools:simple`. */
-export const SIMPLE_TOOL_NAMES: ReadonlySet<string> = new Set(['Bash', 'Read', 'Write', 'Edit', 'Glob', 'Grep'])
+/** Built-in tools kept by `tools:simple` (Agent lets local sessions spawn subagents). */
+export const SIMPLE_TOOL_NAMES: ReadonlySet<string> = new Set(['Bash', 'Read', 'Write', 'Edit', 'Glob', 'Grep', 'Agent'])
 
 const SKILL_TOOL_NAME = 'Skill'
 const MCP_RESOURCE_TOOL_NAMES = new Set(['ListMcpResourcesTool', 'ReadMcpResourceTool'])
@@ -272,8 +272,9 @@ export function scopeLookup(
 }
 
 /**
- * Tool pool for a subagent: subagents only exist with tools:full, so the
- * built-ins stay; the MCP and skill axes of the session still apply.
+ * Tool pool for a subagent: subagents always get the full built-ins (even
+ * when the session runs tools:simple); the MCP and skill axes of the session
+ * still apply.
  */
 export function filterWorkerToolsByProfile<T extends ToolLike>(
   tools: readonly T[],
