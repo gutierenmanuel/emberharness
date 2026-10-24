@@ -51,6 +51,7 @@ Orden = prioridad sugerida para uso diario como agente de terminal con modelos l
 | 13 | Channels (eventos empujados desde MCP) | flag-ok `KAIROS_CHANNELS` parcial | M | Anthropic (login claude.ai) | Baja |
 | 14 | `/schedule` y routines en la nube, `RemoteTrigger` | flag-ok `AGENT_TRIGGERS_REMOTE` | — | Anthropic | Descartar |
 | 15 | Fast mode, `/advisor`, `/usage` de plan, `/ultrareview`, `/autofix-pr`, teleport, Remote Control, Artifacts, Claude Design, voz | varios presentes pero inertes | — | Anthropic | Descartar |
+| 16 | Recarga en caliente de servidores MCP (`/mcp reload`, `reconnect all`, watcher de `.mcp.json`, reinicio de stdio, aviso de tools al modelo) | **hecho** (24/10/2026, rama `quick/mcp-reload`; ver `docs/plans/mcp_reload.md`). Va más allá de Claude Code 2.1.310, que no vigila `.mcp.json` ni relanza stdio en interactivo | M | ninguna | Alta |
 
 Ya presentes y sin brecha relevante (verificadas): `EnterWorktree`/`ExitWorktree` y `--worktree`/`--tmux`,
 `/rewind` (`/checkpoint`), `/plugin` con marketplaces, `/statusline` y `statusline.sh`, `/output-style`
@@ -95,6 +96,15 @@ Hecho: los subagentes (primer y segundo plano) se listan bajo el prompt, una fil
 Era código de 2.1.87 compilado fuera; ahora lo activa `AGENT_PANEL_ENABLED`. Comparación, capturas y
 diferencias restantes (árbol `├ └` al lanzar, agente `Explore` integrado, `Message @tipo…`) en
 `docs/plans/agents_panel.md`.
+
+## Enrutado por cuenta y /model unificado (rama quick/account-routing, 24/10/2026)
+
+Hecho (va más allá de Claude Code, que solo conoce una cuenta): `cuenta:modelo` enruta una petición
+a otra cuenta sin mover la sesión. Subagentes en otra cuenta (`Agent` `model`, frontmatter), con
+ventana, autocompact, salida máxima y coste calculados con su cuenta y modelo; fila del panel con
+`[cuenta]`; `/model` con los modelos de todas las cuentas conectadas, por cuenta y filtrable, y
+`/model cuenta:modelo`. Probado de verdad: sesión en `qwen36` con subagente `claude:haiku` por OAuth.
+Detalle y límites: `docs/plans/account_routing.md`.
 
 ## Estado del punto 4: fallbackModel y hooks nuevos (rama quick/fallback-hooks, 24/10/2026)
 

@@ -11,6 +11,8 @@
 export type AgentRowInput = {
   /** Agent type shown in bold (Explore, general-purpose...). Falls back to the name. */
   label: string
+  /** Account the agent runs on, only when it is not the session's (shown as [cuenta]). */
+  account?: string
   description: string
   selected: boolean
   viewed: boolean
@@ -46,7 +48,7 @@ export function layoutAgentRow(
 ): AgentRowParts {
   const prefix = i.selected ? '❯ ' : '  '
   const bullet = i.viewed ? '●' : '◯'
-  const head = `${prefix}${bullet} ${i.label}`
+  const head = `${prefix}${bullet} ${i.label}${i.account ? ` [${i.account}]` : ''}`
   const arrow = i.receiving === false ? '↑' : '↓'
   const tokenText = i.tokens ? ` · ${arrow} ${i.tokens} tokens` : ''
   const queuedText = i.queued && i.queued > 0 ? ` · ${i.queued} queued` : ''

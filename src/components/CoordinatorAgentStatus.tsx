@@ -19,6 +19,7 @@ import { AGENT_PANEL_ENABLED, isPanelAgentTask, type LocalAgentTaskState } from 
 import { formatDuration, formatNumber } from '../utils/format.js';
 import { evictTerminalTask } from '../utils/task/framework.js';
 import { layoutAgentRow } from './agentPanelRow.js';
+import { accountTag, sessionAccountId, tryRouteForModel } from '../services/api/accountRouting.js';
 import { isTerminalStatus } from './tasks/taskStatusUtils.js';
 
 /**
@@ -156,6 +157,7 @@ function AgentLine({
   const tokenCount = task.progress?.tokenCount;
   const parts = layoutAgentRow({
     label: task.agentType && task.agentType !== 'main-session' ? task.agentType : name ?? 'agent',
+    account: accountTag(tryRouteForModel(task.model), sessionAccountId()),
     description: task.progress?.summary || task.description,
     selected: !!isSelected || hover,
     viewed: !!isViewed,

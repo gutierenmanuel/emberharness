@@ -1654,9 +1654,13 @@ export async function clearServerCache(
   const key = getServerCacheKey(name, serverRef)
 
   try {
-    const wrappedClient = await connectToServer(name, serverRef)
+    // Only touch what is cached: calling connectToServer on an empty cache
+    // would spawn the process (or start OAuth) just to kill it again, which
+    // doubled every restart of a server that had already died.
+    const cached = connectToServer.cache.get(key)
+    const wrappedClient = cached ? await cached : undefined
 
-    if (wrappedClient.type === 'connected') {
+    if (wrappedClient?.type === 'connected') {
       await wrappedClient.cleanup()
     }
   } catch {

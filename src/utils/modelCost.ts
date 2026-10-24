@@ -3,6 +3,10 @@ import type { AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS } from 
 import { logEvent } from 'src/services/analytics/index.js'
 import { setHasUnknownModelCost } from '../bootstrap/state.js'
 import { isFastModeEnabled } from './fastMode.js'
+import { tryRouteForModel, withModelRoute } from '../services/api/accountRouting.js'
+import { findProvider, type Catalog } from '../services/api/openai-compat/catalog.js'
+import { loadCatalog } from '../services/api/openai-compat/catalogStore.js'
+import { getMultimodelProfile } from '../services/api/openai-compat/profiles.js'
 import {
   CLAUDE_3_5_HAIKU_CONFIG,
   CLAUDE_3_5_V2_SONNET_CONFIG,
@@ -175,8 +179,51 @@ function trackUnknownModelCost(model: string, shortName: ModelShortName): void {
 // Calculate the cost of a query in US dollars.
 // If the model's costs are not found, use the default model's costs.
 export function calculateUSDCost(resolvedModel: string, usage: Usage): number {
+  // `cuenta:modelo` (a subagent on another account): price it on that account.
+  const route = tryRouteForModel(resolvedModel)
+  if (route) {
+    return withModelRoute(resolvedModel, m => calculateUSDCost(m, usage), route)
+  }
+  const multimodel = getMultimodelProfile()
+  if (multimodel) {
+    return tokensToUSDCost(
+      multimodelModelCosts(loadCatalog(), multimodel.catalogProvider, resolvedModel),
+      usage,
+    )
+  }
   const modelCosts = getModelCosts(resolvedModel, usage)
   return tokensToUSDCost(modelCosts, usage)
+}
+
+const ZERO_COST: ModelCosts = {
+  inputTokens: 0,
+  outputTokens: 0,
+  promptCacheWriteTokens: 0,
+  promptCacheReadTokens: 0,
+  webSearchRequests: 0,
+}
+
+/**
+ * Pure: prices of a model on an OpenAI-compatible account, from the models.dev
+ * catalog (USD per Mtok). Local servers and models the catalog does not price
+ * cost 0 rather than being billed as a Claude model. Cached tokens are priced
+ * like input: the catalog has no separate cache price for most providers.
+ */
+export function multimodelModelCosts(
+  catalog: Catalog,
+  catalogProvider: string | undefined,
+  model: string,
+): ModelCosts {
+  if (!catalogProvider) return ZERO_COST
+  const m = findProvider(catalog, catalogProvider)?.models.find(x => x.id === model)
+  if (!m || m.costInput === undefined || m.costOutput === undefined) return ZERO_COST
+  return {
+    inputTokens: m.costInput,
+    outputTokens: m.costOutput,
+    promptCacheWriteTokens: m.costInput,
+    promptCacheReadTokens: m.costInput,
+    webSearchRequests: 0,
+  }
 }
 
 /**

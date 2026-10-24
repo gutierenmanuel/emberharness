@@ -8,6 +8,7 @@ import {
   parseUserSpecifiedModel,
 } from './model.js'
 import { getAPIProvider } from './providers.js'
+import { canonicalRoutedModel } from '../../services/api/accountRouting.js'
 
 export const AGENT_MODEL_OPTIONS = [...MODEL_ALIASES, 'inherit'] as const
 export type AgentModelAlias = (typeof AGENT_MODEL_OPTIONS)[number]
@@ -37,11 +38,21 @@ export function getDefaultSubagentModel(): string {
 export function getAgentModel(
   agentModel: string | undefined,
   parentModel: string,
-  toolSpecifiedModel?: ModelAlias,
+  toolSpecifiedModel?: ModelAlias | string,
   permissionMode?: PermissionMode,
 ): string {
+  // `cuenta:modelo` (tool param first, then frontmatter): the subagent runs on
+  // that account. The model string keeps the prefix so every request, limit
+  // and cost of the subagent is resolved against its account. An explicit
+  // account wins over CLAUDE_CODE_SUBAGENT_MODEL, which is only a default.
+  const routed = canonicalRoutedModel(toolSpecifiedModel) ?? (toolSpecifiedModel ? undefined : canonicalRoutedModel(agentModel))
+  if (routed) return routed
+
   if (process.env.CLAUDE_CODE_SUBAGENT_MODEL) {
-    return parseUserSpecifiedModel(process.env.CLAUDE_CODE_SUBAGENT_MODEL)
+    return (
+      canonicalRoutedModel(process.env.CLAUDE_CODE_SUBAGENT_MODEL) ??
+      parseUserSpecifiedModel(process.env.CLAUDE_CODE_SUBAGENT_MODEL)
+    )
   }
 
   // Extract Bedrock region prefix from parent model to inherit for subagents.
