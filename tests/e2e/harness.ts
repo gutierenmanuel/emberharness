@@ -4,7 +4,7 @@
  * capture of the TUI with ANSI codes stripped.
  */
 
-import { existsSync, mkdirSync, mkdtempSync, writeFileSync } from 'fs'
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, writeFileSync } from 'fs'
 import { tmpdir } from 'os'
 import { join, resolve } from 'path'
 
@@ -108,6 +108,7 @@ export function fakeEnv(baseUrl: string, configDir: string, extra: Record<string
 export function stripAnsi(text: string): string {
   return text
     .replace(/\x1b\][^\x07]*\x07/g, '')
+    .replace(/\x1b\[(\d*)C/g, (_m, n) => ' '.repeat(Number(n || 1)))
     .replace(/\x1b\[[0-9;?<>=]*[a-zA-Z~]/g, '')
     .replace(/\x1b[()][0-9A-Za-z]/g, '')
     .replace(/\r/g, '\n')
@@ -140,4 +141,15 @@ export async function captureTui(
     .split('\n')
     .map(l => l.trimEnd())
     .filter(l => l.trim() !== '' && !seen.has(l) && seen.add(l))
+}
+
+/** Finds `<configDir>/projects/*\/<id>.jsonl`. */
+export function findTranscript(configDir: string, id: string): string | null {
+  const projects = join(configDir, 'projects')
+  if (!existsSync(projects)) return null
+  for (const d of readdirSync(projects)) {
+    const p = join(projects, d, `${id}.jsonl`)
+    if (existsSync(p)) return p
+  }
+  return null
 }

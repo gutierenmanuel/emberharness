@@ -75,7 +75,7 @@ La lógica pura (construcción y serialización de eventos, parseo de la entrada
 |---|---|
 | `src/` | Código del arnés: `commands/`, `tools/`, `screens/REPL.tsx`, `services/api/openai-compat/` (adaptador multiproveedor) |
 | `bin/fnharness` | Lanzador: fija `CLAUDE_CONFIG_DIR=~/.fnharness`, registra el statusbar y pasa los argumentos al CLI |
-| `scripts/` | Build (`build.ts`), versionado (`release.ts`), backend OpenAI falso (`mock_openai.ts`) |
+| `scripts/` | Build (`build.ts`), versionado (`release.ts`), backend OpenAI falso (`mock_openai.ts`), paridad de entorno con Claude Code (`sync_env.sh`, ver `docs/sync_env.md`) |
 | `tests/e2e/` | Pruebas del binario real con backend falso y TUI en pseudo-terminal |
 | `lab/` | Laboratorio visual de la TUI con datos simulados (`bun run lab`) |
 | `docs/` | Comandos, guía de edición y planes de diseño (`docs/plans/`) |
