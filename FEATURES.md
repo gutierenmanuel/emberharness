@@ -62,7 +62,9 @@ explicitly called out as default-on.
 ### Interaction and UI Experiments
 
 - `AWAY_SUMMARY`
-  Adds away-from-keyboard summary behavior in the REPL.
+  Adds away-from-keyboard summary behavior in the REPL (automatic card after blur; also
+  needs GrowthBook `tengu_sedge_lantern`, off for 3P). The manual `/recap` command does
+  not depend on this flag.
 - `HISTORY_PICKER`
   Enables the interactive prompt history picker.
 - `HOOK_PROMPTS`

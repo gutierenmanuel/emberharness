@@ -93,6 +93,7 @@ El tipo indica cómo se ejecuta: `local` (texto), `local-jsx` (interfaz Ink) o `
 |---|---|---|---|---|
 | `/mcp [enable\|disable [servidor]]` | | Gestiona servidores MCP. | local-jsx | Sí |
 | `/plugin` | `/plugins`, `/marketplace` | Gestiona plugins. | local-jsx | Sí |
+| `/recap` | | Resumen de una línea de dónde está la sesión (reutiliza `services/awaySummary.ts` con el modelo rápido). | local | No |
 | `/reload-plugins` | | Activa los cambios pendientes de plugins en la sesión. | local | Sí |
 | `/agents` | | Gestiona configuraciones de agentes. | local-jsx | Sí |
 | `/skills` | | Lista las skills disponibles. | local-jsx | Sí |
