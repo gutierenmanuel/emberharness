@@ -1,5 +1,27 @@
 # Changelog de FnHarness
 
+## v0.7.0 (24/10/2026)
+
+### Novedades
+
+- cadena de fallback entre cuentas y PostToolBatch en el bucle
+- eventos PostToolBatch, DirectoryAdded, PreModelSwitch y PostModelSwitch
+- /reload-skills reescanea skills sin reiniciar
+- comando /goal con evaluador por turno y cuenta de juez configurable
+- /autocompact y --autocompact con umbral configurable por sesión
+- /recap, resumen de una línea de la sesión bajo demanda
+- selector de /account con secciones Cuentas activas y Añadir cuenta
+- bypassPermissions entra en el ciclo de Shift+Tab
+- /cd mueve la sesión a otro directorio conservando la conversación
+- --safe-mode, arranque de diagnóstico sin CLAUDE.md, skills, hooks, MCP ni plugins
+
+### Correcciones
+
+- prompt de arranque sin sugerir tareas recurrentes y trazas de depuración
+- ignorar un TMUX heredado fuera de tmux
+- defaultMode "auto" de Claude Code nuevo se lee como default
+- fecha local en el changelog
+
 ## v0.6.0 (24/10/2026)
 
 ### Novedades
