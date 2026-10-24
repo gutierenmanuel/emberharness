@@ -269,6 +269,10 @@ export type AgentMetadata = {
    * resumed agent's notification can show the original description instead
    * of a placeholder. Optional — older metadata files lack this field. */
   description?: string
+  /** tool_use id of the Agent call that launched the subagent. The Matrix
+   * bridge links each subagent's transcript to the message it published for
+   * that call through this field (docs/matrix_events.md). Optional. */
+  toolUseId?: string
 }
 
 /**

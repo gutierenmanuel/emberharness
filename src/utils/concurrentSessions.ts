@@ -4,6 +4,7 @@ import { join } from 'path'
 import {
   getOriginalCwd,
   getSessionId,
+  onSessionRegenerate,
   onSessionSwitch,
 } from '../bootstrap/state.js'
 import { registerCleanup } from './cleanupRegistry.js'
@@ -99,6 +100,10 @@ export async function registerSession(): Promise<boolean> {
     // this, the PID file's sessionId goes stale and `claude ps` sparkline
     // reads the wrong transcript.
     onSessionSwitch(id => {
+      void updatePidFile({ sessionId: id })
+    })
+    // /clear mints a new id through regenerateSessionId, not switchSession.
+    onSessionRegenerate(id => {
       void updatePidFile({ sessionId: id })
     })
     return true

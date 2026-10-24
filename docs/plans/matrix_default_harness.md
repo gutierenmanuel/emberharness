@@ -260,3 +260,107 @@ bucle (pruebas reales y política de cuentas).
 1. Agente piloto de la fase 5 (propuesto: `lista-compra`).
 2. Si `fnzcode` pasa a cuenta de fnharness en la fase 6 o se mantiene aparte.
 3. Si el cambio de default de la fase 8 se hace en bloque o agente por agente.
+
+## 9. Resultado del piloto (fase 5)
+
+Fecha: 24/10/2026. Alcance: validación de extremo a extremo y aislada de que el puente de Matrix gobierna una
+sesión de `fnharness` a través del lanzador. No se tocó ningún agente real, sala real, servicio, `config.yaml`,
+`~/.claude`, `~/.claude.json` ni `~/.fnharness`; tampoco se contactó con ningún proveedor LLM (el modelo es
+`scripts/mock_openai.ts`).
+
+### 9.1 Cómo se probó
+
+Test Go opt-in `apps/agents_and_robots/shell/terminal/harness_e2e_test.go`, que monta por sí solo: socket tmux
+propio, `MATRIX_TERMINALS_STATE_DIR`, `FNHARNESS_HOME` y workdir temporales, el backend falso en un puente libre, una
+cuenta `pilot` (`accounts.json` 0600, tipo `custom`, perfil de contexto `tools: full` para que exista
+`AskUserQuestion`) y un `CLAUDE_CONFIG_DIR` ajeno en el entorno para comprobar que el lanzador lo sustituye. Usa el
+puente real con un sender de pruebas (mensajes, botones, notices, hilos y estado de sala), el lanzador real
+(`--harness fnharness --account pilot`) y el `fnharness` real compilado. Se salta salvo con `FNHARNESS_E2E=1` y
+`FNHARNESS_BIN`, así que `go test ./...` normal no cambia. Comando para repetirlo:
+
+```bash
+cd apps/agents_and_robots
+FNHARNESS_APP=~/fn_registry/apps/fnharness \
+FN_TERMINAL_LAUNCHER=~/fn_registry/bash/functions/infra/launch_claude_terminal_tmux.sh \
+  dev-scripts/run_harness_e2e.sh                       # añade -run '...' para un subtest
+```
+
+Tarda unos 30 s. Resultado final de la corrida (con los arreglos de 9.3):
+
+```
+--- PASS: TestHarnessE2EFnharness (29.6s)
+    a_linea_json_del_lanzador, b_session_start_y_ready, c_mensaje_del_dueno_por_el_FIFO,
+    h_screen_legible_con_cabecera, d_ask_user_y_ask_answer, e_clear_session_switch_y_transcript_nuevo,
+    f_subagentes_en_segundo_plano, f2_monitor_en_segundo_plano, g_resume_tras_matar
+--- PASS: TestHarnessE2EClaudeUnchanged (0.44s)
+```
+
+### 9.2 Lista de comprobación (a)–(i)
+
+| | Comprobación | Resultado | Evidencia |
+|---|---|---|---|
+| a | La línea JSON del lanzador trae `harness`, `events_file`, `input_fifo` y `config_dir` | Pasa | `a_linea_json_del_lanzador`: `harness=fnharness`, `config_dir` = `FNHARNESS_HOME` (aunque el entorno traía otro `CLAUDE_CONFIG_DIR`), eventos y FIFO bajo el estado temporal, el FIFO es un pipe. Antes del arreglo 1 la sesión ni arrancaba. |
+| b | El fichero de eventos recibe `session_start` y `ready` | Pasa | `session_start` con el `session_id` del lanzador, `account: pilot`, `resumed: false`, seguido de `ready`. |
+| c | El mensaje del dueño entra por el FIFO y la respuesta del modelo llega a la sala | Pasa | Mensaje `ECO: hola mundo` → evento `input_accepted` con id `br-*` (prefijo del puente, así que no fue `paste-buffer`) → la sala recibe `MOCK eco: hola mundo` y el transcript está en `FNHARNESS_HOME/projects`. |
+| d | `AskUserQuestion` detectada por `ask_user`, respondida con `ask_answer` y recibida por el modelo | Pasa | Quick-reply con las opciones Mercadona/Dia; evento `ask_user`; al responder `Dia` el log del puente registra `terminal_fifo_ask_answer` (no cayó a teclas), llega `ask_user_done` con `answered: true` y el modelo contesta `MOCK recibio: User has answered your questions: "¿Dónde compro?"="Dia"`. |
+| e | `/clear` produce `session_switch` y el puente sigue el transcript nuevo | Pasa (tras el arreglo 2) | `session_switch` con `reason: clear` y `old_session_id` correcto; el fichero de estado apunta al id nuevo; `MOCK eco: tras el clear` sale del transcript nuevo. Antes del arreglo el puente volvía al transcript viejo y reenviaba a la sala turnos ya publicados. |
+| f | Tarea en segundo plano y subagente reflejados | Pasa (tras el arreglo 3) | `AGENT_DEMO` (dos `Agent` con `run_in_background`): raíz del hilo publicada como notice, actividad del subagente dentro del hilo, raíz editada a «Hecho», `com.organic.agent_status` con `Agents` > 0 y `task-notification` en el transcript. `MONITOR_DEMO`: `agent_status` con `Monitors` > 0 y el modelo recibe el `<event>` (`MOCK saw the monitor event`). Un `Bash` en segundo plano no se probó por separado: comparte el seguimiento de `bgtasks.go`, que solo lee el transcript. |
+| g | `--resume` tras matar la sesión retoma el mismo transcript | Pasa | `!kill` con confirmación, `sb.resume` = id vigente (lo que hace el despertar de una conversación), `!start`: `session_start` con `resumed: true` y el mismo `session_id`, estado sin cambios, un único `.jsonl` con la conversación anterior y la nueva. Nota: un `!start` de la sesión base tras `!kill` sin `resume` abre una sesión nueva, igual que con `claude`; solo las conversaciones piden `--resume`. |
+| h | `!screen` devuelve la pantalla legible | Pasa | La captura incluye la cabecera propia (`FnHarness v0.8.0 · base 2.1.87`, mascota, cuenta y ruta), el eco del mensaje, la respuesta y el pie `bypass permissions on`. |
+| i | El mismo recorrido con `--harness claude` queda idéntico | Pasa (parte sin Claude real) | `TestHarnessE2EClaudeUnchanged` con un `claude` falso en `PATH`: argumentos exactamente `--dangerously-skip-permissions --session-id <id>`, sin `--account`; `FNHARNESS_EVENTS`, `FNHARNESS_INPUT` y `CLAUDE_CONFIG_DIR` sin definir; la salida del lanzador y el fichero de estado sin campos de fnharness; `pollEvents` declina y el prompt va por tmux. Además `launch_claude_terminal_tmux_test.sh` conserva sus comprobaciones byte a byte de la salida de claude. |
+
+### 9.3 Fallos encontrados y arreglos
+
+1. **El lanzador y `bin/fnharness` no coincidían en el directorio de configuración** (la inconsistencia sospechada).
+   El lanzador devolvía `${FNHARNESS_HOME:-~/.fnharness}` como `config_dir`, pero `bin/fnharness` usa
+   `CLAUDE_CONFIG_DIR`. Confirmado. Arreglo en el lanzador (1.13.1): con fnharness exporta
+   `CLAUDE_CONFIG_DIR=$FNHARNESS_HOME` dentro de tmux. Test en `launch_claude_terminal_tmux_test.sh`: el proceso
+   recibe ese valor aunque el entorno traiga otro.
+2. **`bin/fnharness` rechazaba `--account` si no iba el primero.** El lanzador lo añade detrás de
+   `--dangerously-skip-permissions --session-id ...` y el CLI responde `unknown option '--account'`, de modo que la
+   sesión tmux moría al nacer (fallo preexistente de la fase 4, que solo se había probado con un fnharness falso).
+   Arreglo en el envoltorio: extrae `--account X` y `--account=X` de cualquier posición. Test e2e
+   `tests/e2e/wrapperAccount.e2e.test.ts` (rojo con el envoltorio anterior).
+3. **`/clear` no actualizaba `<config>/sessions/<pid>.json`.** `regenerateSessionId` no avisa a los suscriptores de
+   `onSessionSwitch`, así que el registro por proceso se quedaba con el id viejo. El puente lo usa como segunda capa
+   (`syncLiveSession`) y devolvía el estado al transcript anterior, con lo que reenviaba a la sala turnos ya
+   publicados y no mostraba los nuevos. Arreglo en fnharness: nueva señal `onSessionRegenerate` (aparte de
+   `onSessionSwitch`, para que el canal de eventos siga distinguiendo `clear` de `resume`) y `concurrentSessions` la
+   usa para reescribir el fichero. Test en `tests/e2e/matrixEvents.e2e.test.ts`.
+4. **El `agent-<id>.meta.json` del subagente no llevaba `toolUseId`.** `ParseSubagentMeta` del puente exige ese campo
+   para colgar el hilo de la raíz publicada; sin él, ningún hilo de subagente se abría. Arreglo en fnharness:
+   `runAgent` y la limpieza de worktree de `AgentTool` lo escriben. Test en `accountRouting.e2e.test.ts` (el id
+   coincide con el `tool_use` del transcript).
+5. Menor, en el puente: `sendAskAnswerFIFO` registra `terminal_fifo_ask_answer` al responder por el FIFO, para poder
+   distinguir en el log (y en el piloto) la vía del FIFO de la de teclas.
+
+Sobre el contrato (`docs/matrix_events.md`): además de los eventos y del FIFO, el puente lee dos ficheros que fnharness
+debe mantener como Claude Code: `<config>/sessions/<pid>.json` (con el `sessionId` vivo) y
+`<proyecto>/<sessionId>/subagents/agent-<id>.meta.json` (con `agentType`, `description` y `toolUseId`).
+
+### 9.4 Voz y mensajes entre agentes: no dependen del binario
+
+- **Nota de voz (punto 5 de la fase 5):** se transcribe antes de llegar al puente (`agents/handler.go`, tras el ACL,
+  con `voice.stt`), y su texto sustituye al cuerpo del mensaje; el puente solo recibe texto y lo entrega por el FIFO
+  o por tmux. Nada en `shell/terminal` toca audio.
+- **`agent_group_send` y `CLAUDE_TERM_OUTBOX` (punto 6):** el lanzador exporta `CLAUDE_TERM_OUTBOX` en cualquier arnés
+  (antes del bloque de fnharness), `agent_group_send.sh` solo añade una línea JSON a ese fichero y el puente lo lee
+  (`shell/terminal/outbox.go`, `pollOutbox`) en cada vuelta de `runSession`, también con eventos activos. Las
+  herramientas de fnharness heredan el entorno del proceso, así que el script ve la variable. No se probó el envío
+  real a una sala de grupo porque el piloto es de una sola sala.
+
+### 9.5 No cubierto y avisos para la migración
+
+- No se ejecutó el hook `SessionStart` ni el hook `PreToolUse AskUserQuestion` del `--settings` del lanzador contra
+  fnharness: con eventos activos el `session_switch` los sustituye para el id de sesión, y el hook de una pregunta por
+  vez (varias preguntas en una llamada) no se probó. El `/resume` interactivo dentro de la TUI tampoco; solo
+  `--resume` al lanzar.
+- Un `FNHARNESS_HOME` nuevo muestra el aviso interactivo del modo bypass hasta que `settings.json` lleva
+  `skipDangerousModePermissionPrompt: true` (el `~/.fnharness` real ya lo tiene). Una sala sobre un home nuevo se
+  quedaría esperando ese diálogo.
+- Al arrancar, fnharness intenta instalar el marketplace de Anthropic (`✓ Anthropic marketplace installed` en la
+  pantalla): es un acceso de red ajeno al proveedor LLM. Conviene desactivarlo para las salas de Matrix.
+- Con `terminal.config_dir` fijado en el `config.yaml` de un agente, el puente lo prefiere al `config_dir` que
+  devuelve el lanzador: con fnharness hay que dejarlo vacío o igual a `FNHARNESS_HOME`.
+- Los tests Go de `shell/terminal` usan por defecto el lanzador de `~/fn_registry`; el piloto necesita el lanzador con
+  el arreglo 1 (`FN_TERMINAL_LAUNCHER`) hasta que ese árbol principal se actualice.

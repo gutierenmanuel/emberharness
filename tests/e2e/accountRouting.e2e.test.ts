@@ -99,6 +99,16 @@ describe.skipIf(!hasCli)('account routing e2e', () => {
     const last = serverA.requests.at(-1)!
     expect((last.messages ?? []).some(m => m.role === 'tool' && text(m).includes('SUB_DONE_FROM_B'))).toBe(true)
     expect(out).toContain('MAIN_DONE')
+
+    // The subagent's sidecar names the Agent tool_use that launched it: the Matrix bridge
+    // hangs each subagent thread on that id.
+    const metas = [...new Bun.Glob('projects/*/*/subagents/agent-*.meta.json').scanSync({ cwd: configDir })]
+    expect(metas.length).toBe(1)
+    const meta = JSON.parse(readFileSync(join(configDir, metas[0]!), 'utf8')) as { agentType: string; toolUseId?: string }
+    expect(meta.agentType).toBe('general-purpose')
+    expect(meta.toolUseId).toMatch(/^call_/)
+    const transcripts = [...new Bun.Glob('projects/*/*.jsonl').scanSync({ cwd: configDir })]
+    expect(readFileSync(join(configDir, transcripts[0]!), 'utf8')).toContain(`"id":"${meta.toolUseId}"`)
   }, 100_000)
 })
 

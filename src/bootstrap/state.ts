@@ -446,8 +446,20 @@ export function regenerateSessionId(
   // null so getTranscriptPath() derives from originalCwd.
   STATE.sessionId = randomUUID() as SessionId
   STATE.sessionProjectDir = null
+  sessionRegenerated.emit(STATE.sessionId)
   return STATE.sessionId
 }
+
+const sessionRegenerated = createSignal<[id: SessionId]>()
+
+/**
+ * Register a callback that fires when regenerateSessionId (/clear) gives the
+ * process a fresh sessionId. Kept apart from onSessionSwitch so the Matrix
+ * event channel can still tell a clear from a resume. concurrentSessions.ts
+ * uses it to keep the PID file in sync: the Matrix bridge reads
+ * <config>/sessions/<pid>.json to follow the live transcript.
+ */
+export const onSessionRegenerate = sessionRegenerated.subscribe
 
 export function getParentSessionId(): SessionId | undefined {
   return STATE.parentSessionId
@@ -927,6 +939,7 @@ export function resetStateForTests(): void {
   currentTurnTokenBudget = null
   budgetContinuationCount = 0
   sessionSwitched.clear()
+  sessionRegenerated.clear()
 }
 
 // You shouldn't use this directly. See src/utils/model/modelStrings.ts::getModelStrings()
