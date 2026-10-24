@@ -273,6 +273,30 @@ describe.skipIf(!hasCli)('matrix event channel e2e', () => {
     }
   }, 60_000)
 
+  test('/clear keeps <config>/sessions/<pid>.json on the live session id (the bridge follows it)', async () => {
+    const { configDir, cwd } = makeSandbox()
+    const { events } = workdir()
+    const tui = startTui(tuiEnv(configDir, { FNHARNESS_EVENTS: events }), cwd)
+    try {
+      const first = await waitEvents(events, evs => count(evs, 'ready') >= 1, 'first ready')
+      const pid = first.find(e => e.type === 'session_start')!.pid
+      const pidFile = join(configDir, 'sessions', `${pid}.json`)
+      expect(JSON.parse(readFileSync(pidFile, 'utf8')).sessionId).toBe(first[0]!.session_id)
+      tui.line('/clear')
+      const evs = await waitEvents(events, e => count(e, 'session_switch') >= 1, 'session_switch')
+      const newId = evs.find(e => e.type === 'session_switch')!.new_session_id
+      const end = Date.now() + 5000
+      let seen = ''
+      while (Date.now() < end && seen !== newId) {
+        seen = JSON.parse(readFileSync(pidFile, 'utf8')).sessionId
+        if (seen !== newId) await Bun.sleep(100)
+      }
+      expect(seen).toBe(newId)
+    } finally {
+      await tui.stop()
+    }
+  }, 60_000)
+
   test('headless -p: session_start, turn_start, turn_end, exit', async () => {
     const { configDir, cwd } = makeSandbox()
     const { events } = workdir()
