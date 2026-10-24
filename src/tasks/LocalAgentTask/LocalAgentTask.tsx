@@ -146,6 +146,11 @@ export type LocalAgentTaskState = TaskStateBase & {
   // and on unselect; cleared on retain.
   evictAfter?: number;
 };
+/**
+ * Panel de subagentes bajo el prompt (CoordinatorTaskPanel). En Claude Code
+ * 2.1.87 solo existe para builds internos; fnharness lo activa siempre.
+ */
+export const AGENT_PANEL_ENABLED = true;
 export function isLocalAgentTask(task: unknown): task is LocalAgentTaskState {
   return typeof task === 'object' && task !== null && 'type' in task && task.type === 'local_agent';
 }

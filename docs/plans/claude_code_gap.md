@@ -88,6 +88,14 @@ Pendiente de esas tandas:
   que editarlo no afecta a un bucle ya creado (en modo dinámico sí, porque cada vuelta reentra en la skill).
 - `PushNotification` y `SleepTool` siguen sin existir.
 
+## Estado del panel de subagentes (rama quick/agents-panel, 24/10/2026)
+
+Hecho: los subagentes (primer y segundo plano) se listan bajo el prompt, una fila por agente con
+`main` arriba, navegables con ↑/↓, `Enter` abre el transcript, `x` para o limpia, `Esc` deselecciona.
+Era código de 2.1.87 compilado fuera; ahora lo activa `AGENT_PANEL_ENABLED`. Comparación, capturas y
+diferencias restantes (árbol `├ └` al lanzar, agente `Explore` integrado, `Message @tipo…`) en
+`docs/plans/agents_panel.md`.
+
 ## Estado del punto 4: fallbackModel y hooks nuevos (rama quick/fallback-hooks, 24/10/2026)
 
 Hecho, con tests unitarios y e2e (`tests/e2e/cli.e2e.test.ts`):
