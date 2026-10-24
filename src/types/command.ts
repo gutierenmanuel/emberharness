@@ -143,6 +143,8 @@ export type LocalJSXCommandModule = {
 
 type LocalJSXCommand = {
   type: 'local-jsx'
+  /** Also available in headless (-p) mode; the command must not render JSX there. */
+  supportsNonInteractive?: boolean
   /**
    * Lazy-load the command implementation.
    * Returns a module with a call() function.

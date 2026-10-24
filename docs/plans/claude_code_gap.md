@@ -38,7 +38,7 @@ Orden = prioridad sugerida para uso diario como agente de terminal con modelos l
 |---|---|---|---|---|---|
 | 1 | `/loop` autopaced + `ScheduleWakeup` (y Cron*) | Cron* + `/loop` fijo: flag-ok `AGENT_TRIGGERS`; `ScheduleWakeup` y modo autopaced: ausente | S (activar) + M (wakeup) | ninguna | Alta |
 | 2 | Tool `Monitor` | flag-roto `MONITOR_TOOL` (falta `MonitorTool.js` y `MonitorMcpTask`) | M | ninguna | Alta |
-| 3 | `/goal` | ausente | M | modelo (evaluador) | Alta |
+| 3 | `/goal` | **hecho** (rama `quick/goal`, 24/10/2026) | M | modelo (evaluador) | Alta |
 | 4 | `fallbackModel` (ajuste) + hooks nuevos | **hecho** (24/10/2026, rama quick/fallback-hooks): cadena de fallback entre cuentas, `PostToolBatch`, `DirectoryAdded`, `PreModelSwitch`, `PostModelSwitch`; pendientes `UserPromptExpansion`, `MessageDisplay` y tipo `mcp_tool` | S | ninguna | Alta |
 | 5 | Sesiones en segundo plano y agent view (`--bg`, `claude agents`, `attach`, `logs`, `stop`, `/background`) | flag-roto `BG_SESSIONS` (falta `src/cli/bg.js`); vista ausente | L | ninguna | Media-alta |
 | 6 | `/fork`, `/subtask` (subagente bifurcado) | flag-roto `FORK_SUBAGENT` (falta `commands/fork`); `/subtask` ausente | M | ninguna | Media |
@@ -184,8 +184,16 @@ Pendiente de este punto:
   envoltorio de un **hook Stop de tipo prompt** con ámbito de sesión; muestra overlay con tiempo,
   turnos y tokens, funciona en interactivo, `-p` y Remote Control (2.1.139). `/goal clear` lo
   quita. Se corta si Claude responde varios turnos sin usar herramientas.
-- **Estado.** Ausente como comando. Pero fnharness tiene los hooks `Stop` y el tipo `prompt`
-  (`HOOK_EVENTS` y esquema de hooks), así que la base existe.
+- **Estado.** **Implementado** (24/10/2026, rama `quick/goal`). Comando integrado `/goal`
+  (`src/commands/goal/`), lógica pura en `src/utils/goal/goalLogic.ts` y estado + juez en
+  `goalState.ts`. En vez de registrar un hook `prompt` literal, se engancha en
+  `handleStopHooks` (`src/query/stopHooks.ts`): tras cada turno principal llama al evaluador y,
+  si no se cumple, añade su motivo como mensaje meta y el bucle de `query()` continúa; así se
+  controlan cuenta del juez, contador de turnos y corte por turnos sin herramientas. Funciona en
+  interactivo y en `-p` (los comandos `local-jsx` con `supportsNonInteractive` entran ahora en
+  el modo headless). Evaluador por defecto = cuenta activa; `--judge <cuenta>`,
+  `FNHARNESS_GOAL_JUDGE` o ajuste `goalJudge`. Pendiente: overlay propio (hoy una línea de
+  sistema + notificación del pie por turno), persistencia entre reinicios y Remote Control.
 - **Esfuerzo.** M: comando local que registra un hook Stop temporal de sesión, evaluador que llama
   al modelo activo (o a una cuenta barata elegida por ajuste), overlay de estado y reglas de
   parada. Con modelos locales pequeños el veredicto «cumplido» será poco fiable: conviene permitir

@@ -35,6 +35,7 @@ import {
   createUserMessage,
 } from '../utils/messages.js'
 import type { SystemPrompt } from '../utils/systemPromptType.js'
+import { runGoalCheck } from '../utils/goal/goalState.js'
 import { getTaskListId, listTasks } from '../utils/tasks.js'
 import { getAgentName, getTeamName, isTeammate } from '../utils/teammate.js'
 
@@ -329,6 +330,30 @@ export async function* handleStopHooks(
     // Collect blocking errors from stop hooks
     if (blockingErrors.length > 0) {
       return { blockingErrors, preventContinuation: false }
+    }
+
+    // /goal: when the user set a session goal, an evaluator decides after each
+    // main-thread turn whether to stop or to keep the agent working.
+    if (
+      !toolUseContext.agentId &&
+      (querySource === 'sdk' || querySource.startsWith('repl_main_thread'))
+    ) {
+      const goal = await runGoalCheck(
+        [...messagesForQuery, ...assistantMessages],
+        toolUseContext,
+      )
+      if (goal) {
+        yield createSystemMessage(goal.text, 'info')
+        toolUseContext.addNotification?.({
+          key: 'goal-status',
+          text: goal.text,
+          priority: 'low',
+        })
+        if (goal.continueWith) {
+          yield goal.continueWith
+          return { blockingErrors: [goal.continueWith], preventContinuation: false }
+        }
+      }
     }
 
     // After Stop hooks pass, run TeammateIdle and TaskCompleted hooks if this is a teammate
