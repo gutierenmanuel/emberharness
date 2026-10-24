@@ -96,6 +96,15 @@ Era código de 2.1.87 compilado fuera; ahora lo activa `AGENT_PANEL_ENABLED`. Co
 diferencias restantes (árbol `├ └` al lanzar, agente `Explore` integrado, `Message @tipo…`) en
 `docs/plans/agents_panel.md`.
 
+## Enrutado por cuenta y /model unificado (rama quick/account-routing, 24/10/2026)
+
+Hecho (va más allá de Claude Code, que solo conoce una cuenta): `cuenta:modelo` enruta una petición
+a otra cuenta sin mover la sesión. Subagentes en otra cuenta (`Agent` `model`, frontmatter), con
+ventana, autocompact, salida máxima y coste calculados con su cuenta y modelo; fila del panel con
+`[cuenta]`; `/model` con los modelos de todas las cuentas conectadas, por cuenta y filtrable, y
+`/model cuenta:modelo`. Probado de verdad: sesión en `qwen36` con subagente `claude:haiku` por OAuth.
+Detalle y límites: `docs/plans/account_routing.md`.
+
 ## Estado del punto 4: fallbackModel y hooks nuevos (rama quick/fallback-hooks, 24/10/2026)
 
 Hecho, con tests unitarios y e2e (`tests/e2e/cli.e2e.test.ts`):
