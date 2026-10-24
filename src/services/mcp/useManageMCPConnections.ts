@@ -61,7 +61,10 @@ import {
   useSetAppState,
 } from '../../state/AppState.js'
 import { refreshGlobalConfigFromDisk } from '../../utils/config.js'
+import { getCwd } from '../../utils/cwd.js'
+import { getGlobalClaudeFile } from '../../utils/env.js'
 import { errorMessage } from '../../utils/errors.js'
+import { settingsChangeDetector } from '../../utils/settings/changeDetector.js'
 import { resetSettingsCache } from '../../utils/settings/settingsCache.js'
 /* eslint-enable @typescript-eslint/no-require-imports */
 import { logMCPDebug, logMCPError } from '../../utils/log.js'
@@ -86,7 +89,17 @@ import {
 import { registerElicitationHandler } from './elicitationHandler.js'
 import { getMcpPrefix } from './mcpStringUtils.js'
 import {
+  createCoalescedRunner,
+  createDebouncer,
+  isMcpWatchEnabled,
+  MCP_WATCH_DEBOUNCE_MS,
+  mcpCwdChanged,
+  type McpConfigWatcher,
+  startMcpConfigWatcher,
+} from './configWatcher.js'
+import {
   diffMcpConfigs,
+  formatMcpDiffNotice,
   hasBlockingConfigErrors,
   type McpConfigDiff,
 } from './reloadDiff.js'
@@ -1274,6 +1287,78 @@ export function useManageMCPConnections(
     },
     [reloadMcpConfigNow],
   )
+
+  // Hot reload: watch .mcp.json / .claude.json / settings and apply only what
+  // changed. Disabled with FNHARNESS_MCP_WATCH=0 or --strict-mcp-config.
+  useEffect(() => {
+    if (!isMcpWatchEnabled() || isStrictMcpConfig) return
+    let stopped = false
+    let watcher: McpConfigWatcher | null = null
+
+    // Each toast replaces the previous one (a repeated key would be dropped
+    // while the old one is still on screen).
+    let toastSeq = 0
+    const toast = (text: string, color?: 'warning') => {
+      const previous = `mcp-config-reload-${toastSeq}`
+      toastSeq++
+      addNotification({
+        key: `mcp-config-reload-${toastSeq}`,
+        invalidates: [previous],
+        text,
+        priority: 'medium',
+        color,
+        timeoutMs: 8000,
+      })
+    }
+
+    const runner = createCoalescedRunner(async () => {
+      try {
+        const result = await reloadMcpConfig()
+        if (stopped) return
+        if (result.aborted) {
+          toast('MCP: config file is not valid JSON yet, keeping the current servers', 'warning')
+          return
+        }
+        const text = formatMcpDiffNotice(result.diff)
+        if (text) toast(text)
+      } catch (error) {
+        logMCPError('configWatcher', `Reload failed: ${errorMessage(error)}`)
+      }
+    })
+
+    const start = async () => {
+      await watcher?.stop()
+      watcher = null
+      const next = await startMcpConfigWatcher({
+        cwd: getCwd(),
+        globalFile: getGlobalClaudeFile(),
+        onChange: () => void runner.run(),
+        onInvalid: path =>
+          toast(`MCP: ${basename(path)} is not valid JSON yet, keeping the current servers`, 'warning'),
+      })
+      if (stopped) await next.stop()
+      else watcher = next
+    }
+    void start().catch(error =>
+      logMCPError('configWatcher', `Failed to start: ${errorMessage(error)}`),
+    )
+
+    // Settings carry the project-server approvals and policy allow/deny lists.
+    const settingsDebounce = createDebouncer(MCP_WATCH_DEBOUNCE_MS, () => void runner.run())
+    const unsubscribeSettings = settingsChangeDetector.subscribe(() => settingsDebounce.trigger())
+    // /cd swaps the project .mcp.json files that apply.
+    const unsubscribeCwd = mcpCwdChanged.subscribe(() => {
+      void start().then(() => runner.run())
+    })
+
+    return () => {
+      stopped = true
+      settingsDebounce.cancel()
+      unsubscribeSettings()
+      unsubscribeCwd()
+      void watcher?.stop()
+    }
+  }, [isStrictMcpConfig, reloadMcpConfig, addNotification])
 
   return { reconnectMcpServer, toggleMcpServer, reloadMcpConfig }
 }

@@ -86,43 +86,85 @@ describe.skipIf(!hasCli)('mcp hot reload (TUI)', () => {
       await tui.stop()
     }
   }, 180_000)
-  test.skip('add, auto-reconnect and remove a stdio server with the session open', async () => {
+  test('the watcher picks up an added, edited and removed server with the session open', async () => {
+    const { configDir, cwd } = makeSandbox()
+    writeFileSync(join(configDir, 'settings.json'), JSON.stringify({ enableAllProjectMcpServers: true }))
+    const mcpJson = join(cwd, '.mcp.json')
+    const entry = (tools: string) => serverEntry({ FIX_TOOLS: tools })
+    const tui = startTui(fakeEnv(fake.baseUrl, configDir, { ENABLE_TOOL_SEARCH: 'false' }), cwd)
+    const ask = async (q: string) => {
+      const n = fake.requests.length
+      tui.line(q)
+      await waitUntil(() => fake.requests.length > n, 30_000, 'request')
+      await sleep(500)
+      return lastToolNames(fake.requests.slice(n))
+    }
+    try {
+      await tui.waitFor(/for shortcuts|bypass|simple mode|❯|>/i, 30_000)
+      await sleep(2000)
+
+      // add
+      writeFileSync(mcpJson, JSON.stringify({ mcpServers: { alpha: entry('a1') } }))
+      await tui.waitFor('MCP: +alpha', 20_000)
+      await sleep(1500)
+      expect(await ask('uno')).toContain('mcp__alpha__a1')
+
+      // half-written JSON: warned, nothing touched
+      writeFileSync(mcpJson, '{"mcpServers": {"alpha":')
+      await tui.waitFor('is not valid JSON yet', 20_000)
+      expect(await ask('dos')).toContain('mcp__alpha__a1')
+
+      // edit + add in one write
+      writeFileSync(mcpJson, JSON.stringify({ mcpServers: { alpha: entry('a2'), beta: entry('b1') } }))
+      await tui.waitFor('MCP: +beta, ~alpha', 20_000)
+      await sleep(1500)
+      const third = await ask('tres')
+      expect(third).toEqual(expect.arrayContaining(['mcp__alpha__a2', 'mcp__beta__b1']))
+      expect(third).not.toContain('mcp__alpha__a1')
+
+      // remove (let the previous turn and its toast settle first)
+      await sleep(4000)
+      writeFileSync(mcpJson, JSON.stringify({ mcpServers: { beta: entry('b1') } }))
+      // (the toast is repainted incrementally over the previous one, so it is
+      // not reliable to scrape: check what the model receives instead)
+      await sleep(4000)
+      const fourth = await ask('cuatro')
+      expect(fourth).toContain('mcp__beta__b1')
+      expect(fourth).not.toContain('mcp__alpha__a2')
+
+      // user scope: mcpServers inside the global .claude.json
+      const globalFile = join(configDir, '.claude.json')
+      const cfg = JSON.parse(readFileSync(globalFile, 'utf8'))
+      cfg.mcpServers = { usr: entry('u1') }
+      writeFileSync(globalFile, JSON.stringify(cfg))
+      await sleep(4000)
+      expect(await ask('cinco')).toEqual(expect.arrayContaining(['mcp__beta__b1', 'mcp__usr__u1']))
+    } finally {
+      await tui.stop()
+    }
+  }, 240_000)
+
+  test.skip('a stdio server that dies is relaunched by itself', async () => {
     const { configDir, cwd } = makeSandbox()
     writeFileSync(join(configDir, 'settings.json'), JSON.stringify({ enableAllProjectMcpServers: true }))
     const pidFile = join(cwd, 'alpha.pid')
     const logFile = join(cwd, 'alpha.log')
-    const mcpJson = join(cwd, '.mcp.json')
+    writeFileSync(
+      join(cwd, '.mcp.json'),
+      JSON.stringify({ mcpServers: { alpha: serverEntry({ FIX_TOOLS: 'echo', FIX_PID_FILE: pidFile, FIX_LOG_FILE: logFile }) } }),
+    )
     const tui = startTui(fakeEnv(fake.baseUrl, configDir, { ENABLE_TOOL_SEARCH: 'false' }), cwd)
+    const starts = () => (existsSync(logFile) ? readFileSync(logFile, 'utf8').split('\n').filter(l => l === 'start').length : 0)
     try {
-      await tui.waitFor(/for shortcuts|bypass|simple mode|❯|>/i, 30_000)
-      await sleep(1500)
-
-      // 1. add the server while the session is open
-      writeFileSync(
-        mcpJson,
-        JSON.stringify({ mcpServers: { alpha: serverEntry({ FIX_TOOLS: 'echo', FIX_PID_FILE: pidFile, FIX_LOG_FILE: logFile }) } }),
-      )
-      await tui.waitFor('MCP: +alpha', 20_000)
-      await waitUntil(() => existsSync(pidFile), 20_000, 'server started')
-      const before = fake.requests.length
-      tui.line('hola uno')
-      await waitUntil(() => fake.requests.length > before, 30_000, 'request after add')
-      expect(lastToolNames(fake.requests.slice(before))).toContain('mcp__alpha__echo')
-
-      // 2. kill the process: it must come back by itself
-      const starts = () => (existsSync(logFile) ? readFileSync(logFile, 'utf8').split('\n').filter(l => l === 'start').length : 0)
-      expect(starts()).toBe(1)
+      await waitUntil(() => starts() === 1 && existsSync(pidFile), 40_000, 'first start')
+      await sleep(2000)
       process.kill(Number(readFileSync(pidFile, 'utf8')), 'SIGKILL')
       await waitUntil(() => starts() >= 2, 30_000, 'auto reconnect')
-
-      // 3. remove it: the tool disappears from the next request
-      writeFileSync(mcpJson, JSON.stringify({ mcpServers: {} }))
-      await tui.waitFor('MCP: -alpha', 20_000)
+      const n = fake.requests.length
+      tui.line('hola')
+      await waitUntil(() => fake.requests.length > n, 30_000, 'request')
       await sleep(500)
-      const before2 = fake.requests.length
-      tui.line('hola dos')
-      await waitUntil(() => fake.requests.length > before2, 30_000, 'request after remove')
-      expect(lastToolNames(fake.requests.slice(before2))).not.toContain('mcp__alpha__echo')
+      expect(lastToolNames(fake.requests.slice(n))).toContain('mcp__alpha__echo')
     } finally {
       await tui.stop()
     }
