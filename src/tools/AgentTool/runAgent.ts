@@ -739,6 +739,7 @@ export async function* runAgent({
     agentType: agentDefinition.agentType,
     ...(worktreePath && { worktreePath }),
     ...(description && { description }),
+    ...(toolUseContext.toolUseId && { toolUseId: toolUseContext.toolUseId }),
   }).catch(_err => logForDebugging(`Failed to write agent metadata: ${_err}`))
 
   // Track the last recorded message UUID for parent chain continuity

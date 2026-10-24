@@ -679,7 +679,8 @@ export const AgentTool = buildTool({
           // writeAgentMetadata handling.
           void writeAgentMetadata(asAgentId(earlyAgentId), {
             agentType: selectedAgent.agentType,
-            description
+            description,
+            ...(toolUseContext.toolUseId && { toolUseId: toolUseContext.toolUseId })
           }).catch(_err => logForDebugging(`Failed to clear worktree metadata: ${_err}`));
           return {};
         }
