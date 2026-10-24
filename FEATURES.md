@@ -20,6 +20,12 @@ chain works across accounts (`qwen36`, `claude:haiku`, `openrouter:x/y`) and the
 feature flag. Still missing from the official event list: `UserPromptExpansion`, `MessageDisplay`
 and the `mcp_tool` hook type (see `docs/plans/claude_code_gap.md`).
 
+FnHarness note (24/10/2026, account-routing): a model written as `cuenta:modelo` is served by that
+account for that request only (`Agent` tool `model`, agent frontmatter, `/model cuenta:modelo`), so a
+subagent can run on `claude:haiku` from a local-model session and the other way round; `/model` lists
+the models of every connected account grouped by account. No feature flag. Design:
+`docs/plans/account_routing.md`.
+
 FnHarness note (24/10/2026, context-profile): `/scope` and Ctrl+Tab choose what reaches the model
 per request (MCP servers by config scope, skills by origin, built-in tools full/simple/none), remembered
 per account (`contextProfile` in `accounts.json` / `.claude.json`); local backends default to Simple.

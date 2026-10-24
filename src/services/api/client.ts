@@ -33,6 +33,7 @@ import {
 import { createCodexFetch } from './codex-fetch-adapter.js'
 import { createOpenAICompatFetch } from './openai-compat/adapter.js'
 import { getMultimodelProfile } from './openai-compat/profiles.js'
+import { routeForModel, withModelRoute } from './accountRouting.js'
 
 /**
  * Environment variables for different client types:
@@ -103,6 +104,18 @@ export async function getAnthropicClient({
   fetchOverride?: ClientOptions['fetch']
   source?: string
 }): Promise<Anthropic> {
+  // `cuenta:modelo` names another account: build that account's client (its
+  // auth, its backend) for this call only. Requests from claude.ts arrive
+  // already stripped and inside the account's scope; this covers direct callers.
+  const route = routeForModel(model)
+  if (route) {
+    return withModelRoute(
+      model!,
+      stripped =>
+        getAnthropicClient({ apiKey, maxRetries, model: stripped, fetchOverride, source }),
+      route,
+    )
+  }
   const containerId = process.env.CLAUDE_CODE_CONTAINER_ID
   const remoteSessionId = process.env.CLAUDE_CODE_REMOTE_SESSION_ID
   const clientApp = process.env.CLAUDE_AGENT_SDK_CLIENT_APP

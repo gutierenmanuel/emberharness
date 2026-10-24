@@ -46,7 +46,7 @@ El tipo indica cómo se ejecuta: `local` (texto), `local-jsx` (interfaz Ink) o `
 
 | Comando | Alias | Descripción | Tipo | Backend no-Anthropic |
 |---|---|---|---|---|
-| `/model [modelo]` | | Cambia el modelo (la descripción muestra el actual). | local-jsx | Sí; `validateModel` no valida el id porque el backend es dueño de su catálogo |
+| `/model [modelo \| cuenta:modelo]` | | Sin argumento abre un selector con los modelos de **todas** las cuentas conectadas, agrupados por cuenta con cabecera (como `/account`) y filtrables escribiendo; elegir uno de otra cuenta cambia la sesión a esa cuenta y modelo de una vez (pasa por `PreModelSwitch`/`PostModelSwitch` y recuerda el modelo para esa cuenta, igual que `/account <id> <modelo>`). `/model cuenta:modelo` hace lo mismo por argumento (`/model claude:opus`, `/model qwen36:qwen36-35b-heretic-q4km`); sin prefijo de cuenta, o con el de la cuenta activa, solo cambia el modelo. El esfuerzo se ajusta con `/effort`. | local-jsx | Sí; `validateModel` no valida el id porque el backend es dueño de su catálogo |
 | `/effort [low\|medium\|high\|max\|auto]` | | Nivel de esfuerzo del modelo. | local-jsx | Parcial (depende de que el backend use el parámetro) |
 | `/fast [on\|off]` | | Alterna el modo rápido (solo con el modelo que lo soporte). | local-jsx | No: `availability` `claude-ai` o `console`, y se apaga con `CLAUDE_CODE_DISABLE_FAST_MODE` |
 | `/advisor` | | Configura el modelo asesor (herramienta server-side). | local | No en la práctica: es una función de la API de Anthropic |
@@ -394,3 +394,15 @@ Otros puntos de integración: `src/services/api/client.ts` enruta las peticiones
 - Qué slash commands aparecen en una sesión interactiva real: es una TUI y no se abrió (se evitó cualquier llamada a un modelo). La columna "Backend no-Anthropic" se deduce de `availability`, `isEnabled` y `isHidden` en el código, no de una ejecución con un backend.
 - Los gates remotos (`tengu_*`, GrowthBook, Statsig) y las políticas organizativas no pueden evaluarse sin cuenta Anthropic.
 - Los subcomandos bajo flag o `USER_TYPE=ant` (sección 3.1) y los slash commands marcados "No encontrado" (sección 2.9): su fuente no está en este snapshot.
+
+## Subagentes en otra cuenta (`cuenta:modelo`)
+
+La herramienta `Agent` acepta en `model` los alias de siempre (`sonnet`, `opus`, `haiku`, `inherit`) o
+`cuenta:modelo` de una cuenta lista (`claude:haiku`, `qwen36:qwen36-35b-heretic-q4km`,
+`openrouter:deepseek/deepseek-chat`, `qwen36:` = el modelo propio de la cuenta). El frontmatter de
+`.claude/agents/*.md` admite lo mismo (`model: claude:haiku`). El subagente corre en esa cuenta y la
+sesión sigue en la suya. La descripción de la herramienta lista las cuentas conectadas y unos pocos
+modelos de cada una. Un `cuenta:modelo` explícito gana a `CLAUDE_CODE_SUBAGENT_MODEL`, que queda como
+valor por defecto. En el panel de subagentes la fila muestra `[cuenta]` cuando no es la de la sesión.
+Diseño y límites: `docs/plans/account_routing.md`.
+

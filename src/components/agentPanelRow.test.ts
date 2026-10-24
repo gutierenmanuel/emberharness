@@ -19,6 +19,11 @@ const line = (i: AgentRowInput) => {
 }
 
 describe('layoutAgentRow', () => {
+  test('an agent on another account shows it after the label', () => {
+    const l = line({ ...base, account: 'qwen36' })
+    expect(l.startsWith('  ◯ Explore [qwen36]  Count .ts files in src/')).toBe(true)
+    expect(w(l)).toBe(118)
+  })
   test('idle row aligns time and tokens to the right edge', () => {
     const l = line(base)
     expect(l.startsWith('  ◯ Explore  Count .ts files in src/')).toBe(true)

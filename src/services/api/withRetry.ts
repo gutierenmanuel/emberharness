@@ -46,6 +46,7 @@ import {
 } from '../rateLimitMocking.js'
 import { REPEATED_529_ERROR_MESSAGE } from './errors.js'
 import { extractConnectionErrorDetails } from './errorUtils.js'
+import { getScopedAccountId } from './openai-compat/profiles.js'
 import {
   FALLBACK_AFTER_ATTEMPTS,
   isFallbackEligible,
@@ -331,8 +332,11 @@ export async function* withRetry<T>(
       // Fallback chain (cross-account): the primary backend is unavailable
       // (5xx/529, e.g. a local llama-server that refuses connections). After a
       // few failed attempts hand the turn to the next entry of the chain.
+      // A request routed to another account (`cuenta:modelo`) never triggers
+      // it: the chain switches the session's account, not the request's.
       if (
         attempt >= FALLBACK_AFTER_ATTEMPTS &&
+        getScopedAccountId() === undefined &&
         shouldRetry529(options.querySource) &&
         isFallbackEligible(error)
       ) {
