@@ -20,6 +20,11 @@ chain works across accounts (`qwen36`, `claude:haiku`, `openrouter:x/y`) and the
 feature flag. Still missing from the official event list: `UserPromptExpansion`, `MessageDisplay`
 and the `mcp_tool` hook type (see `docs/plans/claude_code_gap.md`).
 
+FnHarness note (24/10/2026, context-profile): `/scope` and Ctrl+Tab choose what reaches the model
+per request (MCP servers by config scope, skills by origin, built-in tools full/simple/none), remembered
+per account (`contextProfile` in `accounts.json` / `.claude.json`); local backends default to Simple.
+Not behind a feature flag. See `docs/plans/context_profile.md`.
+
 Important: "bundle cleanly" does not always mean "runtime-safe". Some flags
 still depend on optional native modules, claude.ai OAuth, GrowthBook gates, or
 externalized `@ant/*` packages.
