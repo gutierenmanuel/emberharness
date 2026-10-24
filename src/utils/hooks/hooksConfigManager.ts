@@ -256,6 +256,30 @@ export const getHookEventMetadata = memoize(
         description:
           'Input to command is JSON with old_cwd and new_cwd.\nCLAUDE_ENV_FILE is set — write bash exports there to apply env to subsequent BashTool commands.\nHook output can include hookSpecificOutput.watchPaths (array of absolute paths) to register with the FileChanged watcher.\nExit code 0 - command completes successfully\nOther exit codes - show stderr to user only',
       },
+      PostToolBatch: {
+        summary: 'After a full batch of parallel tool calls resolves, before the next model call',
+        description:
+          'Input to command is JSON with tool_calls (array of {tool_name, tool_input, tool_use_id, tool_response}); tool_response is the serialized tool_result the model sees.\nStdout JSON may return hookSpecificOutput.additionalContext, injected once before the next model call.\nExit code 0 - command completes successfully\nExit code 2 - stop the agentic loop before the next model call, show stderr to the model\nOther exit codes - show stderr to user only',
+      },
+      DirectoryAdded: {
+        summary: 'After a working directory is added mid-session with /add-dir',
+        description:
+          'Input to command is JSON with directory (absolute path) and source (slash_command, register_repo_root).\nRuns in the background; the add has already completed and cannot be blocked.\nExit code 0 - command completes successfully\nOther exit codes - show stderr to user only',
+        matcherMetadata: {
+          fieldToMatch: 'source',
+          values: ['slash_command', 'register_repo_root'],
+        },
+      },
+      PreModelSwitch: {
+        summary: 'Before a requested model or account switch (/model, /account)',
+        description:
+          'Input to command is JSON with from_model, to_model, requested_model, source (command, picker, sdk), from_account, to_account, context_tokens, prompt_cache_warm, cache_ttl, estimated_cache_write_usd and pricing.\nThe matcher is compared with the canonical name of to_model.\nExit code 0 - allow the switch\nExit code 2 - block the switch, show stderr to the user\nJSON hookSpecificOutput.permissionDecision (allow, deny, ask) also decides; a timeout blocks the switch.\nSwitches made by the fallback chain do not run this hook.',
+      },
+      PostModelSwitch: {
+        summary: 'After the session model or account changes',
+        description:
+          'Input to command is JSON with the same fields as PreModelSwitch; source also takes auto and resume.\nPlain stdout on exit 0, or hookSpecificOutput.additionalContext, is added to the context with the next request.\nThe matcher is compared with the canonical name of to_model.\nExit code 0 - command completes successfully\nOther exit codes - show stderr to user only',
+      },
       FileChanged: {
         summary: 'When a watched file changes',
         description:
@@ -299,6 +323,10 @@ export function groupHooksByEventAndMatcher(
     InstructionsLoaded: {},
     CwdChanged: {},
     FileChanged: {},
+    PostToolBatch: {},
+    DirectoryAdded: {},
+    PreModelSwitch: {},
+    PostModelSwitch: {},
   }
 
   const metadata = getHookEventMetadata(toolNames)
