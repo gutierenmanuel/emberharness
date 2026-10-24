@@ -1,6 +1,7 @@
 import { c as _c } from "react/compiler-runtime";
 import type { Base64ImageSource, ImageBlockParam } from '@anthropic-ai/sdk/resources/messages.mjs';
 import React, { Suspense, use, useCallback, useMemo, useRef, useState } from 'react';
+import { useMatrixAskUser } from '../../../hooks/useMatrixAskUser.js';
 import { useSettings } from '../../../hooks/useSettings.js';
 import { useTerminalSize } from '../../../hooks/useTerminalSize.js';
 import { stringWidth } from '../../../ink/stringWidth.js';
@@ -417,7 +418,7 @@ Questions asked and answers provided:\n${questionsWithAnswers_0}`;
   } else {
     t15 = $[55];
   }
-  const submitAnswers = t15;
+  const submitAnswers = useMatrixAskUser(toolUseConfirm.toolUseID, t15);
   let t16;
   if ($[56] !== answers || $[57] !== pastedContentsByQuestion || $[58] !== questions.length || $[59] !== setAnswer || $[60] !== submitAnswers) {
     t16 = (questionText_1, label, textInput, t17) => {

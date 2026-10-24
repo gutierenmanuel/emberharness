@@ -29,6 +29,7 @@ import {
 } from 'src/services/analytics/index.js'
 import { getFeatureValue_CACHED_MAY_BE_STALE } from 'src/services/analytics/growthbook.js'
 import { logForDebugging } from 'src/utils/debug.js'
+import { matrixIdle, matrixSessionStart, matrixTrackTurn } from '../utils/matrixEventsRuntime.js'
 import {
   logForDiagnosticsNoPII,
   withDiagnosticsTiming,
@@ -862,6 +863,8 @@ export async function runHeadless(
       : null
 
   headlessProfilerCheckpoint('before_runHeadlessStreaming')
+  // Matrix event channel (docs/matrix_events.md): no-op unless FNHARNESS_EVENTS is set.
+  matrixSessionStart({ resumed: initialMessages.length > 0 })
   for await (const message of runHeadlessStreaming(
     structuredIO,
     appState.mcp.clients,
@@ -1879,6 +1882,7 @@ function runHeadlessStreaming(
     }
 
     running = true
+    matrixIdle(false)
     runPhase = undefined
     notifySessionStateChanged('running')
     idleTimeout.stop()
@@ -2154,7 +2158,7 @@ function runHeadlessStreaming(
           // const-capture: TS loses `while ((command = dequeue()))` narrowing
           // inside the closure.
           const cmd = command
-          await runWithWorkload(cmd.workload ?? options.workload, async () => {
+          await matrixTrackTurn(() => abortController.signal.aborted, () => runWithWorkload(cmd.workload ?? options.workload, async () => {
             for await (const message of ask({
               commands: uniqBy(
                 [...currentCommands, ...appState.mcp.commands],
@@ -2254,7 +2258,7 @@ function runHeadlessStreaming(
                 output.enqueue(message)
               }
             }
-          }) // end runWithWorkload
+          })) // end runWithWorkload (inside matrixTrackTurn)
 
           for (const uuid of batchUuids) {
             notifyCommandLifecycle(uuid, 'completed')
@@ -2479,6 +2483,7 @@ function runHeadlessStreaming(
         }
       }
       running = false
+      if (peek(isMainThread) === undefined) matrixIdle(true)
       // Start idle timer when we finish processing and are waiting for input
       idleTimeout.start()
     }

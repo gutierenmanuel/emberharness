@@ -141,6 +141,8 @@ import type { ThinkingConfig } from '../utils/thinking.js';
 import { gracefulShutdownSync } from '../utils/gracefulShutdown.js';
 import { handlePromptSubmit, type PromptInputHelpers } from '../utils/handlePromptSubmit.js';
 import { useQueueProcessor } from '../hooks/useQueueProcessor.js';
+import { useMatrixChannel } from '../hooks/useMatrixChannel.js';
+import { matrixNoteQueued, matrixTurnEnd, matrixTurnStart } from '../utils/matrixEventsRuntime.js';
 import { useMailboxBridge } from '../hooks/useMailboxBridge.js';
 import { queryCheckpoint, logQueryProfileReport } from '../utils/queryProfiler.js';
 import type { Message as MessageType, UserMessage, ProgressMessage, HookResultMessage, PartialCompactDirection } from '../types/message.js';
@@ -2903,6 +2905,9 @@ export function REPL({
       });
       return;
     }
+    // Matrix event channel (docs/matrix_events.md): no-op unless FNHARNESS_EVENTS/INPUT is set.
+    matrixTurnStart();
+    let matrixTurnReason: 'completed' | 'error' = 'completed';
     try {
       // isLoading is derived from queryGuard — tryStart() above already
       // transitioned dispatching→running, so no setter call needed here.
@@ -2935,7 +2940,12 @@ export function REPL({
         }
       }
       await onQueryImpl(latestMessages, newMessages, abortController, shouldQuery, additionalAllowedTools, mainLoopModelParam, effort);
+    } catch (error) {
+      matrixTurnReason = 'error';
+      throw error;
     } finally {
+      // Before queryGuard.end(): `turn_end` must precede the `ready` that the idle state triggers.
+      matrixTurnEnd(abortController.signal.aborted ? 'interrupted' : matrixTurnReason);
       // queryGuard.end() atomically checks generation and transitions
       // running→idle. Returns false if a newer query owns the guard
       // (cancel+resubmit race where the stale finally fires as a microtask).
@@ -3878,6 +3888,7 @@ export function REPL({
   // Process queued commands when query completes and queue has items
 
   const executeQueuedInput = useCallback(async (queuedCommands: QueuedCommand[]) => {
+    matrixNoteQueued(queuedCommands);
     await handlePromptSubmit({
       helpers: {
         setCursorOffset: () => {},
@@ -3909,6 +3920,17 @@ export function REPL({
     executeQueuedInput,
     hasActiveLocalJsxUI: isShowingLocalJSXCommand,
     queryGuard
+  });
+
+  // Matrix event channel (docs/matrix_events.md). onCancelRef always points at
+  // the latest onCancel closure; the channel's `interrupt` is Escape.
+  const onCancelRef = useRef(onCancel);
+  onCancelRef.current = onCancel;
+  useMatrixChannel({
+    isIdle: !isLoading && !isShowingLocalJSXCommand && initialMessage === null && queuedCommands.length === 0,
+    resumed: (initialMessages?.length ?? 0) > 0,
+    submit: (text, uuid) => enqueue({ value: text, mode: 'prompt', uuid: uuid as UUID }),
+    interrupt: () => onCancelRef.current()
   });
 
   // We'll use the global lastInteractionTime from state.ts
