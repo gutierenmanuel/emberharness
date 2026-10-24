@@ -238,7 +238,9 @@ bucle (pruebas reales y política de cuentas).
 - El stream-json bidireccional está en el código pero no se ha ejecutado aquí (fase 1 lo decide).
 - La renovación de tokens con credenciales compartidas entre dos binarios no se ha probado.
 - Algunos hooks del dueño (`model_router.py`, `goal_*`) pueden asumir variables o rutas de `~/.claude`;
-  la fase 3 debe revisarlos uno a uno.
+  la fase 3 los revisó uno a uno: ninguno falla de forma dura bajo `CLAUDE_CONFIG_DIR=~/.fnharness`
+  (`~/.claude` sigue existiendo), pero los `goal_*` comparten `~/.claude/goals` y dos dependen de la
+  ubicación del transcript. Tabla completa en [`docs/sync_env.md`](../sync_env.md).
 - El panel de subagentes bajo el prompt y la cabecera propia de fnharness cambian la pantalla; si el
   canal de eventos de la fase 2 cubre `ask_user` e `input_echo`, esos cambios dejan de importar para el
   puente.
