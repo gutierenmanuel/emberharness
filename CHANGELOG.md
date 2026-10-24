@@ -1,5 +1,38 @@
 # Changelog de FnHarness
 
+## v0.8.0 (24/10/2026)
+
+### Novedades
+
+- Simple incluye Agent y usa prompt de sistema y descripciones de tools compactos
+- /model con los modelos de todas las cuentas conectadas
+- subagentes en otra cuenta con model cuenta:modelo
+- enrutado por petición con cuenta:modelo
+- avisar al modelo cuando cambian las tools de un servidor
+- autorreconexion de servidores stdio con backoff y contador de estabilidad
+- comando /scope, Ctrl+Tab e indicador ctx en el pie
+- aplicar el perfil a tools, MCP, skills y prompt en cada turno
+- perfil de contexto puro y su persistencia por cuenta
+- vigilancia de .mcp.json, .claude.json y settings con recarga en caliente
+- /mcp reload y /mcp reconnect all con poda de servidores eliminados
+- panel de subagentes bajo el prompt, navegable y con vista de transcript
+- arrancar en bypassPermissions por defecto
+- el modo default se muestra como «simple mode»
+
+### Documentación
+
+- medidas de Simple compacto y prueba con qwen36 en el plan del perfil de contexto
+- enrutado por cuenta y /model unificado
+- perfil de contexto, /scope y medidas por preset
+- plan de recarga en caliente de servidores MCP
+- estado del roadmap tras v0.7.0
+
+### Tests
+
+- enrutado por cuenta con dos servidores falsos
+- el panel de agentes fuerza el perfil full
+- perfil de contexto contra el servidor falso y Ctrl+Tab en pty
+
 ## v0.7.0 (24/10/2026)
 
 ### Novedades
