@@ -160,7 +160,7 @@ describe.skipIf(!hasCli)('cli e2e', () => {
   test('TUI idle footer without mocks', async () => {
     const { configDir, cwd } = makeSandbox()
     const text = (await captureTui(fakeEnv(fake.baseUrl, configDir), cwd)).join('\n')
-    expect(text).toContain('default mode')
+    expect(text).toContain('simple mode')
     expect(text).toContain('0 shells · 0 monitors · 0 agents')
   }, 30_000)
 
