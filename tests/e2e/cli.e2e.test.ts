@@ -177,7 +177,8 @@ describe.skipIf(!hasCli)('cli e2e', () => {
       const before = fake.requests.length
       const proc = Bun.spawn([CLI, '-p', ...extra, 'di hola'], {
         cwd,
-        env: fakeEnv(fake.baseUrl, configDir),
+        // The fake backend is local, whose default profile (Simple) hides skills.
+        env: fakeEnv(fake.baseUrl, configDir, { FNHARNESS_CONTEXT_PROFILE: 'full' }),
         stdin: 'ignore',
         stdout: 'pipe',
         stderr: 'pipe',
