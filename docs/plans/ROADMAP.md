@@ -23,7 +23,7 @@ Orden propuesto: A → F → C → D → E → G → H, con B en paralelo por fu
 | # | Estado |
 |---|---|
 | A | Hecho: versión propia en `package.json`, `scripts/release.ts`, `CHANGELOG.md`, tag `v0.5.0`. |
-| B | Tandas 1 y 2 hechas: `/loop` fijo y autopaced, Cron, `ScheduleWakeup`, tool `Monitor` (probada con la cuenta claude). Pendientes en `claude_code_gap.md`. |
+| B | Tandas 1 y 2 hechas: `/loop` fijo y autopaced, Cron, `ScheduleWakeup`, tool `Monitor` (probada con la cuenta claude). Tanda 3 hecha en v0.7.0: `/goal`, `fallbackModel` entre cuentas, hooks `PostToolBatch`/`DirectoryAdded`/`Pre`-`PostModelSwitch`, `--safe-mode`, `/cd`, `/recap`, `/autocompact`, `/reload-skills`; además `/account` con secciones y bypass en el ciclo de Shift+Tab. Pendientes en `claude_code_gap.md`. |
 | C | Hecho: catálogo models.dev con snapshot embebido (202 proveedores, 5.653 modelos) y refresco diario. |
 | D | Hecho: `/model` por cuenta, `/account catalog` y `/account add <proveedor>`. |
 | E | Hecho: «N cuentas conectadas · M modelos», calculado antes de pintar la cabecera. |
