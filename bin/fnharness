@@ -50,7 +50,13 @@ if [[ ! -x "$cli" ]]; then
   echo "fnharness: compilando por primera vez..." >&2
   (cd "$app" && PATH="$HOME/.local/bun-npm/node_modules/.bin:$PATH" bun install && bun run build) >&2
 fi
-# Bypass entra en el ciclo de Shift+Tab sin arrancar en él (FNHARNESS_NO_BYPASS=1 lo quita).
+# Por defecto la sesión arranca en bypassPermissions (aviso de seguridad la primera vez y
+# pie en rojo). Un --permission-mode explícito manda; FNHARNESS_NO_BYPASS=1 arranca en
+# modo simple y saca bypass del ciclo de Shift+Tab.
 extra=()
-[[ "${FNHARNESS_NO_BYPASS:-}" == 1 ]] || extra+=(--allow-dangerously-skip-permissions)
+if [[ "${FNHARNESS_NO_BYPASS:-}" != 1 ]]; then
+  extra+=(--allow-dangerously-skip-permissions)
+  [[ " $* " == *" --permission-mode "* || " $* " == *" --permission-mode="* ]] ||
+    extra+=(--permission-mode bypassPermissions)
+fi
 exec "$cli" "${extra[@]}" "$@"
