@@ -10,6 +10,8 @@
 //   user text containing "MONITOR_STOP_DEMO"        -> Monitor(endless ticker), then TaskStop on its id
 //   user text containing "<event>"                   -> plain text acknowledging the event
 //   user text containing "AGENT_DEMO"                -> two Agent calls (run_in_background) whose sub-agents answer after MOCK_SUB_DELAY_MS (12 s)
+//   user text containing "PREGUNTA"                  -> AskUserQuestion (header Tienda, options Mercadona / Dia); its tool result is echoed as "MOCK recibio: ..."
+//   user text containing "ECO:"                      -> plain text "MOCK eco: <text after ECO:>"
 //   any tool result                                  -> plain text "ok"
 // Every request body is appended to $MOCK_LOG (default /tmp/mock_openai.log) as one JSON line.
 
@@ -40,6 +42,29 @@ function plan(messages: Msg[]): Plan {
     // The delay in fetch() keeps the sub-agent alive long enough to see it in the panel.
     return { text: 'sub-agent done' }
   }
+  if (last?.role === 'tool' && userText.includes('PREGUNTA') && !userText.includes('AGENT_DEMO')) {
+    return { text: `MOCK recibio: ${t}` }
+  }
+  if (last?.role === 'user' && t.includes('PREGUNTA')) {
+    return {
+      tool: {
+        name: 'AskUserQuestion',
+        args: {
+          questions: [{
+            question: '¿Dónde compro?',
+            header: 'Tienda',
+            multiSelect: false,
+            options: [
+              { label: 'Mercadona', description: 'cerca' },
+              { label: 'Dia', description: 'barato' },
+            ],
+          }],
+        },
+      },
+    }
+  }
+  const eco = last?.role === 'user' ? /ECO:\s*(.*)/s.exec(t) : null
+  if (eco) return { text: `MOCK eco: ${eco[1]!.trim()}` }
   if (last?.role === 'tool' && !userText.includes('AGENT_DEMO')) {
     // Monitor started in the STOP demo: stop it right away with TaskStop.
     const started = /Monitor started \(task (\w+)/.exec(t)
