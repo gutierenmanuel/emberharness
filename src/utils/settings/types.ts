@@ -56,11 +56,17 @@ export const PermissionsSchema = lazySchema(() =>
         .describe(
           'List of permission rules that should always prompt for confirmation',
         ),
+      // The same settings files are shared with newer Claude Code releases,
+      // whose "auto" mode this build lacks; read it as "default" instead of
+      // rejecting the whole file.
       defaultMode: z
-        .enum(
-          feature('TRANSCRIPT_CLASSIFIER')
-            ? PERMISSION_MODES
-            : EXTERNAL_PERMISSION_MODES,
+        .preprocess(
+          v => (v === 'auto' && !feature('TRANSCRIPT_CLASSIFIER') ? 'default' : v),
+          z.enum(
+            feature('TRANSCRIPT_CLASSIFIER')
+              ? PERMISSION_MODES
+              : EXTERNAL_PERMISSION_MODES,
+          ),
         )
         .optional()
         .describe('Default permission mode when Claude Code needs access'),
