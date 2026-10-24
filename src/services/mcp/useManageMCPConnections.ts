@@ -46,6 +46,7 @@ import {
   doesEnterpriseMcpConfigExist,
   filterMcpServersByPolicy,
   getClaudeCodeMcpConfigs,
+  getMcpConfigsByScope,
   isMcpServerDisabled,
   setMcpServerEnabled,
 } from 'src/services/mcp/config.js'
@@ -59,7 +60,9 @@ import {
   useAppStateStore,
   useSetAppState,
 } from '../../state/AppState.js'
+import { refreshGlobalConfigFromDisk } from '../../utils/config.js'
 import { errorMessage } from '../../utils/errors.js'
+import { resetSettingsCache } from '../../utils/settings/settingsCache.js'
 /* eslint-enable @typescript-eslint/no-require-imports */
 import { logMCPDebug, logMCPError } from '../../utils/log.js'
 import { enqueue } from '../../utils/messageQueueManager.js'
@@ -82,12 +85,30 @@ import {
 } from './claudeai.js'
 import { registerElicitationHandler } from './elicitationHandler.js'
 import { getMcpPrefix } from './mcpStringUtils.js'
+import {
+  diffMcpConfigs,
+  hasBlockingConfigErrors,
+  type McpConfigDiff,
+} from './reloadDiff.js'
 import { commandBelongsToServer, excludeStalePluginClients } from './utils.js'
 
 // Constants for reconnection with exponential backoff
 const MAX_RECONNECT_ATTEMPTS = 5
 const INITIAL_BACKOFF_MS = 1000
 const MAX_BACKOFF_MS = 30000
+
+/** Outcome of an MCP config reload (`/mcp reload`, config watcher). */
+export type McpReloadResult = {
+  /** True when a config file was broken: nothing was touched. */
+  aborted: boolean
+  diff: McpConfigDiff
+  warnings: string[]
+}
+
+export type McpReloadOptions = {
+  /** Reconnect these servers even if their config did not change. */
+  forceNames?: string[]
+}
 
 /**
  * Create a unique key for a plugin error to enable deduplication
@@ -762,23 +783,17 @@ export function useManageMCPConnections(
     [updateServer],
   )
 
-  // Initialize all servers to pending state if they don't exist in appState.
-  // Re-runs on session change (/clear) and on /reload-plugins (pluginReconnectKey).
-  // On plugin reload, also disconnects stale plugin MCP servers (scope 'dynamic')
-  // that no longer appear in configs — prevents ghost tools from disabled plugins.
-  // Skip claude.ai dedup here to avoid blocking on the network fetch; the connect
-  // useEffect below runs immediately after and dedups before connecting.
-  const sessionId = getSessionId()
-  useEffect(() => {
-    async function initializeServersAsPending() {
-      const { servers: existingConfigs, errors: mcpErrors } = isStrictMcpConfig
-        ? { servers: {}, errors: [] }
-        : await getClaudeCodeMcpConfigs(dynamicMcpConfig)
-      const configs = { ...existingConfigs, ...dynamicMcpConfig }
+  // Servers being shut down because their config changed or vanished.
+  const pendingCleanupRef = useRef<Map<string, Promise<void>>>(new Map())
 
-      // Add MCP errors to plugin errors for UI visibility (deduplicated)
-      addErrorsToAppState(setAppState, mcpErrors)
-
+  // Reconcile AppState with `configs`: stale servers (config changed, plugin
+  // gone and, with pruneRemoved, user/project/local servers deleted from their
+  // file) are disconnected and everything missing is added as pending.
+  const applyConfigsToState = useCallback(
+    (
+      configs: Record<string, ScopedMcpServerConfig>,
+      options?: { pruneRemoved?: boolean; forceNames?: ReadonlySet<string> },
+    ) => {
       setAppState(prevState => {
         // Disconnect MCP servers that are stale: plugin servers removed from
         // config, or any server whose config hash changed (edited .mcp.json).
@@ -787,6 +802,7 @@ export function useManageMCPConnections(
         const { stale, ...mcpWithoutStale } = excludeStalePluginClients(
           prevState.mcp,
           configs,
+          options,
         )
         // Clean up stale connections. Fire-and-forget — state updaters must
         // be synchronous. Three hazards to defuse before calling cleanup:
@@ -807,7 +823,16 @@ export function useManageMCPConnections(
           }
           if (s.type === 'connected') {
             s.client.onclose = undefined
-            void clearServerCache(s.name, s.config).catch(() => {})
+            // Remember the shutdown so a reload can wait for the old process
+            // to exit before spawning its replacement (no orphan stdio).
+            const cleanup = clearServerCache(s.name, s.config)
+              .catch(() => {})
+              .finally(() => {
+                if (pendingCleanupRef.current.get(s.name) === cleanup) {
+                  pendingCleanupRef.current.delete(s.name)
+                }
+              })
+            pendingCleanupRef.current.set(s.name, cleanup)
           }
         }
 
@@ -837,6 +862,28 @@ export function useManageMCPConnections(
           },
         }
       })
+    },
+    [setAppState],
+  )
+
+  // Initialize all servers to pending state if they don't exist in appState.
+  // Re-runs on session change (/clear) and on /reload-plugins (pluginReconnectKey).
+  // On plugin reload, also disconnects stale plugin MCP servers (scope 'dynamic')
+  // that no longer appear in configs — prevents ghost tools from disabled plugins.
+  // Skip claude.ai dedup here to avoid blocking on the network fetch; the connect
+  // useEffect below runs immediately after and dedups before connecting.
+  const sessionId = getSessionId()
+  useEffect(() => {
+    async function initializeServersAsPending() {
+      const { servers: existingConfigs, errors: mcpErrors } = isStrictMcpConfig
+        ? { servers: {}, errors: [] }
+        : await getClaudeCodeMcpConfigs(dynamicMcpConfig)
+      const configs = { ...existingConfigs, ...dynamicMcpConfig }
+
+      // Add MCP errors to plugin errors for UI visibility (deduplicated)
+      addErrorsToAppState(setAppState, mcpErrors)
+
+      applyConfigsToState(configs)
     }
 
     void initializeServersAsPending().catch(error => {
@@ -1125,7 +1172,110 @@ export function useManageMCPConnections(
     [store, updateServer, onConnectionAttempt],
   )
 
-  return { reconnectMcpServer, toggleMcpServer }
+  // Serialises reloads: a config change while a reload is in flight waits for it.
+  const reloadChainRef = useRef<Promise<unknown>>(Promise.resolve())
+
+  const reloadMcpConfigNow = useCallback(
+    async (options?: McpReloadOptions): Promise<McpReloadResult> => {
+      // The global config is refreshed from disk only once a second; a reload
+      // must see what was just written. Half-written content is ignored below.
+      const globalOk = refreshGlobalConfigFromDisk()
+      resetSettingsCache()
+      const { servers, errors } = isStrictMcpConfig
+        ? { servers: {}, errors: [] }
+        : await getClaudeCodeMcpConfigs(dynamicMcpConfig)
+      const empty: McpConfigDiff = {
+        added: [],
+        removed: [],
+        changed: [],
+        unchanged: [],
+      }
+      // A broken file parses to "no servers" and would look like every server
+      // was deleted: keep the live connections exactly as they are.
+      // (getClaudeCodeMcpConfigs only returns plugin errors, so the file parse
+      // errors are collected per scope here.)
+      const fileErrors = isStrictMcpConfig
+        ? []
+        : (['project', 'user', 'local', 'enterprise'] as const).flatMap(
+            scope => getMcpConfigsByScope(scope).errors,
+          )
+      if (!globalOk || hasBlockingConfigErrors(fileErrors)) {
+        const warnings = fileErrors
+          .filter(e => !e.message.startsWith('MCP config file not found'))
+          .map(e => e.message)
+        if (!globalOk) warnings.push('global config is not valid JSON yet')
+        return { aborted: true, diff: empty, warnings }
+      }
+      addErrorsToAppState(setAppState, errors)
+
+      const configs = { ...servers, ...dynamicMcpConfig }
+      const force = new Set(options?.forceNames ?? [])
+      const diff = diffMcpConfigs(store.getState().mcp.clients, configs)
+      for (const name of force) {
+        const i = diff.unchanged.indexOf(name)
+        if (i !== -1) {
+          diff.unchanged.splice(i, 1)
+          diff.changed.push(name)
+        }
+      }
+      diff.changed.sort()
+
+      applyConfigsToState(configs, { pruneRemoved: true, forceNames: force })
+
+      // Wait for replaced/removed stdio processes to exit before spawning
+      // their successors (same command twice would fight over ports/files).
+      await Promise.all(
+        [...diff.changed, ...diff.removed].map(
+          n => pendingCleanupRef.current.get(n) ?? Promise.resolve(),
+        ),
+      )
+
+      const toConnect = Object.fromEntries(
+        [...diff.added, ...diff.changed]
+          .filter(n => configs[n] && !isMcpServerDisabled(n))
+          .map(n => [n, configs[n]!]),
+      )
+      if (Object.keys(toConnect).length > 0) {
+        // Not awaited: slow servers must not block the caller. Each result
+        // lands in AppState through onConnectionAttempt.
+        getMcpToolsCommandsAndResources(onConnectionAttempt, toConnect).catch(
+          error => {
+            logMCPError(
+              'useManageMcpConnections',
+              `Failed to connect after reload: ${errorMessage(error)}`,
+            )
+          },
+        )
+      }
+      return { aborted: false, diff, warnings: [] }
+    },
+    [
+      store,
+      setAppState,
+      isStrictMcpConfig,
+      dynamicMcpConfig,
+      applyConfigsToState,
+      onConnectionAttempt,
+    ],
+  )
+
+  /**
+   * Re-reads every MCP config source and applies only the difference: new
+   * servers connect, edited ones reconnect, deleted ones disconnect and the
+   * rest keeps its live connection.
+   */
+  const reloadMcpConfig = useCallback(
+    (options?: McpReloadOptions): Promise<McpReloadResult> => {
+      const run = reloadChainRef.current.then(() =>
+        reloadMcpConfigNow(options),
+      )
+      reloadChainRef.current = run.catch(() => {})
+      return run
+    },
+    [reloadMcpConfigNow],
+  )
+
+  return { reconnectMcpServer, toggleMcpServer, reloadMcpConfig }
 }
 
 function getTransportDisplayName(type: string): string {

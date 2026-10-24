@@ -2,8 +2,9 @@ import { c as _c } from "react/compiler-runtime";
 import React, { useEffect, useRef } from 'react';
 import { MCPSettings } from '../../components/mcp/index.js';
 import { MCPReconnect } from '../../components/mcp/MCPReconnect.js';
-import { useMcpToggleEnabled } from '../../services/mcp/MCPConnectionManager.js';
-import { useAppState } from '../../state/AppState.js';
+import { useMcpReconnect, useMcpReload, useMcpToggleEnabled } from '../../services/mcp/MCPConnectionManager.js';
+import { formatMcpReloadReport } from '../../services/mcp/reloadDiff.js';
+import { useAppState, useAppStateStore } from '../../state/AppState.js';
 import type { LocalJSXCommandOnDone } from '../../types/command.js';
 import { PluginSettings } from '../plugin/PluginSettings.js';
 
@@ -60,6 +61,56 @@ function _temp2(c) {
 function _temp(s) {
   return s.mcp.clients;
 }
+// `/mcp reload [name]`: re-read every MCP config source and apply only the
+// difference; with a name, also force-reconnect that server (new binary on disk).
+function MCPReload({ target, onComplete }: { target: string | undefined; onComplete: (result: string) => void }) {
+  const reload = useMcpReload();
+  const store = useAppStateStore();
+  const didRun = useRef(false);
+  useEffect(() => {
+    if (didRun.current) return;
+    didRun.current = true;
+    const knew = target ? store.getState().mcp.clients.some(c => c.name === target) : true;
+    reload(target ? { forceNames: [target] } : undefined).then(r => {
+      if (r.aborted) {
+        onComplete(['MCP: reload skipped, a config file is not valid JSON yet (live servers kept as they were)', ...r.warnings.map(w => `  ${w}`)].join('\n'));
+        return;
+      }
+      if (target && !knew && !r.diff.added.includes(target)) {
+        onComplete(`MCP server "${target}" not found`);
+        return;
+      }
+      onComplete(formatMcpReloadReport(r.diff, r.warnings));
+    }).catch(err => onComplete(`Error: ${err instanceof Error ? err.message : String(err)}`));
+  }, [target, reload, store, onComplete]);
+  return null;
+}
+
+// `/mcp reconnect all`: retry every server that is not healthy.
+function MCPReconnectAll({ onComplete }: { onComplete: (result: string) => void }) {
+  const reconnect = useMcpReconnect();
+  const store = useAppStateStore();
+  const didRun = useRef(false);
+  useEffect(() => {
+    if (didRun.current) return;
+    didRun.current = true;
+    const targets = store.getState().mcp.clients.filter(c => c.name !== 'ide' && (c.type === 'failed' || c.type === 'needs-auth' || c.type === 'pending'));
+    if (targets.length === 0) {
+      onComplete('All MCP servers are already connected or disabled');
+      return;
+    }
+    Promise.allSettled(targets.map(t => reconnect(t.name))).then(results => {
+      const ok: string[] = [];
+      const bad: string[] = [];
+      results.forEach((r, i) => {
+        const name = targets[i]!.name;
+        if (r.status === 'fulfilled' && r.value.client.type === 'connected') ok.push(name);else bad.push(name);
+      });
+      onComplete(`MCP: reconnected ${ok.length}/${targets.length}` + (bad.length ? ` (still failing: ${bad.join(', ')})` : ''));
+    });
+  }, [reconnect, store, onComplete]);
+  return null;
+}
 export async function call(onDone: LocalJSXCommandOnDone, _context: unknown, args?: string): Promise<React.ReactNode> {
   if (args) {
     const parts = args.trim().split(/\s+/);
@@ -67,6 +118,12 @@ export async function call(onDone: LocalJSXCommandOnDone, _context: unknown, arg
     // Allow /mcp no-redirect to bypass the redirect for testing
     if (parts[0] === 'no-redirect') {
       return <MCPSettings onComplete={onDone} />;
+    }
+    if (parts[0] === 'reload') {
+      return <MCPReload target={parts.length > 1 ? parts.slice(1).join(' ') : undefined} onComplete={onDone} />;
+    }
+    if (parts[0] === 'reconnect' && parts[1] === 'all' && parts.length === 2) {
+      return <MCPReconnectAll onComplete={onDone} />;
     }
     if (parts[0] === 'reconnect' && parts[1]) {
       return <MCPReconnect serverName={parts.slice(1).join(' ')} onComplete={onDone} />;

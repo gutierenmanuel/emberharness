@@ -3,7 +3,7 @@ import React, { createContext, type ReactNode, useContext, useMemo } from 'react
 import type { Command } from '../../commands.js';
 import type { Tool } from '../../Tool.js';
 import type { MCPServerConnection, ScopedMcpServerConfig, ServerResource } from './types.js';
-import { useManageMCPConnections } from './useManageMCPConnections.js';
+import { type McpReloadOptions, type McpReloadResult, useManageMCPConnections } from './useManageMCPConnections.js';
 interface MCPConnectionContextValue {
   reconnectMcpServer: (serverName: string) => Promise<{
     client: MCPServerConnection;
@@ -12,6 +12,7 @@ interface MCPConnectionContextValue {
     resources?: ServerResource[];
   }>;
   toggleMcpServer: (serverName: string) => Promise<void>;
+  reloadMcpConfig: (options?: McpReloadOptions) => Promise<McpReloadResult>;
 }
 const MCPConnectionContext = createContext<MCPConnectionContextValue | null>(null);
 export function useMcpReconnect() {
@@ -20,6 +21,13 @@ export function useMcpReconnect() {
     throw new Error("useMcpReconnect must be used within MCPConnectionManager");
   }
   return context.reconnectMcpServer;
+}
+export function useMcpReload() {
+  const context = useContext(MCPConnectionContext);
+  if (!context) {
+    throw new Error("useMcpReload must be used within MCPConnectionManager");
+  }
+  return context.reloadMcpConfig;
 }
 export function useMcpToggleEnabled() {
   const context = useContext(MCPConnectionContext);
@@ -36,7 +44,7 @@ interface MCPConnectionManagerProps {
 
 // TODO (ollie): We may be able to get rid of this context by putting these function on app state
 export function MCPConnectionManager(t0) {
-  const $ = _c(6);
+  const $ = _c(8);
   const {
     children,
     dynamicMcpConfig,
@@ -44,16 +52,19 @@ export function MCPConnectionManager(t0) {
   } = t0;
   const {
     reconnectMcpServer,
-    toggleMcpServer
+    toggleMcpServer,
+    reloadMcpConfig
   } = useManageMCPConnections(dynamicMcpConfig, isStrictMcpConfig);
   let t1;
-  if ($[0] !== reconnectMcpServer || $[1] !== toggleMcpServer) {
+  if ($[0] !== reconnectMcpServer || $[1] !== toggleMcpServer || $[6] !== reloadMcpConfig) {
     t1 = {
       reconnectMcpServer,
-      toggleMcpServer
+      toggleMcpServer,
+      reloadMcpConfig
     };
     $[0] = reconnectMcpServer;
     $[1] = toggleMcpServer;
+    $[6] = reloadMcpConfig;
     $[2] = t1;
   } else {
     t1 = $[2];
