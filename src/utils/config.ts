@@ -186,6 +186,8 @@ export type GlobalConfig = {
    */
   apiKeyHelper?: string
   projects?: Record<string, ProjectConfig>
+  /** FnHarness: context profile (/scope, Ctrl+Tab) remembered for the claude account. */
+  contextProfile?: { mcp: string; skill: string; tools: string }
   numStartups: number
   installMethod?: InstallMethod
   autoUpdates?: boolean
