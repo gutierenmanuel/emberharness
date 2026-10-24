@@ -186,6 +186,8 @@ export type GlobalConfig = {
    */
   apiKeyHelper?: string
   projects?: Record<string, ProjectConfig>
+  /** FnHarness: context profile (/scope, Ctrl+Tab) remembered for the claude account. */
+  contextProfile?: { mcp: string; skill: string; tools: string }
   numStartups: number
   installMethod?: InstallMethod
   autoUpdates?: boolean
@@ -1051,6 +1053,36 @@ function startGlobalConfigFreshnessWatcher(): void {
     unwatchFile(file)
     freshnessWatcherStarted = false
   })
+}
+
+/**
+ * Re-reads the global config now if another process changed it, instead of
+ * waiting for the 1 s freshness poll (used by the MCP hot reload, which must
+ * see the new `mcpServers` right away). Never regresses the cache: our own
+ * writes carry a newer cache mtime and are skipped. Returns false when the
+ * file is unreadable or not valid JSON (half written), leaving the cache alone.
+ */
+export function refreshGlobalConfigFromDisk(): boolean {
+  if (!globalConfigCache.config) return true
+  try {
+    const fs = getFsImplementation()
+    const file = getGlobalClaudeFile()
+    const stats = fs.statSync(file)
+    if (stats.mtimeMs <= globalConfigCache.mtime) return true
+    const parsed = safeParseJSON(stripBOM(fs.readFileSync(file, { encoding: 'utf-8' })))
+    if (parsed === null || typeof parsed !== 'object') return false
+    globalConfigCache = {
+      config: migrateConfigFields({
+        ...createDefaultGlobalConfig(),
+        ...(parsed as Partial<GlobalConfig>),
+      }),
+      mtime: stats.mtimeMs,
+    }
+    lastReadFileStats = { mtime: stats.mtimeMs, size: stats.size }
+    return true
+  } catch {
+    return false
+  }
 }
 
 // Write-through: what we just wrote IS the new config. cache.mtime overshoots

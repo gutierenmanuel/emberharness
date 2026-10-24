@@ -19,6 +19,7 @@ import { installStreamJsonStdoutGuard } from 'src/utils/streamJsonStdoutGuard.js
 import type { ToolPermissionContext } from 'src/Tool.js'
 import type { ThinkingConfig } from 'src/utils/thinking.js'
 import { assembleToolPool, filterToolsByDenyRules } from 'src/tools.js'
+import { filterMcpClientsByProfile, filterToolsByProfile, scopeLookup } from 'src/utils/contextProfile.js'
 import uniqBy from 'lodash-es/uniqBy.js'
 import { uniq } from 'src/utils/array.js'
 import { mergeAndFilterTools } from 'src/utils/toolPool.js'
@@ -1489,6 +1490,16 @@ function runHeadlessStreaming(
         tool => !toolMatchesName(tool, options.permissionPromptToolName!),
       )
     }
+    // FnHarness context profile (/scope, FNHARNESS_CONTEXT_PROFILE).
+    allTools = filterToolsByProfile(
+      allTools,
+      appState.contextProfile,
+      scopeLookup([
+        ...appState.mcp.clients,
+        ...sdkClients,
+        ...dynamicMcpState.clients,
+      ]),
+    )
     const initJsonSchema = getInitJsonSchema()
     if (initJsonSchema && !options.jsonSchema) {
       const syntheticOutputResult = createSyntheticOutputTool(initJsonSchema)
@@ -2155,7 +2166,7 @@ function runHeadlessStreaming(
               cwd: cwd(),
               tools: allTools,
               verbose: options.verbose,
-              mcpClients: allMcpClients,
+              mcpClients: filterMcpClientsByProfile(allMcpClients, appState.contextProfile),
               thinkingConfig: options.thinkingConfig,
               maxTurns: options.maxTurns,
               maxBudgetUsd: options.maxBudgetUsd,

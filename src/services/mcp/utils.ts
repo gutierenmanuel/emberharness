@@ -149,6 +149,21 @@ export function excludeResourcesByServer(
 }
 
 /**
+ * Scopes whose servers disappear from the session when they disappear from
+ * their config file during an explicit reload. claude.ai connectors come from
+ * the network (not from these files) and `dynamic` servers (plugins,
+ * --mcp-config, SDK) follow the stale-plugin logic, so neither is listed here.
+ */
+export function isPrunableScope(scope: ConfigScope | undefined): boolean {
+  return (
+    scope === 'user' ||
+    scope === 'project' ||
+    scope === 'local' ||
+    scope === 'enterprise'
+  )
+}
+
+/**
  * Stable hash of an MCP server config for change detection on /reload-plugins.
  * Excludes `scope` (provenance, not content — moving a server from .mcp.json
  * to settings.json shouldn't reconnect it). Keys sorted so `{a:1,b:2}` and
@@ -190,6 +205,15 @@ export function excludeStalePluginClients(
     resources: Record<string, ServerResource[]>
   },
   configs: Record<string, ScopedMcpServerConfig>,
+  options?: {
+    /**
+     * Explicit reload (`/mcp reload`, config watcher): also drop servers of
+     * scope user/project/local/enterprise that are no longer in the config.
+     */
+    pruneRemoved?: boolean
+    /** Servers to treat as stale even when their config hash is unchanged. */
+    forceNames?: ReadonlySet<string>
+  },
 ): {
   clients: MCPServerConnection[]
   tools: Tool[]
@@ -198,8 +222,14 @@ export function excludeStalePluginClients(
   stale: MCPServerConnection[]
 } {
   const stale = mcp.clients.filter(c => {
+    if (options?.forceNames?.has(c.name)) return true
     const fresh = configs[c.name]
-    if (!fresh) return c.config.scope === 'dynamic'
+    if (!fresh) {
+      return (
+        c.config.scope === 'dynamic' ||
+        (options?.pruneRemoved === true && isPrunableScope(c.config.scope))
+      )
+    }
     return hashMcpConfig(c.config) !== hashMcpConfig(fresh)
   })
   if (stale.length === 0) {

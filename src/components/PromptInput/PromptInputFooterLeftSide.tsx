@@ -15,6 +15,7 @@ import { isVimModeEnabled } from './utils.js';
 import { useShortcutDisplay } from '../../keybindings/useShortcutDisplay.js';
 import { isDefaultMode, permissionModeSymbol, permissionModeTitle, getModeColor } from '../../utils/permissions/PermissionMode.js';
 import { BackgroundTaskStatus } from '../tasks/BackgroundTaskStatus.js';
+import { ContextProfileIndicator } from '../ContextProfileIndicator.js';
 import { isBackgroundTask } from '../../tasks/types.js';
 import { AGENT_PANEL_ENABLED, isPanelAgentTask } from '../../tasks/LocalAgentTask/LocalAgentTask.js';
 import { getVisibleAgentTasks } from '../CoordinatorAgentStatus.js';
@@ -333,8 +334,9 @@ function ModeIndicator({
   // low enough to show PR status on standard 80-col terminals.
   const shouldShowPrStatus = isPrStatusEnabled() && prStatus.number !== null && prStatus.reviewState !== null && prStatus.url !== null && primaryItemCount < 2 && (primaryItemCount === 0 || columns >= 80);
 
-  // Hide the shift+tab hint when there are 2 primary items
-  const shouldShowModeHint = primaryItemCount < 2;
+  // Hide the shift+tab hint when there are 2 primary items.
+  // FnHarness: the context profile pill takes its place (see /scope, ? for shortcuts).
+  const shouldShowModeHint = false && primaryItemCount < 2;
 
   // Check if we have in-process teammates (showing pills)
   // In spinner-tree mode, pills are disabled - teammates appear in the spinner tree instead
@@ -352,6 +354,7 @@ function ModeIndicator({
             {' '}
             <KeyboardShortcutHint shortcut={modeCycleShortcut} action="cycle" parens />
           </Text>}
+        <ContextProfileIndicator />
       </Text> : null;
 
   // Build parts array - exclude BackgroundTaskStatus when we have teammate pills

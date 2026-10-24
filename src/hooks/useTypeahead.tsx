@@ -1306,7 +1306,7 @@ export function useTypeahead({
 
     // Handle Tab key fallback behaviors when no autocomplete suggestions
     // Don't handle tab if shift is pressed (used for mode cycle)
-    if (e.key === 'tab' && !e.shift) {
+    if (e.key === 'tab' && !e.shift && !e.ctrl) {
       // Skip if autocomplete is handling this (suggestions or ghost text exist)
       if (suggestions.length > 0 || effectiveGhostText) {
         return;

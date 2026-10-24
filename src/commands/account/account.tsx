@@ -5,6 +5,8 @@ import { useTerminalSize } from '../../hooks/useTerminalSize.js'
 import { Box, Text, useInput } from '../../ink.js'
 import TextInput from '../../components/TextInput.js'
 import type { LocalJSXCommandCall } from '../../types/command.js'
+import { clearSystemPromptSections } from '../../constants/systemPromptSections.js'
+import { loadContextProfileForAccount } from '../../utils/contextProfileStore.js'
 import { accountsFilePath, loadStore } from '../../services/api/openai-compat/accounts.js'
 import type { Catalog } from '../../services/api/openai-compat/catalog.js'
 import { loadCatalog } from '../../services/api/openai-compat/catalogStore.js'
@@ -177,11 +179,15 @@ export const call: LocalJSXCommandCall = async (onDone, context, args) => {
     try {
       const result = await run()
       if (result.model !== undefined) {
+        // The account changed: its remembered context profile comes with it.
+        const contextProfile = loadContextProfileForAccount(activeAccountId())
         context.setAppState(prev => ({
           ...prev,
           mainLoopModel: result.model ?? null,
           mainLoopModelForSession: null,
+          contextProfile,
         }))
+        clearSystemPromptSections()
       }
       onDone(result.message, { display: 'system' })
     } catch (err) {

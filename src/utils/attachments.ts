@@ -83,6 +83,7 @@ import type { ReadResourceResult } from '@modelcontextprotocol/sdk/types.js'
 import { getSkillToolCommands, getMcpSkillCommands } from '../commands.js'
 import type { Command } from '../types/command.js'
 import uniqBy from 'lodash-es/uniqBy.js'
+import { filterSkillsByProfile } from './contextProfile.js'
 import { getProjectRoot } from '../bootstrap/state.js'
 import { formatCommandsWithinBudget } from '../tools/SkillTool/prompt.js'
 import { getContextWindowForModel } from './context.js'
@@ -130,6 +131,10 @@ import {
 import { filterDeniedAgents } from './permissions/permissions.js'
 import { getSubscriptionType } from './auth.js'
 import { mcpInfoFromString } from '../services/mcp/mcpStringUtils.js'
+import {
+  type McpToolChange,
+  mcpToolsTracker,
+} from '../services/mcp/toolsDelta.js'
 import {
   matchingRuleForInput,
   pathInAllowedWorkingPath,
@@ -706,6 +711,11 @@ export type Attachment =
       removedNames: string[]
     }
   | {
+      /** The tool set of one or more MCP servers changed since the last turn. */
+      type: 'mcp_tools_changed'
+      changes: McpToolChange[]
+    }
+  | {
       type: 'companion_intro'
       name: string
       species: string
@@ -944,6 +954,11 @@ export async function getAttachments(
   // Attachments which are semantically only for the main conversation or don't have concurrency-safe implementations
   const mainThreadAttachments = isMainThread
     ? [
+        // Only when the MCP tool set really differs from what the model last
+        // saw (hot reload, restart): unchanged turns add nothing.
+        maybe('mcp_tools_changed', async () =>
+          getMcpToolsChangedAttachment(toolUseContext.options.tools),
+        ),
         maybe('ide_selection', async () =>
           getSelectedLinesFromIDE(ideSelection, toolUseContext),
         ),
@@ -1457,6 +1472,16 @@ export function getDateChangeAttachments(
   }
 
   return [{ type: 'date_change', newDate: currentDate }]
+}
+
+function getMcpToolsChangedAttachment(tools: Tools): Attachment[] {
+  // /clear starts a new session id, which re-baselines silently (the new
+  // conversation's request already carries the current tools).
+  const changes = mcpToolsTracker.observe(
+    getSessionId(),
+    tools.map(t => t.name),
+  )
+  return changes.length > 0 ? [{ type: 'mcp_tools_changed', changes }] : []
 }
 
 function getUltrathinkEffortAttachment(input: string | null): Attachment[] {
@@ -2697,6 +2722,12 @@ async function getSkillListingAttachments(
     mcpSkills.length > 0
       ? uniqBy([...localCommands, ...mcpSkills], 'name')
       : localCommands
+  // FnHarness context profile: only the skills of the chosen origin are listed.
+  allCommands = filterSkillsByProfile(
+    allCommands,
+    toolUseContext.options.contextProfile ??
+      toolUseContext.getAppState().contextProfile,
+  )
 
   // When skill search is active, filter to bundled + MCP instead of full
   // suppression. Resolves the turn-0 gap: main thread gets turn-0 discovery

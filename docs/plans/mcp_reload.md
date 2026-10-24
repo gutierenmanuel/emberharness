@@ -1,6 +1,51 @@
 # Plan: recarga en caliente de servidores MCP en fnharness
 
-Estado: investigación (24/10/2026). Base: fnharness (fork de Claude Code 2.1.87) frente a Claude Code 2.1.310.
+Estado: **implementado** (24/10/2026, rama `quick/mcp-reload`, un commit por fase). Base: fnharness (fork de Claude Code 2.1.87) frente a Claude Code 2.1.310.
+
+## 0. Estado por fase
+
+| Fase | Estado | Dónde |
+|---|---|---|
+| 1. `/mcp reload [nombre]`, `/mcp reconnect all`, poda | hecha | `reloadMcpConfig` en `useManageMCPConnections.ts`, `reloadDiff.ts`, `commands/mcp/mcp.tsx`, `excludeStalePluginClients(..., {pruneRemoved, forceNames})` |
+| 2. Watcher de ficheros | hecha | `configWatcher.ts`, efecto en `useManageMCPConnections.ts`, señal `mcpCwdChanged` desde `/cd` |
+| 3. Autorreconexión de stdio | hecha | `reconnectPolicy.ts` (`nextBackoffMs`, `decideStdioRestart`), rama stdio en `onclose` |
+| 4. Aviso al modelo | hecha | `toolsDelta.ts`, adjunto `mcp_tools_changed` en `utils/attachments.ts` y `utils/messages.ts` |
+
+Desviaciones del diseño original, y por qué:
+
+- **No se usa chokidar.** En este runtime (Bun 1.3.11) ni `fs.watch` ni chokidar 5 emiten eventos para dotfiles
+  creados después del arranque (`.mcp.json`). El watcher sondea con `fs.watchFile` (500 ms) cada `.mcp.json` del cwd
+  y sus padres y el `.claude.json` global, igual que ya hace `utils/config.ts`.
+- **Escrituras propias:** en vez de marcarlas, el watcher compara una huella de las secciones `mcpServers`
+  (`fingerprintMcpFile`). `.claude.json` se reescribe constantemente por la app (coste, historial) y eso nunca
+  cambia la huella, así que no recarga nada. Las escrituras de `addMcpConfig`/`removeMcpConfig` sí cambian la huella
+  y recargan, que es lo que se quiere (las hace otro proceso `fnharness mcp add`).
+- **`reloadMcpConfig` no incrementa `pluginReconnectKey`:** reutiliza el diff y el estado pero conecta solo lo
+  añadido o cambiado (no relanza la carga de claude.ai ni de plugins).
+- **El aviso de tools no depende de `deferred_tools_delta`** (que solo se activa para ant/GrowthBook): es un adjunto
+  propio que compara las tools MCP de la petición con las de la última que vio el modelo.
+- **`clearServerCache` ya no lanza el proceso solo para matarlo** cuando la caché está vacía (duplicaba cada
+  reinicio de un servidor muerto).
+
+Cómo se probó: tests unitarios de las partes puras (`reloadDiff`, `configWatcher`, `reconnectPolicy`, `toolsDelta`,
+`toolGone`) y `tests/e2e/mcp_reload.e2e.test.ts`, que arranca la TUI real en un pseudo-terminal con
+`CLAUDE_CONFIG_DIR` temporal y un servidor MCP stdio de juguete (`tests/e2e/fixtures/mcp_stdio_server.ts`):
+`/mcp reload` con JSON roto; watcher con alta, edición, JSON a medio escribir, baja y servidor de ámbito usuario;
+el proceso muerto con `SIGKILL` vuelve solo; un servidor que cae siempre se abandona tras 1 + 4 arranques; el modelo
+recibe el aviso de tools una sola vez. La comprobación es sobre las tools que llegan al backend falso de OpenAI.
+
+Pendiente / límites conocidos:
+
+- No se aplaza una desconexión mientras hay un `tool_use` en curso: si un servidor desaparece a mitad de turno, la
+  llamada devuelve un `tool_result` de error que lo explica (`toolGone.ts`), no se encola.
+- Una recarga durante el streaming de un turno no se retrasa: cambia el bloque `tools` de la siguiente petición
+  (una invalidación de caché de prompt por cambio real, nunca por recargas sin diferencias).
+- OAuth: la recarga no borra credenciales ni abre el navegador; un remoto con URL nueva queda `needs-auth`.
+  No se probó contra un servidor OAuth real.
+- Detección de binario cambiado en disco (opcional de la fase 3): no hecha; `/mcp reload <servidor>` lo cubre a mano.
+- `/mcp reload` no espera a que conecten los servidores lentos: el informe dice qué cambió, no si ya conectó.
+- Los avisos usan toasts (8 s); no se escribe un mensaje de sistema persistente en el transcript.
+
 
 ## 1. Qué ofrece Claude Code actual (2.1.310)
 

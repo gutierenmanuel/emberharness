@@ -76,7 +76,7 @@ describe.skipIf(!hasCli)('account routing e2e', () => {
         },
       }),
     )
-    const env: Record<string, string | undefined> = { ...process.env, CLAUDE_CONFIG_DIR: configDir, FNHARNESS_DISABLE_MODELS_FETCH: '1' }
+    const env: Record<string, string | undefined> = { ...process.env, CLAUDE_CONFIG_DIR: configDir, FNHARNESS_DISABLE_MODELS_FETCH: '1', FNHARNESS_CONTEXT_PROFILE: 'full' }
     for (const k of Object.keys(env)) if (k.startsWith('CLAUDE_CODE_') || k === 'CLAUDECODE') delete env[k]
     for (const k of ['CLAUDE_MULTIMODEL_PROVIDER', 'CLAUDE_MULTIMODEL_ACCOUNT', 'CLAUDE_MULTIMODEL_BASE_URL', 'CLAUDE_MULTIMODEL_MODEL', 'FNHARNESS_ACCOUNT', 'ANTHROPIC_MODEL', 'TMUX']) delete env[k]
     // A default subagent model must not override an explicit cuenta:modelo.
@@ -188,7 +188,7 @@ describe.skipIf(!hasCli)('subagent panel shows the account e2e', () => {
         },
       }),
     )
-    const env: Record<string, string | undefined> = { ...process.env, CLAUDE_CONFIG_DIR: configDir, COLUMNS: '110', LINES: '30', TERM: 'xterm-256color', FNHARNESS_DISABLE_MODELS_FETCH: '1' }
+    const env: Record<string, string | undefined> = { ...process.env, CLAUDE_CONFIG_DIR: configDir, COLUMNS: '110', LINES: '30', TERM: 'xterm-256color', FNHARNESS_DISABLE_MODELS_FETCH: '1', FNHARNESS_CONTEXT_PROFILE: 'full' }
     for (const k of Object.keys(env)) if (k.startsWith('CLAUDE_CODE_') || k.startsWith('CLAUDE_MULTIMODEL_') || ['CLAUDECODE', 'TMUX', 'ANTHROPIC_MODEL', 'FNHARNESS_ACCOUNT'].includes(k)) delete env[k]
     const proc = Bun.spawn(['script', '-qc', `timeout 14 ${CLI}`, '/dev/null'], { cwd, env, stdin: 'pipe', stdout: 'pipe', stderr: 'pipe' })
     setTimeout(() => {

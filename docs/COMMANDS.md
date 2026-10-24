@@ -92,7 +92,7 @@ El tipo indica cómo se ejecuta: `local` (texto), `local-jsx` (interfaz Ink) o `
 
 | Comando | Alias | Descripción | Tipo | Backend no-Anthropic |
 |---|---|---|---|---|
-| `/mcp [enable\|disable [servidor]]` | | Gestiona servidores MCP. | local-jsx | Sí |
+| `/mcp [reload [servidor] \| reconnect <servidor\|all> \| enable\|disable [servidor]]` | | Gestiona servidores MCP. `reload` relee `.mcp.json`, `.claude.json` y settings y aplica solo la diferencia (añade, reconecta lo cambiado, desconecta lo eliminado); con nombre fuerza además la reconexión de ese servidor. `reconnect all` reintenta los que están `failed`, `needs-auth` o `pending`. Un JSON roto aborta la recarga sin tocar nada. | local-jsx | Sí |
 | `/plugin` | `/plugins`, `/marketplace` | Gestiona plugins. | local-jsx | Sí |
 | `/recap` | | Resumen de una línea de dónde está la sesión (reutiliza `services/awaySummary.ts` con el modelo rápido). | local | No |
 | `/reload-skills` | | Reescanea los directorios de skills sin reiniciar y dice cuáles son nuevas o han desaparecido; el menú de `/` se refresca. | local | No |
@@ -191,6 +191,19 @@ Comando integrado (tipo `local-jsx`, disponible también en `-p`). Mantiene al a
 Reglas de parada: condición cumplida; evaluador dice imposible; 3 turnos seguidos sin ninguna llamada a herramienta; tope de turnos (30 por defecto, `--turns`); fallo del evaluador. Al parar se escribe un mensaje de resumen y el objetivo se descarta. Tras cada turno se muestra una línea `◎ /goal · turno 2/30 · 1m 12s · 8.4k tokens · <condición>` como mensaje de sistema y como notificación del pie. Los tokens suman agente y evaluador.
 
 Evaluador: por defecto la cuenta y el modelo pequeño activos. Los modelos locales pequeños juzgan mal, así que se puede fijar otra cuenta con `--judge claude` (modelo rápido de Anthropic), con la variable `FNHARNESS_GOAL_JUDGE` o con el ajuste `goalJudge` de `settings.json`; el orden de prioridad es ese. Para llamar al evaluador se cambia de cuenta un instante y se restaura al terminar. El objetivo vive en memoria: no sobrevive a un reinicio. Código: `src/utils/goal/` (lógica pura en `goalLogic.ts`, estado y juez en `goalState.ts`), `src/commands/goal/` y el gancho en `src/query/stopHooks.ts`.
+
+### 2.13 `/scope` (perfil de contexto)
+
+Comando integrado (tipo `local-jsx`). Decide qué entra al modelo en cada petición; pensado para modelos locales con poca ventana. Se aplica desde el siguiente turno y se recuerda por cuenta (`contextProfile` en `accounts.json`; para `claude`, en `.claude.json`). Por defecto: `claude` y cuentas remotas → Full; backends locales (qwen36, llamacpp, ollama, ...) → Simple. Al cambiar de cuenta con `/account` se carga el perfil de esa cuenta.
+
+| Entrada | Qué pasa |
+|---|---|
+| `/scope` | Estado y selector de presets con el coste estimado de cada uno (sistema, tools, skills). |
+| `/scope full\|folder\|user\|simple\|nothing` | Aplica un preset (alias: `todo`, `carpeta`, `usuario`, `nada`, `chat`). |
+| `/scope mcp:<full\|folder\|user\|none> skill:<full\|folder\|user\|none> tools:<full\|simple\|none>` | Cambia ejes sueltos sobre el perfil actual; un preset delante hace de base. |
+| Ctrl+Tab / Ctrl+Shift+Tab | Rota Full → Folder → User → Simple → Nothing (acciones `chat:cycleContextProfile` y `chat:cycleContextProfileBack`). |
+
+Ejes: `mcp` filtra servidores por el `scope` de su config (`folder` = project/local, `user` = user); `skill` filtra lo que ve el modelo por origen (`folder` = `.claude` del proyecto, `user` = `~/.claude`; con `none` no se envía `SkillTool`); `tools` deja todas las integradas, solo Bash/Read/Write/Edit/Glob/Grep (`simple`) o ninguna (`none`, con un prompt de sistema corto de chat). El pie muestra `ctx: <perfil> ~Nk tok`. `FNHARNESS_CONTEXT_PROFILE` fuerza el perfil al arrancar sin tocar lo guardado. Diseño y medidas: `docs/plans/context_profile.md`.
 
 ## 3. CLI de línea de comandos
 
