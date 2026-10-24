@@ -144,6 +144,11 @@ import {
 import type { QuerySource } from 'src/constants/querySource.js'
 import type { Notification } from 'src/context/notifications.js'
 import { addToTotalSessionCost } from 'src/cost-tracker.js'
+import {
+  routeForModel,
+  withModelRoute,
+  withModelRouteGenerator,
+} from './accountRouting.js'
 import { getFeatureValue_CACHED_MAY_BE_STALE } from 'src/services/analytics/growthbook.js'
 import type { AgentId } from 'src/types/ids.js'
 import {
@@ -721,6 +726,23 @@ export async function queryModelWithoutStreaming({
   signal: AbortSignal
   options: Options
 }): Promise<AssistantMessage> {
+  // `cuenta:modelo`: this request is served by that account (accountRouting.ts).
+  const route = routeForModel(options.model)
+  if (route) {
+    return withModelRoute(
+      options.model,
+      model =>
+        queryModelWithoutStreaming({
+          messages,
+          systemPrompt,
+          thinkingConfig,
+          tools,
+          signal,
+          options: { ...options, model },
+        }),
+      route,
+    )
+  }
   // Store the assistant message but continue consuming the generator to ensure
   // logAPISuccessAndDuration gets called (which happens after all yields)
   let assistantMessage: AssistantMessage | undefined
@@ -767,6 +789,20 @@ export async function* queryModelWithStreaming({
   StreamEvent | AssistantMessage | SystemAPIErrorMessage,
   void
 > {
+  // `cuenta:modelo`: this request is served by that account (accountRouting.ts).
+  const route = routeForModel(options.model)
+  if (route) {
+    return yield* withModelRouteGenerator(route, model =>
+      queryModelWithStreaming({
+        messages,
+        systemPrompt,
+        thinkingConfig,
+        tools,
+        signal,
+        options: { ...options, model },
+      }),
+    )
+  }
   return yield* withStreamingVCR(messages, async function* () {
     yield* queryModel(
       messages,

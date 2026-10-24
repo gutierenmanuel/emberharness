@@ -16,6 +16,7 @@
  *   CLAUDE_MULTIMODEL_SMALL_MODEL  model for background/cheap calls (defaults to MODEL)
  */
 
+import { AsyncLocalStorage } from 'async_hooks'
 import { catalogIdFor, findProvider, modelLimits, type Catalog } from './catalog.js'
 import { loadCatalog } from './catalogStore.js'
 import {
@@ -252,7 +253,72 @@ export function getModelLimits(
 
 let cachedProfile: MultimodelProfile | null | undefined
 
+/**
+ * Per-request account scope. A request whose model carries an account prefix
+ * (`qwen36:model`, `claude:haiku`) runs inside one of these, so everything it
+ * touches (client, auth gating, betas, limits, cost) sees that account while
+ * the session keeps its own. `live` drops to false when the request ends, so
+ * timers or promises created inside it and firing later fall back to the
+ * session account instead of carrying the scope forever.
+ */
+export type ProfileScope = {
+  accountId: string
+  profile: MultimodelProfile | null
+  live: boolean
+}
+
+const profileScope = new AsyncLocalStorage<ProfileScope>()
+
+function liveScope(): ProfileScope | undefined {
+  const s = profileScope.getStore()
+  return s?.live ? s : undefined
+}
+
+/** Account id of the request scope in force, or undefined outside one. */
+export function getScopedAccountId(): string | undefined {
+  return liveScope()?.accountId
+}
+
+/** Runs `fn` (sync, or async until its promise settles) inside `scope`. */
+export function runInProfileScope<T>(scope: ProfileScope, fn: () => T): T {
+  return profileScope.run(scope, fn)
+}
+
+/**
+ * Wraps an async generator so every resumption of its body runs inside
+ * `scope` (AsyncLocalStorage does not follow a generator across `next()`
+ * calls made from outside). The scope dies when the generator finishes.
+ */
+export function scopeGenerator<T, R>(
+  scope: ProfileScope,
+  gen: AsyncGenerator<T, R>,
+): AsyncGenerator<T, R> {
+  const settle = async (
+    step: () => Promise<IteratorResult<T, R>>,
+  ): Promise<IteratorResult<T, R>> => {
+    try {
+      const r = await profileScope.run(scope, step)
+      if (r.done) scope.live = false
+      return r
+    } catch (err) {
+      scope.live = false
+      throw err
+    }
+  }
+  const wrapped: AsyncGenerator<T, R> = {
+    next: (...args) => settle(() => gen.next(...args)),
+    return: value => settle(() => gen.return(value)),
+    throw: err => settle(() => gen.throw(err)),
+    [Symbol.asyncIterator]() {
+      return wrapped
+    },
+  } as AsyncGenerator<T, R>
+  return wrapped
+}
+
 export function getMultimodelProfile(): MultimodelProfile | null {
+  const scope = liveScope()
+  if (scope) return scope.profile
   if (cachedProfile === undefined) {
     cachedProfile = resolveProfile(process.env)
   }
@@ -272,6 +338,15 @@ const MODEL_ENV_KEYS = [
   'ANTHROPIC_DEFAULT_HAIKU_MODEL',
 ] as const
 let originalModelEnv: Env | undefined
+
+/**
+ * The model env slots as they were before any multimodel account rewrote
+ * them: what `claude:<alias>` resolves against while the session runs on
+ * another account.
+ */
+export function getOriginalModelEnv(env: Env = process.env): Env {
+  return originalModelEnv ?? Object.fromEntries(MODEL_ENV_KEYS.map(k => [k, env[k]]))
+}
 
 /** Tests only: forget the saved env slots and the cached profile. */
 export function resetActiveProfileForTesting(): void {
