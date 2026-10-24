@@ -235,7 +235,16 @@ bucle (pruebas reales y política de cuentas).
 
 ## 7. Riesgos abiertos y supuestos sin verificar
 
-- El stream-json bidireccional está en el código pero no se ha ejecutado aquí (fase 1 lo decide).
+- Resuelto en la fase 1: el stream-json bidireccional funciona. `tests/e2e/streamJson.e2e.test.ts` envía
+  dos turnos por stdin (el segundo solo tras recibir el `result` del primero), obtiene un evento `result`
+  por turno, un único `session_id` y el eco de `--replay-user-messages`. `launchFlags.e2e.test.ts` y
+  `resume.e2e.test.ts` cubren `--session-id`, `--append-system-prompt-file`, `--mcp-config`, `--plugin-dir`,
+  `--settings` con hook `SessionStart`, transcript en `$CLAUDE_CONFIG_DIR/projects/*/<uuid>.jsonl` y
+  `--resume <uuid>`; todos pasan contra el backend falso. Por tanto la fase 8 (headless) no se descarta.
+  Nota: stream-json con `--output-format stream-json` exige `--verbose` junto a `-p`.
+- Corregido de paso en el harness e2e: `stripAnsi` convertía los saltos de cursor `ESC[nC` en nada (palabras
+  pegadas) y el pty de `script` ignoraba `COLUMNS` (80 columnas, toasts truncados); ahora se fija con `stty`.
+  Esos fallos preexistentes rompían 3 tests TUI.
 - La renovación de tokens con credenciales compartidas entre dos binarios no se ha probado.
 - Algunos hooks del dueño (`model_router.py`, `goal_*`) pueden asumir variables o rutas de `~/.claude`;
   la fase 3 debe revisarlos uno a uno.
