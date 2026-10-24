@@ -9,6 +9,7 @@
 //   user text containing "MONITOR_DEMO"              -> Monitor(a command printing 3 lines)
 //   user text containing "MONITOR_STOP_DEMO"        -> Monitor(endless ticker), then TaskStop on its id
 //   user text containing "<event>"                   -> plain text acknowledging the event
+//   user text containing "AGENT_DEMO"                -> two Agent calls (run_in_background) whose sub-agents answer after MOCK_SUB_DELAY_MS (12 s)
 //   any tool result                                  -> plain text "ok"
 // Every request body is appended to $MOCK_LOG (default /tmp/mock_openai.log) as one JSON line.
 
@@ -33,12 +34,34 @@ type Plan = { text?: string; tool?: { name: string; args: unknown } }
 function plan(messages: Msg[]): Plan {
   const last = messages[messages.length - 1]
   const t = textOf(last)
-  if (last?.role === 'tool') {
+  // A sub-agent started by AGENT_DEMO: sleep (so the panel stays visible), then answer.
+  const userText = messages.filter(m => m.role === 'user').map(textOf).join('\n')
+  if (userText.includes('AGENT_SUB') && !userText.includes('AGENT_DEMO')) {
+    // The delay in fetch() keeps the sub-agent alive long enough to see it in the panel.
+    return { text: 'sub-agent done' }
+  }
+  if (last?.role === 'tool' && !userText.includes('AGENT_DEMO')) {
     // Monitor started in the STOP demo: stop it right away with TaskStop.
     const started = /Monitor started \(task (\w+)/.exec(t)
     const stopDemo = messages.some(m => textOf(m).includes('MONITOR_STOP_DEMO'))
     if (started && stopDemo) return { tool: { name: 'TaskStop', args: { task_id: started[1] } } }
     return { text: 'ok' }
+  }
+  if (t.includes('AGENT_DEMO') || messages.some(m => m.role === 'user' && textOf(m).includes('AGENT_DEMO'))) {
+    const launched = messages.filter(m => m.role === 'tool').length
+    if (launched < 2) {
+      return {
+        tool: {
+          name: 'Agent',
+          args: {
+            description: launched === 0 ? 'count src' : 'count utils',
+            prompt: 'AGENT_SUB count files',
+            subagent_type: 'general-purpose',
+            run_in_background: true,
+          },
+        },
+      }
+    }
   }
   if (t.includes('MONITOR_STOP_DEMO')) {
     return {
@@ -94,6 +117,8 @@ Bun.serve({
       JSON.stringify({ at: new Date().toISOString(), tools: body.tools?.map(t => t.function.name), last: textOf(body.messages.at(-1)).slice(0, 400), role: body.messages.at(-1)?.role, nMessages: body.messages.length, events: body.messages.map(textOf).join('\n').split('<event>').length - 1 }) + '\n',
     )
     const p = plan(body.messages)
+    const joined = body.messages.filter(m => m.role === 'user').map(textOf).join('\n')
+    if (joined.includes('AGENT_SUB') && !joined.includes('AGENT_DEMO')) await Bun.sleep(Number(process.env.MOCK_SUB_DELAY_MS ?? 12000))
     const base = { id: 'chatcmpl-mock', object: 'chat.completion.chunk', created: 0, model: 'mock-model' }
     if (body.stream === false) {
       return Response.json({
