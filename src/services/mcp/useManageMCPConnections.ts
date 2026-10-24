@@ -103,6 +103,13 @@ import {
   hasBlockingConfigErrors,
   type McpConfigDiff,
 } from './reloadDiff.js'
+import {
+  decideStdioRestart,
+  formatRestartNotice,
+  INITIAL_RESTART_STATE,
+  type RestartState,
+  STDIO_MAX_ATTEMPTS,
+} from './reconnectPolicy.js'
 import { commandBelongsToServer, excludeStalePluginClients } from './utils.js'
 
 // Constants for reconnection with exponential backoff
@@ -189,6 +196,16 @@ export function useManageMCPConnections(
 
   // Track active reconnection attempts to allow cancellation
   const reconnectTimersRef = useRef<Map<string, NodeJS.Timeout>>(new Map())
+  // Restart budget of local (stdio) servers that die by themselves.
+  const stdioRestartRef = useRef<Map<string, RestartState>>(new Map())
+  // True once the hook unmounted: no restarts while the session shuts down.
+  const stoppedRef = useRef(false)
+  useEffect(() => {
+    stoppedRef.current = false
+    return () => {
+      stoppedRef.current = true
+    }
+  }, [])
 
   // Dedup the --channels blocked warning per skip kind so that a user who
   // sees "run /login" (auth skip), logs in, then hits the policy gate
@@ -364,6 +381,13 @@ export function useManageMCPConnections(
           // re-running for every already-connected server on each state change.
           registerElicitationHandler(client.client, client.name, setAppState)
 
+          // Uptime clock for the stdio restart policy: attempts only reset
+          // once the process stays up long enough (anti crash-loop).
+          stdioRestartRef.current.set(client.name, {
+            attempts: stdioRestartRef.current.get(client.name)?.attempts ?? 0,
+            connectedAt: Date.now(),
+          })
+
           client.client.onclose = () => {
             const configType = client.config.type ?? 'stdio'
 
@@ -385,9 +409,76 @@ export function useManageMCPConnections(
               return
             }
 
+            // Local (stdio) process died on its own: relaunch with backoff,
+            // within a budget that only resets after a stable uptime.
+            if (configType === 'stdio') {
+              const restartStdio = (): void => {
+                if (stoppedRef.current) return
+                const decision = decideStdioRestart(
+                  stdioRestartRef.current.get(client.name) ??
+                    INITIAL_RESTART_STATE,
+                  Date.now(),
+                )
+                stdioRestartRef.current.set(client.name, decision.next)
+                addNotification({
+                  key: `mcp-restart-${client.name}`,
+                  text: formatRestartNotice(client.name, decision),
+                  priority: 'medium',
+                  color: decision.action === 'retry' ? undefined : 'warning',
+                  timeoutMs: 8000,
+                })
+                if (decision.action === 'give-up') {
+                  logMCPDebug(
+                    client.name,
+                    `stdio server keeps dying, giving up after ${decision.attempts} restarts`,
+                  )
+                  updateServer({ ...client, type: 'failed' })
+                  return
+                }
+                logMCPDebug(
+                  client.name,
+                  `stdio server exited, restart ${decision.attempt}/${STDIO_MAX_ATTEMPTS} in ${decision.delayMs}ms`,
+                )
+                updateServer({
+                  ...client,
+                  type: 'pending',
+                  reconnectAttempt: decision.attempt,
+                  maxReconnectAttempts: STDIO_MAX_ATTEMPTS,
+                })
+                const existing = reconnectTimersRef.current.get(client.name)
+                if (existing) clearTimeout(existing)
+                const timer = setTimeout(() => {
+                  reconnectTimersRef.current.delete(client.name)
+                  if (stoppedRef.current || isMcpServerDisabled(client.name)) {
+                    return
+                  }
+                  reconnectMcpServerImpl(client.name, client.config).then(
+                    result => {
+                      if (result.client.type === 'connected') {
+                        onConnectionAttempt(result)
+                      } else {
+                        // It did not even start: that counts as another death.
+                        restartStdio()
+                      }
+                    },
+                    error => {
+                      logMCPError(
+                        client.name,
+                        `stdio restart failed: ${errorMessage(error)}`,
+                      )
+                      restartStdio()
+                    },
+                  )
+                }, decision.delayMs)
+                reconnectTimersRef.current.set(client.name, timer)
+              }
+              restartStdio()
+              return
+            }
+
             // Handle automatic reconnection for remote transports
-            // Skip stdio (local process) and sdk (internal) - they don't support reconnection
-            if (configType !== 'stdio' && configType !== 'sdk') {
+            // Skip sdk (internal) - it doesn't support reconnection
+            if (configType !== 'sdk') {
               const transportType = getTransportDisplayName(configType)
               logMCPDebug(
                 client.name,
@@ -829,6 +920,7 @@ export function useManageMCPConnections(
         //      cache is empty → real connect attempt → spawn/OAuth just to
         //      immediately kill it. Only connected servers need cleanup.
         for (const s of stale) {
+          stdioRestartRef.current.delete(s.name)
           const timer = reconnectTimersRef.current.get(s.name)
           if (timer) {
             clearTimeout(timer)
@@ -1118,6 +1210,10 @@ export function useManageMCPConnections(
         clearTimeout(existingTimer)
         reconnectTimersRef.current.delete(serverName)
       }
+      // A manual reconnect closes the old connection on purpose: its onclose
+      // must not start an automatic restart that races this one.
+      stdioRestartRef.current.delete(serverName)
+      if (client.type === 'connected') client.client.onclose = undefined
 
       const result = await reconnectMcpServerImpl(serverName, client.config)
 
@@ -1149,6 +1245,8 @@ export function useManageMCPConnections(
           clearTimeout(existingTimer)
           reconnectTimersRef.current.delete(serverName)
         }
+
+        stdioRestartRef.current.delete(serverName)
 
         // Persist disabled state to disk FIRST before clearing cache
         // This is important because the onclose handler checks disk state

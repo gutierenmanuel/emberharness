@@ -9,6 +9,7 @@
  *                   whenever its content changes
  *   FIX_PID_FILE    if set, the pid of this process is written there
  *   FIX_LOG_FILE    if set, a line "start" is appended there on startup
+ *   FIX_DIE_AFTER_MS if set, the process exits this many ms after initialize (crash loop)
  */
 import { appendFileSync, existsSync, readFileSync, watchFile, writeFileSync } from 'fs'
 
@@ -37,6 +38,7 @@ if (process.env.FIX_TOOLS_FILE) {
 function handle(msg: { id?: number | string; method?: string; params?: any }) {
   const { id, method } = msg
   if (method === 'initialize') {
+    if (process.env.FIX_DIE_AFTER_MS) setTimeout(() => process.exit(1), Number(process.env.FIX_DIE_AFTER_MS))
     return send({
       jsonrpc: '2.0',
       id,

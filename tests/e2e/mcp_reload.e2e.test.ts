@@ -144,7 +144,7 @@ describe.skipIf(!hasCli)('mcp hot reload (TUI)', () => {
     }
   }, 240_000)
 
-  test.skip('a stdio server that dies is relaunched by itself', async () => {
+  test('a stdio server that dies is relaunched by itself', async () => {
     const { configDir, cwd } = makeSandbox()
     writeFileSync(join(configDir, 'settings.json'), JSON.stringify({ enableAllProjectMcpServers: true }))
     const pidFile = join(cwd, 'alpha.pid')
@@ -169,4 +169,24 @@ describe.skipIf(!hasCli)('mcp hot reload (TUI)', () => {
       await tui.stop()
     }
   }, 180_000)
+
+  test('a server that crashes on every start is abandoned after the attempt budget', async () => {
+    const { configDir, cwd } = makeSandbox()
+    writeFileSync(join(configDir, 'settings.json'), JSON.stringify({ enableAllProjectMcpServers: true }))
+    const logFile = join(cwd, 'loop.log')
+    writeFileSync(
+      join(cwd, '.mcp.json'),
+      JSON.stringify({ mcpServers: { loop: serverEntry({ FIX_TOOLS: 'echo', FIX_LOG_FILE: logFile, FIX_DIE_AFTER_MS: '300' }) } }),
+    )
+    const tui = startTui(fakeEnv(fake.baseUrl, configDir, { ENABLE_TOOL_SEARCH: 'false' }), cwd)
+    const starts = () => (existsSync(logFile) ? readFileSync(logFile, 'utf8').split('\n').filter(l => l === 'start').length : 0)
+    try {
+      // 1 launch + 4 restarts (backoff 1+2+4+8 s), then it must stop.
+      await waitUntil(() => starts() >= 5, 60_000, 'restarts')
+      await sleep(12_000)
+      expect(starts()).toBe(5)
+    } finally {
+      await tui.stop()
+    }
+  }, 120_000)
 })
