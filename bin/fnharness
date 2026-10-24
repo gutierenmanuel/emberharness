@@ -14,6 +14,14 @@ set -euo pipefail
 app="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/.." && pwd)"
 cli="$app/cli"
 
+# Un TMUX heredado (p. ej. una ventana de kitty abierta desde dentro de tmux) hace creer
+# a la TUI que sigue en tmux: copia al buffer de tmux y envuelve el OSC 52 en una
+# secuencia que kitty pinta como texto. Dentro de tmux de verdad TERM es screen*/tmux*.
+if [[ -n "${TMUX:-}" && "${TERM:-}" != screen* && "${TERM:-}" != tmux* ]]; then
+  unset TMUX TMUX_PANE
+  [[ "${TERM_PROGRAM:-}" == tmux ]] && unset TERM_PROGRAM TERM_PROGRAM_VERSION
+fi
+
 export CLAUDE_CONFIG_DIR="${CLAUDE_CONFIG_DIR:-$HOME/.fnharness}"
 mkdir -p "$CLAUDE_CONFIG_DIR"
 
