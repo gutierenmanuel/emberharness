@@ -1,4 +1,5 @@
 import { feature } from 'bun:bundle'
+import { filterSkillsByProfile } from '../../utils/contextProfile.js'
 import type { ToolResultBlockParam } from '@anthropic-ai/sdk/resources/index.mjs'
 import uniqBy from 'lodash-es/uniqBy.js'
 import { dirname } from 'path'
@@ -404,6 +405,17 @@ export const SkillTool: Tool<InputSchema, Output, Progress> = buildTool({
       return {
         result: false,
         message: `Unknown skill: ${normalizedCommandName}`,
+        errorCode: 2,
+      }
+    }
+
+    // FnHarness context profile: skills hidden by /scope cannot be invoked.
+    const contextProfile =
+      context.options.contextProfile ?? context.getAppState().contextProfile
+    if (filterSkillsByProfile([foundCommand], contextProfile).length === 0) {
+      return {
+        result: false,
+        message: `Skill ${normalizedCommandName} is not available in the current context profile (/scope)`,
         errorCode: 2,
       }
     }

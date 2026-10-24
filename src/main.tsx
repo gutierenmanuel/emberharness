@@ -191,6 +191,7 @@ import { createDirectConnectSession, DirectConnectError } from './server/createD
 import { initializeLspServerManager } from './services/lsp/manager.js';
 import { shouldEnablePromptSuggestion } from './services/PromptSuggestion/promptSuggestion.js';
 import { type AppState, getDefaultAppState, IDLE_SPECULATION_STATE } from './state/AppStateStore.js';
+import { resolveInitialContextProfile } from './utils/contextProfileStore.js';
 import { onChangeAppState } from './state/onChangeAppState.js';
 import { createStore } from './state/store.js';
 import { asSessionId } from './types/ids.js';
@@ -3024,6 +3025,7 @@ async function run(): Promise<CommanderCommand> {
       },
       attribution: createEmptyAttributionState(),
       thinkingEnabled,
+      contextProfile: resolveInitialContextProfile(),
       promptSuggestionEnabled: shouldEnablePromptSuggestion(),
       sessionHooks: new Map(),
       inbox: {

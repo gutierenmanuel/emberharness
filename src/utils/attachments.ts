@@ -83,6 +83,7 @@ import type { ReadResourceResult } from '@modelcontextprotocol/sdk/types.js'
 import { getSkillToolCommands, getMcpSkillCommands } from '../commands.js'
 import type { Command } from '../types/command.js'
 import uniqBy from 'lodash-es/uniqBy.js'
+import { filterSkillsByProfile } from './contextProfile.js'
 import { getProjectRoot } from '../bootstrap/state.js'
 import { formatCommandsWithinBudget } from '../tools/SkillTool/prompt.js'
 import { getContextWindowForModel } from './context.js'
@@ -2697,6 +2698,12 @@ async function getSkillListingAttachments(
     mcpSkills.length > 0
       ? uniqBy([...localCommands, ...mcpSkills], 'name')
       : localCommands
+  // FnHarness context profile: only the skills of the chosen origin are listed.
+  allCommands = filterSkillsByProfile(
+    allCommands,
+    toolUseContext.options.contextProfile ??
+      toolUseContext.getAppState().contextProfile,
+  )
 
   // When skill search is active, filter to bundled + MCP instead of full
   // suppression. Resolves the turn-0 gap: main thread gets turn-0 discovery

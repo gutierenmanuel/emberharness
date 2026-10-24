@@ -463,6 +463,19 @@ export async function getSystemPrompt(
   const settings = getInitialSettings()
   const enabledTools = new Set(tools.map(_ => _.name))
 
+  // FnHarness: no tools at all (context profile tools:none) = plain chat.
+  // The tool, task and permission guidance would only waste a small model's
+  // context, so send a short prompt instead.
+  if (tools.length === 0) {
+    return [
+      `You are an interactive assistant running in a terminal. In this session you have no tools: you cannot read files, run commands or browse. Answer from the conversation itself; when something has to be done on the user's machine, give them the exact command or code to run.\n\n${CYBER_RISK_INSTRUCTION}`,
+      getSimpleToneAndStyleSection(),
+      envInfo,
+      getLanguageSection(settings.language),
+      getOutputStyleSection(outputStyleConfig),
+    ].filter((s): s is string => typeof s === 'string' && s.length > 0)
+  }
+
   if (
     (feature('PROACTIVE') || feature('KAIROS')) &&
     proactiveModule?.isProactiveActive()
