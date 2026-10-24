@@ -40,6 +40,10 @@ export type HookEvent =
   | 'InstructionsLoaded'
   | 'CwdChanged'
   | 'FileChanged'
+  | 'PostToolBatch'
+  | 'DirectoryAdded'
+  | 'PreModelSwitch'
+  | 'PostModelSwitch'
 
 export type ModelUsage = {
   costUSD?: number

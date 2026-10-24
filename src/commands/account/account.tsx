@@ -20,7 +20,7 @@ import {
   formatAccountLine,
   removeAccount,
   setKey,
-  switchAccount,
+  switchAccountWithHooks,
   type ActionResult,
 } from './actions.js'
 
@@ -173,9 +173,9 @@ function AccountPicker(props: PickerProps): React.ReactNode {
 export const call: LocalJSXCommandCall = async (onDone, context, args) => {
   const [cmd, ...rest] = args.trim().split(/\s+/).filter(Boolean)
 
-  const apply = (run: () => ActionResult) => {
+  const apply = async (run: () => ActionResult | Promise<ActionResult>) => {
     try {
-      const result = run()
+      const result = await run()
       if (result.model !== undefined) {
         context.setAppState(prev => ({
           ...prev,
@@ -208,7 +208,7 @@ export const call: LocalJSXCommandCall = async (onDone, context, args) => {
   if (cmd === 'key' && rest.length >= 2) return apply(() => setKey(rest[0]!, rest[1]!))
   if (cmd === 'add' && rest.length >= 1) return apply(() => addAccount(rest[0]!, rest[1], rest[2]))
   if (cmd === 'remove' && rest.length >= 1) return apply(() => removeAccount(rest[0]!))
-  if (cmd) return apply(() => switchAccount(cmd, rest[0]))
+  if (cmd) return apply(() => switchAccountWithHooks(cmd, rest[0]))
 
   const active = activeAccountId()
   const accounts = await accountsWithStatus()
@@ -221,7 +221,7 @@ export const call: LocalJSXCommandCall = async (onDone, context, args) => {
       catalog={catalog}
       stored={stored}
       onCancel={message => void onDone(message ?? 'Cuenta sin cambios', { display: 'system' })}
-      onSwitch={id => void apply(() => switchAccount(id, undefined))}
+      onSwitch={id => void apply(() => switchAccountWithHooks(id, undefined))}
       onAdd={provider => {
         try {
           return addAccount(provider, undefined, undefined).message

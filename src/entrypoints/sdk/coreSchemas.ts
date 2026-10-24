@@ -380,6 +380,10 @@ export const HOOK_EVENTS = [
   'InstructionsLoaded',
   'CwdChanged',
   'FileChanged',
+  'PostToolBatch',
+  'DirectoryAdded',
+  'PreModelSwitch',
+  'PostModelSwitch',
 ] as const
 
 export const HookEventSchema = lazySchema(() => z.enum(HOOK_EVENTS))
@@ -706,6 +710,78 @@ export const InstructionsLoadedHookInputSchema = lazySchema(() =>
   ),
 )
 
+export const PostToolBatchHookInputSchema = lazySchema(() =>
+  BaseHookInputSchema().and(
+    z.object({
+      hook_event_name: z.literal('PostToolBatch'),
+      tool_calls: z.array(
+        z.object({
+          tool_name: z.string(),
+          tool_input: z.unknown(),
+          tool_use_id: z.string(),
+          tool_response: z.unknown(),
+        }),
+      ),
+    }),
+  ),
+)
+
+export const DIRECTORY_ADDED_SOURCES = [
+  'slash_command',
+  'register_repo_root',
+] as const
+
+export const DirectoryAddedHookInputSchema = lazySchema(() =>
+  BaseHookInputSchema().and(
+    z.object({
+      hook_event_name: z.literal('DirectoryAdded'),
+      directory: z.string(),
+      source: z.enum(DIRECTORY_ADDED_SOURCES),
+    }),
+  ),
+)
+
+export const MODEL_SWITCH_SOURCES = [
+  'command',
+  'picker',
+  'sdk',
+  'auto',
+  'resume',
+] as const
+
+const modelSwitchFields = () => ({
+  from_model: z.string(),
+  to_model: z.string(),
+  requested_model: z.string().nullable(),
+  source: z.enum(MODEL_SWITCH_SOURCES),
+  /** fnharness: account the session switches from / to (claude, qwen36, ...). */
+  from_account: z.string().optional(),
+  to_account: z.string().optional(),
+  context_tokens: z.number(),
+  prompt_cache_warm: z.boolean(),
+  cache_ttl: z.enum(['5m', '1h']),
+  estimated_cache_write_usd: z.number(),
+  pricing: z.enum(['configured', 'catalog', 'default']),
+})
+
+export const PreModelSwitchHookInputSchema = lazySchema(() =>
+  BaseHookInputSchema().and(
+    z.object({
+      hook_event_name: z.literal('PreModelSwitch'),
+      ...modelSwitchFields(),
+    }),
+  ),
+)
+
+export const PostModelSwitchHookInputSchema = lazySchema(() =>
+  BaseHookInputSchema().and(
+    z.object({
+      hook_event_name: z.literal('PostModelSwitch'),
+      ...modelSwitchFields(),
+    }),
+  ),
+)
+
 export const WorktreeCreateHookInputSchema = lazySchema(() =>
   BaseHookInputSchema().and(
     z.object({
@@ -793,6 +869,10 @@ export const HookInputSchema = lazySchema(() =>
     WorktreeRemoveHookInputSchema(),
     CwdChangedHookInputSchema(),
     FileChangedHookInputSchema(),
+    PostToolBatchHookInputSchema(),
+    DirectoryAddedHookInputSchema(),
+    PreModelSwitchHookInputSchema(),
+    PostModelSwitchHookInputSchema(),
   ]),
 )
 
@@ -904,6 +984,28 @@ export const FileChangedHookSpecificOutputSchema = lazySchema(() =>
   }),
 )
 
+export const PostToolBatchHookSpecificOutputSchema = lazySchema(() =>
+  z.object({
+    hookEventName: z.literal('PostToolBatch'),
+    additionalContext: z.string().optional(),
+  }),
+)
+
+export const PreModelSwitchHookSpecificOutputSchema = lazySchema(() =>
+  z.object({
+    hookEventName: z.literal('PreModelSwitch'),
+    permissionDecision: z.enum(['allow', 'deny', 'ask']).optional(),
+    permissionDecisionReason: z.string().optional(),
+  }),
+)
+
+export const PostModelSwitchHookSpecificOutputSchema = lazySchema(() =>
+  z.object({
+    hookEventName: z.literal('PostModelSwitch'),
+    additionalContext: z.string().optional(),
+  }),
+)
+
 export const SyncHookJSONOutputSchema = lazySchema(() =>
   z.object({
     continue: z.boolean().optional(),
@@ -928,6 +1030,9 @@ export const SyncHookJSONOutputSchema = lazySchema(() =>
         ElicitationResultHookSpecificOutputSchema(),
         CwdChangedHookSpecificOutputSchema(),
         FileChangedHookSpecificOutputSchema(),
+        PostToolBatchHookSpecificOutputSchema(),
+        PreModelSwitchHookSpecificOutputSchema(),
+        PostModelSwitchHookSpecificOutputSchema(),
         WorktreeCreateHookSpecificOutputSchema(),
       ])
       .optional(),

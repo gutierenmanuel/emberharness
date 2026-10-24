@@ -92,6 +92,8 @@ export async function call(onDone: LocalJSXCommandOnDone, context: LocalJSXComma
       setAdditionalDirectoriesForClaudeMd([...currentDirs, path]);
     }
     SandboxManager.refreshConfig();
+    // DirectoryAdded hooks run in the background, after the state refresh.
+    void import('../../utils/hooks.js').then(m => m.executeDirectoryAddedHooks(path, 'slash_command')).catch(() => {});
     let message: string;
     if (remember) {
       try {

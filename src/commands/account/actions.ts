@@ -83,6 +83,35 @@ export function switchAccount(
 }
 
 /**
+ * switchAccount wrapped with the PreModelSwitch / PostModelSwitch hooks: a Pre
+ * hook can refuse the switch (nothing changes), a Post hook runs afterwards.
+ */
+export async function switchAccountWithHooks(
+  id: string,
+  model: string | undefined,
+  env = process.env,
+): Promise<ActionResult> {
+  const { executePostModelSwitchHooks, executePreModelSwitchHooks } = await import('../../utils/hooks.js')
+  const { blockedSwitchMessage } = await import('../model/switchGuard.js')
+  const fromAccount = activeAccountId(env)
+  const fromModel = getMultimodelProfile()?.model ?? fromAccount
+  let toModel = model ?? id
+  try {
+    const store = loadStore(accountsFilePath(env))
+    if (model && id !== CLAUDE_ACCOUNT_ID) store.accounts[id] = { ...store.accounts[id], model }
+    toModel = profileForAccount(id, store, env)?.model ?? model ?? 'claude'
+  } catch {
+    // switchAccount below reports the configuration error.
+  }
+  const info = { fromModel, toModel, requestedModel: model ?? id, source: 'command' as const, fromAccount, toAccount: id }
+  const d = await executePreModelSwitchHooks(info)
+  if (d.decision !== 'allow') return { message: blockedSwitchMessage(d.decision, d.reason) }
+  const result = switchAccount(id, model, env)
+  void executePostModelSwitchHooks({ ...info, toModel: result.model ?? toModel })
+  return result
+}
+
+/**
  * Persists a model picked with /model for the active account, exactly like
  * `/account <id> <modelo>`. No-op on the Claude account.
  */

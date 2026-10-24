@@ -1,4 +1,5 @@
 // biome-ignore-all assist/source/organizeImports: ANT-ONLY import markers must not be reordered
+import { takePendingHookContext } from './hooks/pendingHookContext.js'
 import {
   logEvent,
   type AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS,
@@ -952,6 +953,21 @@ export async function getAttachments(
         maybe('output_style', async () =>
           Promise.resolve(getOutputStyleAttachment()),
         ),
+        // PostModelSwitch hook output, delivered once with the next request.
+        maybe('hook_additional_context', async () => {
+          const p = takePendingHookContext()
+          return p
+            ? [
+                {
+                  type: 'hook_additional_context' as const,
+                  content: p.content,
+                  hookName: p.hookEvent,
+                  toolUseID: '',
+                  hookEvent: p.hookEvent,
+                },
+              ]
+            : []
+        }),
         maybe('diagnostics', async () =>
           getDiagnosticAttachments(toolUseContext),
         ),

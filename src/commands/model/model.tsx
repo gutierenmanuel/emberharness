@@ -15,6 +15,7 @@ import { checkOpus1mAccess, checkSonnet1mAccess } from '../../utils/model/check1
 import { getDefaultMainLoopModelSetting, isOpus1mMergeEnabled, renderDefaultModelSetting } from '../../utils/model/model.js';
 import { isModelAllowed } from '../../utils/model/modelAllowlist.js';
 import { persistModelForActiveAccount } from '../account/actions.js';
+import { guardModelSwitch } from './switchGuard.js';
 import { warmActiveAccountModels } from '../../services/api/openai-compat/warmModels.js';
 import { validateModel } from '../../utils/model/validateModel.js';
 function ModelPickerWrapper(t0) {
@@ -47,6 +48,9 @@ function ModelPickerWrapper(t0) {
   let t2;
   if ($[3] !== isFastMode || $[4] !== mainLoopModel || $[5] !== onDone || $[6] !== setAppState) {
     t2 = function handleSelect(model, effort) {
+      void guardModelSwitch(mainLoopModel, model, "picker", msg => onDone(msg, {
+        display: "system"
+      }), () => {
       logEvent("tengu_model_command_menu", {
         action: model as AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS,
         from_model: mainLoopModel as AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS,
@@ -82,6 +86,7 @@ function ModelPickerWrapper(t0) {
         message = message + " \xB7 Fast mode OFF";
       }
       onDone(message);
+      });
     };
     $[3] = isFastMode;
     $[4] = mainLoopModel;
@@ -140,6 +145,7 @@ function SetModelAndClose({
   }) => void;
 }): React.ReactNode {
   const isFastMode = useAppState(s => s.fastMode);
+  const fromModel = useAppState(s => s.mainLoopModel);
   const setAppState = useSetAppState();
   const model = args === 'default' ? null : args;
   React.useEffect(() => {
@@ -199,6 +205,11 @@ function SetModelAndClose({
       }
     }
     function setModel(modelValue: string | null): void {
+      void guardModelSwitch(fromModel, modelValue, 'command', msg => onDone(msg, {
+        display: 'system'
+      }), () => applyModel(modelValue));
+    }
+    function applyModel(modelValue: string | null): void {
       persistModelForActiveAccount(modelValue);
       setAppState(prev => ({
         ...prev,

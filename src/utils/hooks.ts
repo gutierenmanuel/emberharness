@@ -98,6 +98,10 @@ import type {
   CwdChangedHookInput,
   FileChangedHookInput,
   InstructionsLoadedHookInput,
+  PostToolBatchHookInput,
+  DirectoryAddedHookInput,
+  PreModelSwitchHookInput,
+  PostModelSwitchHookInput,
   UserPromptSubmitHookInput,
   PermissionRequestHookInput,
   ElicitationHookInput,
@@ -112,6 +116,8 @@ import type { ElicitResult } from '@modelcontextprotocol/sdk/types.js'
 import type { FileSuggestionCommandInput } from '../types/fileSuggestion.js'
 import type { HookResultMessage } from 'src/types/message.js'
 import chalk from 'chalk'
+import { getCanonicalName } from './model/model.js'
+import { queuePendingHookContext } from './hooks/pendingHookContext.js'
 import type {
   HookMatcher,
   HookCommand,
@@ -650,6 +656,28 @@ function processHookJSONOutput({
         break
       case 'PostToolUseFailure':
         result.additionalContext = json.hookSpecificOutput.additionalContext
+        break
+      case 'PostToolBatch':
+      case 'PostModelSwitch':
+        result.additionalContext = json.hookSpecificOutput.additionalContext
+        break
+      case 'PreModelSwitch':
+        if (json.hookSpecificOutput.permissionDecision === 'deny') {
+          result.permissionBehavior = 'deny'
+          result.blockingError = {
+            blockingError:
+              json.hookSpecificOutput.permissionDecisionReason ||
+              json.reason ||
+              'Blocked by hook',
+            command,
+          }
+        } else if (json.hookSpecificOutput.permissionDecision === 'ask') {
+          result.permissionBehavior = 'ask'
+        } else if (json.hookSpecificOutput.permissionDecision === 'allow') {
+          result.permissionBehavior = 'allow'
+        }
+        result.hookPermissionDecisionReason =
+          json.hookSpecificOutput.permissionDecisionReason
         break
       case 'PermissionDenied':
         result.retry = json.hookSpecificOutput.retry
@@ -1664,6 +1692,14 @@ export async function getMatchingHooks(
         break
       case 'FileChanged':
         matchQuery = basename(hookInput.file_path)
+        break
+      case 'DirectoryAdded':
+        matchQuery = hookInput.source
+        break
+      case 'PreModelSwitch':
+      case 'PostModelSwitch':
+        // Canonical name of the target model, like the official event.
+        matchQuery = canonicalModelForMatcher(hookInput.to_model)
         break
       default:
         break
@@ -2978,6 +3014,12 @@ export type HookOutsideReplResult = {
   blocked: boolean
   watchPaths?: string[]
   systemMessage?: string
+  /** hookSpecificOutput.additionalContext (PostModelSwitch, PostToolBatch). */
+  additionalContext?: string
+  /** hookSpecificOutput.permissionDecision (PreModelSwitch). */
+  permissionDecision?: 'allow' | 'deny' | 'ask'
+  /** Why the hook blocked or asked (permissionDecisionReason, JSON reason or stderr). */
+  reason?: string
 }
 
 export function hasBlockingResult(results: HookOutsideReplResult[]): boolean {
@@ -3348,6 +3390,23 @@ async function executeHooksOutsideREPL({
         const systemMessage =
           json && isSyncHookJSONOutput(json) ? json.systemMessage : undefined
 
+        const specific =
+          json && isSyncHookJSONOutput(json) ? json.hookSpecificOutput : undefined
+        const additionalContext =
+          specific && 'additionalContext' in specific
+            ? specific.additionalContext
+            : undefined
+        const permissionDecision =
+          specific && 'permissionDecision' in specific
+            ? specific.permissionDecision
+            : undefined
+        const reason =
+          (specific && 'permissionDecisionReason' in specific
+            ? specific.permissionDecisionReason
+            : undefined) ||
+          (json && isSyncHookJSONOutput(json) ? json.reason : undefined) ||
+          (result.status === 2 ? result.stderr || undefined : undefined)
+
         return {
           command: hook.command,
           succeeded: result.status === 0,
@@ -3355,6 +3414,9 @@ async function executeHooksOutsideREPL({
           blocked,
           watchPaths,
           systemMessage,
+          additionalContext,
+          permissionDecision,
+          reason,
         }
       } catch (error) {
         // Clean up on error
@@ -4255,6 +4317,176 @@ async function executeEnvHooks(
     .map(r => r.systemMessage)
     .filter((m): m is string => !!m)
   return { results, watchPaths, systemMessages }
+}
+
+// ── Model switch, directory added and tool batch events ──────────────────
+
+/** Matcher text for the model events: canonical name without the [1m] suffix. */
+export function canonicalModelForMatcher(model: string): string {
+  return getCanonicalName(model.replace(/\[\d+[km]\]$/i, ''))
+}
+
+/** Whether any hook (settings or registered) exists for `event`. */
+export function hasHooksForEvent(event: HookEvent): boolean {
+  return (
+    (getHooksConfigFromSnapshot()?.[event]?.length ?? 0) > 0 ||
+    (getRegisteredHooks()?.[event]?.length ?? 0) > 0
+  )
+}
+
+export type ModelSwitchInfo = {
+  fromModel: string
+  toModel: string
+  requestedModel: string | null
+  source: 'command' | 'picker' | 'sdk' | 'auto' | 'resume'
+  fromAccount?: string
+  toAccount?: string
+  /** Tokens the next request re-sends; 0 when unknown. */
+  contextTokens?: number
+}
+
+function modelSwitchFields(info: ModelSwitchInfo) {
+  return {
+    from_model: info.fromModel,
+    to_model: info.toModel,
+    requested_model: info.requestedModel,
+    source: info.source,
+    ...(info.fromAccount && { from_account: info.fromAccount }),
+    ...(info.toAccount && { to_account: info.toAccount }),
+    context_tokens: info.contextTokens ?? 0,
+    // fnharness does not track prompt-cache warmth or per-model prices.
+    prompt_cache_warm: false,
+    cache_ttl: '5m' as const,
+    estimated_cache_write_usd: 0,
+    pricing: 'default' as const,
+  }
+}
+
+export type PreModelSwitchDecision = {
+  decision: 'allow' | 'deny' | 'ask'
+  reason?: string
+  systemMessages: string[]
+}
+
+/** Pure: folds hook results into one decision (deny > ask > allow). */
+export function decideModelSwitch(
+  results: HookOutsideReplResult[],
+): PreModelSwitchDecision {
+  const systemMessages = results
+    .map(r => r.systemMessage)
+    .filter((m): m is string => !!m)
+  const denied = results.find(
+    r =>
+      r.blocked ||
+      r.permissionDecision === 'deny' ||
+      // A hook cancelled by its timeout blocks the switch.
+      r.output === 'Hook cancelled',
+  )
+  if (denied) {
+    return {
+      decision: 'deny',
+      reason:
+        denied.reason ||
+        (denied.output === 'Hook cancelled'
+          ? 'a PreModelSwitch hook timed out'
+          : denied.output.trim() || undefined),
+      systemMessages,
+    }
+  }
+  const asked = results.find(r => r.permissionDecision === 'ask')
+  if (asked) return { decision: 'ask', reason: asked.reason, systemMessages }
+  return { decision: 'allow', systemMessages }
+}
+
+export async function executePreModelSwitchHooks(
+  info: ModelSwitchInfo,
+  timeoutMs: number = 30_000,
+): Promise<PreModelSwitchDecision> {
+  if (!hasHooksForEvent('PreModelSwitch')) {
+    return { decision: 'allow', systemMessages: [] }
+  }
+  const hookInput: PreModelSwitchHookInput = {
+    ...createBaseHookInput(undefined),
+    hook_event_name: 'PreModelSwitch',
+    ...modelSwitchFields(info),
+  }
+  const results = await executeHooksOutsideREPL({ hookInput, timeoutMs })
+  return decideModelSwitch(results)
+}
+
+/**
+ * Runs PostModelSwitch hooks and queues their stdout / additionalContext so
+ * it reaches the model with the next request. Returns system messages to show.
+ */
+export async function executePostModelSwitchHooks(
+  info: ModelSwitchInfo,
+  timeoutMs: number = 30_000,
+): Promise<string[]> {
+  if (!hasHooksForEvent('PostModelSwitch')) return []
+  const hookInput: PostModelSwitchHookInput = {
+    ...createBaseHookInput(undefined),
+    hook_event_name: 'PostModelSwitch',
+    ...modelSwitchFields(info),
+  }
+  const results = await executeHooksOutsideREPL({ hookInput, timeoutMs })
+  const contexts = results.flatMap(r => {
+    if (r.additionalContext) return [r.additionalContext]
+    // Plain-text stdout on exit 0 is context too; JSON output is not.
+    const out = r.output.trim()
+    return r.succeeded && out && !out.startsWith('{') ? [out] : []
+  })
+  queuePendingHookContext('PostModelSwitch', contexts)
+  return results
+    .map(r => r.systemMessage)
+    .filter((m): m is string => !!m)
+}
+
+/** DirectoryAdded: fire-and-forget, the directory is already added. */
+export async function executeDirectoryAddedHooks(
+  directory: string,
+  source: 'slash_command' | 'register_repo_root' = 'slash_command',
+  timeoutMs: number = 600_000,
+): Promise<string[]> {
+  if (!hasHooksForEvent('DirectoryAdded')) return []
+  const hookInput: DirectoryAddedHookInput = {
+    ...createBaseHookInput(undefined),
+    hook_event_name: 'DirectoryAdded',
+    directory,
+    source,
+  }
+  const results = await executeHooksOutsideREPL({ hookInput, timeoutMs })
+  return results
+    .map(r => r.systemMessage)
+    .filter((m): m is string => !!m)
+}
+
+export type { ToolBatchCall } from './hooks/toolBatch.js'
+import type { ToolBatchCall } from './hooks/toolBatch.js'
+
+/**
+ * Runs once after every tool call of a batch resolved, before the next model
+ * call. Same yield contract as executePostToolHooks.
+ */
+export async function* executePostToolBatchHooks(
+  toolCalls: ToolBatchCall[],
+  toolUseContext: ToolUseContext,
+  permissionMode?: string,
+  signal?: AbortSignal,
+  timeoutMs: number = TOOL_HOOK_EXECUTION_TIMEOUT_MS,
+): AsyncGenerator<AggregatedHookResult> {
+  if (toolCalls.length === 0 || !hasHooksForEvent('PostToolBatch')) return
+  const hookInput: PostToolBatchHookInput = {
+    ...createBaseHookInput(permissionMode, undefined, toolUseContext),
+    hook_event_name: 'PostToolBatch',
+    tool_calls: toolCalls,
+  }
+  yield* executeHooks({
+    hookInput,
+    toolUseID: toolCalls[0]!.tool_use_id,
+    signal,
+    timeoutMs,
+    toolUseContext,
+  })
 }
 
 export function executeCwdChangedHooks(

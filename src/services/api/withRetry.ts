@@ -46,6 +46,11 @@ import {
 } from '../rateLimitMocking.js'
 import { REPEATED_529_ERROR_MESSAGE } from './errors.js'
 import { extractConnectionErrorDetails } from './errorUtils.js'
+import {
+  FALLBACK_AFTER_ATTEMPTS,
+  isFallbackEligible,
+  peekNextFallback,
+} from './fallbackChain.js'
 
 const abortError = () => new APIUserAbortError()
 
@@ -321,6 +326,20 @@ export async function* withRetry<T>(
             options.querySource as AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS,
         })
         throw new CannotRetryError(error, retryContext)
+      }
+
+      // Fallback chain (cross-account): the primary backend is unavailable
+      // (5xx/529, e.g. a local llama-server that refuses connections). After a
+      // few failed attempts hand the turn to the next entry of the chain.
+      if (
+        attempt >= FALLBACK_AFTER_ATTEMPTS &&
+        shouldRetry529(options.querySource) &&
+        isFallbackEligible(error)
+      ) {
+        const next = peekNextFallback(options.model)
+        if (next) {
+          throw new FallbackTriggeredError(options.model, next.target.raw)
+        }
       }
 
       // Track consecutive 529 errors

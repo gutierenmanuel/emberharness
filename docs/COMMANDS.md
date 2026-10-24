@@ -234,7 +234,7 @@ Sesión y entrada/salida:
 | `--replay-user-messages` | Reemite los mensajes de usuario recibidos por stdin. |
 | `--json-schema <schema>` | Esquema JSON para validar la salida estructurada. |
 | `--max-budget-usd <amount>` | Gasto máximo en llamadas a la API (solo `--print`). |
-| `--fallback-model <model>` | Modelo de reserva si el principal está saturado (solo `--print`). |
+| `--fallback-model <lista>` | Cadena de reserva (coma, máx. 3) si el modelo principal no está disponible; vale en interactivo. Entradas: `modelo`, `cuenta` o `cuenta:modelo` (`qwen36,claude:haiku`). Equivale al ajuste `fallbackModel`. |
 | `--no-session-persistence` | No guarda la sesión en disco (solo `--print`). |
 | `-c, --continue` | Continúa la conversación más reciente del directorio. |
 | `-r, --resume [value]` | Reanuda por ID o con selector interactivo. |

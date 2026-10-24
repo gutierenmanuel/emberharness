@@ -14,6 +14,12 @@ enables `VOICE_MODE`, `AGENT_TRIGGERS` and `MONITOR_TOOL`. `AGENT_TRIGGERS_REMOT
 triggers, needs Anthropic services) stays off. `MONITOR_TOOL` compiles now: the tool lives in
 `src/tools/MonitorTool/`.
 
+FnHarness note (24/10/2026, fallback-hooks): the `fallbackModel` setting / `--fallback-model a,b,c`
+chain works across accounts (`qwen36`, `claude:haiku`, `openrouter:x/y`) and the hook events
+`PostToolBatch`, `DirectoryAdded`, `PreModelSwitch` and `PostModelSwitch` exist. None of it is behind a
+feature flag. Still missing from the official event list: `UserPromptExpansion`, `MessageDisplay`
+and the `mcp_tool` hook type (see `docs/plans/claude_code_gap.md`).
+
 Important: "bundle cleanly" does not always mean "runtime-safe". Some flags
 still depend on optional native modules, claude.ai OAuth, GrowthBook gates, or
 externalized `@ant/*` packages.

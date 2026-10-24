@@ -273,6 +273,12 @@ const MODEL_ENV_KEYS = [
 ] as const
 let originalModelEnv: Env | undefined
 
+/** Tests only: forget the saved env slots and the cached profile. */
+export function resetActiveProfileForTesting(): void {
+  originalModelEnv = undefined
+  cachedProfile = undefined
+}
+
 /**
  * Makes `profile` the live backend (null = native Anthropic) and primes the
  * environment so model resolution, auth gating and telemetry behave as if
