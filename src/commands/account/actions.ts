@@ -194,3 +194,50 @@ export function currentSummary(): string {
   const p = getMultimodelProfile()
   return p ? `${p.label} · ${p.model}` : 'Claude (Anthropic)'
 }
+
+/** One row of the interactive /account picker. */
+export type PickerEntry =
+  | { kind: 'account'; id: string; label: string; detail: string; ready: boolean; online?: boolean }
+  | { kind: 'preset'; id: string; label: string; keyEnv?: string }
+  | { kind: 'catalog'; id: string; label: string; modelCount: number; keyEnv?: string }
+
+export type PickerSections = { active: PickerEntry[]; add: PickerEntry[] }
+
+/**
+ * Pure: splits accounts + catalog into the two picker sections.
+ *  - active: Claude, ready presets, saved accounts (also those still missing a key) and local servers.
+ *  - add: built-in presets that still lack a key, then catalog providers not yet saved
+ *    (most models first, ties alphabetical). `query` filters the add section by id or name.
+ */
+export function buildPickerSections(
+  accounts: Array<Account & { online?: boolean }>,
+  catalog: Catalog,
+  query = '',
+  stored: Record<string, unknown> = {},
+): PickerSections {
+  const q = query.trim().toLowerCase()
+  const match = (id: string, name: string) => !q || id.toLowerCase().includes(q) || name.toLowerCase().includes(q)
+
+  const active: PickerEntry[] = []
+  const add: PickerEntry[] = []
+  for (const a of accounts) {
+    if (a.ready || !(a.id in PROVIDER_PRESETS)) {
+      active.push({ kind: 'account', id: a.id, label: a.label, detail: a.detail, ready: a.ready, online: a.online })
+    } else if (match(a.id, a.label)) {
+      add.push({ kind: 'preset', id: a.id, label: a.label, keyEnv: PROVIDER_PRESETS[a.id]?.apiKeyEnv })
+    }
+  }
+  const taken = new Set(accounts.map(a => a.id))
+  for (const id of Object.keys(stored)) taken.add(id)
+  for (const p of usableProviders(catalog)) {
+    if (taken.has(p.id) || p.id in PROVIDER_PRESETS || !match(p.id, p.name)) continue
+    add.push({ kind: 'catalog', id: p.id, label: p.name, modelCount: p.models.length, keyEnv: p.env[0] })
+  }
+  return { active, add }
+}
+
+/** Env/key hint shown after picking a preset that has no key yet. */
+export function presetKeyHint(id: string): string {
+  const env = PROVIDER_PRESETS[id]?.apiKeyEnv
+  return `${PROVIDER_PRESETS[id]?.label ?? id} necesita clave: /account key ${id} <apikey>${env ? ` o la variable ${env}` : ''}.`
+}
