@@ -31,9 +31,20 @@ if [[ ! -f "$settings" ]]; then
   printf '{\n  "statusLine": {"type": "command", "command": "%s/statusline.sh", "padding": 1, "refreshInterval": 2}\n}\n' "$app" > "$settings"
 fi
 
+# --account se acepta en cualquier posición: el lanzador de las terminales de Matrix lo
+# añade detrás de --dangerously-skip-permissions, --session-id, etc., y el CLI no lo conoce.
+rest=()
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --account)     export CLAUDE_MULTIMODEL_ACCOUNT="$2"; shift 2 ;;
+    --account)   export CLAUDE_MULTIMODEL_ACCOUNT="${2:?--account requiere valor}"; shift 2 ;;
+    --account=*) export CLAUDE_MULTIMODEL_ACCOUNT="${1#--account=}"; shift ;;
+    *)           rest+=("$1"); shift ;;
+  esac
+done
+set -- ${rest[@]+"${rest[@]}"}
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
     --model)       export CLAUDE_MULTIMODEL_MODEL="$2"; shift 2 ;;
     --small-model) export CLAUDE_MULTIMODEL_SMALL_MODEL="$2"; shift 2 ;;
     --base-url)    export CLAUDE_MULTIMODEL_BASE_URL="$2"; shift 2 ;;
