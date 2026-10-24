@@ -42,4 +42,7 @@ if [[ ! -x "$cli" ]]; then
   echo "fnharness: compilando por primera vez..." >&2
   (cd "$app" && PATH="$HOME/.local/bun-npm/node_modules/.bin:$PATH" bun install && bun run build) >&2
 fi
-exec "$cli" "$@"
+# Bypass entra en el ciclo de Shift+Tab sin arrancar en él (FNHARNESS_NO_BYPASS=1 lo quita).
+extra=()
+[[ "${FNHARNESS_NO_BYPASS:-}" == 1 ]] || extra+=(--allow-dangerously-skip-permissions)
+exec "$cli" "${extra[@]}" "$@"
