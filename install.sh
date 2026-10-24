@@ -1,179 +1,74 @@
 #!/usr/bin/env bash
+# Instala fnharness desde su repo de Gitea: clona (o actualiza), instala dependencias con bun,
+# compila ./cli y enlaza el lanzador en ~/.local/bin/fnharness.
+#
+# Uso:
+#   ./install.sh                       # desde una copia ya clonada: instala ahí
+#   FNHARNESS_DIR=~/fnharness ./install.sh   # clona o actualiza en otra ruta
+#
+# El repo es privado: la clonación necesita credenciales de Gitea ya configuradas (token en git
+# credential helper o en el remoto). Este script nunca las lee ni las imprime.
 set -euo pipefail
 
-# claude-multimodel installer
-# Usage: curl -fsSL https://raw.githubusercontent.com/777genius/claude-multimodel/main/install.sh | bash
-
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-YELLOW='\033[1;33m'
-CYAN='\033[0;36m'
-BOLD='\033[1m'
-DIM='\033[2m'
-RESET='\033[0m'
-
-REPO="https://github.com/777genius/claude-multimodel.git"
-INSTALL_DIR="$HOME/claude-multimodel"
+REPO="${FNHARNESS_REPO:-https://github.com/gutierenmanuel/fnharness$1}"
 BUN_MIN_VERSION="1.3.11"
+LINK_DIR="${FNHARNESS_LINK_DIR:-$HOME/.local/bin}"
 
-info()  { printf "${CYAN}[*]${RESET} %s\n" "$*"; }
-ok()    { printf "${GREEN}[+]${RESET} %s\n" "$*"; }
-warn()  { printf "${YELLOW}[!]${RESET} %s\n" "$*"; }
-fail()  { printf "${RED}[x]${RESET} %s\n" "$*"; exit 1; }
+info() { printf '[*] %s\n' "$*"; }
+ok()   { printf '[+] %s\n' "$*"; }
+fail() { printf '[x] %s\n' "$*" >&2; exit 1; }
 
-header() {
-  echo ""
-  printf "${BOLD}${CYAN}"
-  cat << 'ART'
-   ___                            _
-  / _|_ __ ___  ___        ___ __| | ___
- | |_| '__/ _ \/ _ \_____ / __/ _` |/ _ \
- |  _| | |  __/  __/_____| (_| (_| |  __/
- |_| |_|  \___|\___|      \___\__,_|\___|
+# Raíz de instalación: la copia donde está este script, salvo que se pida otra.
+script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+if [[ -n "${FNHARNESS_DIR:-}" ]]; then
+  install_dir="$FNHARNESS_DIR"
+elif [[ -f "$script_dir/package.json" ]]; then
+  install_dir="$script_dir"
+else
+  install_dir="$HOME/fnharness"
+fi
 
-ART
-  printf "${RESET}"
-  printf "${DIM}  The multimodel build of Claude Code${RESET}\n"
-  echo ""
-}
+# bun >= BUN_MIN_VERSION (el global del dueño vive en ~/.local/bun-npm).
+export PATH="$HOME/.local/bun-npm/node_modules/.bin:$PATH"
+command -v bun >/dev/null 2>&1 || fail "bun no está instalado (se necesita >= $BUN_MIN_VERSION)"
+bun_version="$(bun --version)"
+if [[ "$(printf '%s\n%s\n' "$BUN_MIN_VERSION" "$bun_version" | sort -V | head -1)" != "$BUN_MIN_VERSION" ]]; then
+  fail "bun $bun_version es demasiado viejo (se necesita >= $BUN_MIN_VERSION)"
+fi
+ok "bun $bun_version"
 
-# -------------------------------------------------------------------
-# System checks
-# -------------------------------------------------------------------
+if [[ ! -f "$install_dir/package.json" ]]; then
+  info "Clonando $REPO en $install_dir"
+  git clone "$REPO" "$install_dir"
+elif [[ -d "$install_dir/.git" && -z "$(git -C "$install_dir" status --porcelain)" ]]; then
+  info "Actualizando $install_dir"
+  git -C "$install_dir" pull --ff-only || info "sin actualizar (rama sin remoto o con cambios locales); se instala lo que hay"
+fi
+ok "Código en $install_dir"
 
-check_os() {
-  case "$(uname -s)" in
-    Darwin) OS="macos" ;;
-    Linux)  OS="linux" ;;
-    *)      fail "Unsupported OS: $(uname -s). macOS or Linux required." ;;
-  esac
-  ok "OS: $(uname -s) $(uname -m)"
-}
+info "Instalando dependencias"
+(cd "$install_dir" && bun install --frozen-lockfile)
 
-check_git() {
-  if ! command -v git &>/dev/null; then
-    fail "git is not installed. Install it first:
-    macOS:  xcode-select --install
-    Linux:  sudo apt install git  (or your distro's equivalent)"
-  fi
-  ok "git: $(git --version | head -1)"
-}
+info "Compilando ./cli"
+(cd "$install_dir" && bun run build)
+[[ -x "$install_dir/cli" ]] || fail "la compilación no dejó $install_dir/cli"
+ok "Binario: $install_dir/cli"
 
-# Compare semver: returns 0 if $1 >= $2
-version_gte() {
-  [ "$(printf '%s\n' "$1" "$2" | sort -V | head -1)" = "$2" ]
-}
+mkdir -p "$LINK_DIR"
+ln -sf "$install_dir/bin/fnharness" "$LINK_DIR/fnharness"
+ok "Enlace: $LINK_DIR/fnharness"
 
-check_bun() {
-  if command -v bun &>/dev/null; then
-    local ver
-    ver="$(bun --version 2>/dev/null || echo "0.0.0")"
-    if version_gte "$ver" "$BUN_MIN_VERSION"; then
-      ok "bun: v${ver}"
-      return
-    fi
-    warn "bun v${ver} found but v${BUN_MIN_VERSION}+ required. Upgrading..."
-  else
-    info "bun not found. Installing..."
-  fi
-  install_bun
-}
+case ":$PATH:" in
+  *":$LINK_DIR:"*) ;;
+  *) info "Añade $LINK_DIR al PATH para usar el comando fnharness" ;;
+esac
 
-install_bun() {
-  curl -fsSL https://bun.sh/install | bash
-  # Source the updated profile so bun is on PATH for this session
-  export BUN_INSTALL="${BUN_INSTALL:-$HOME/.bun}"
-  export PATH="$BUN_INSTALL/bin:$PATH"
-  if ! command -v bun &>/dev/null; then
-    fail "bun installation succeeded but binary not found on PATH.
-    Add this to your shell profile and restart:
-      export PATH=\"\$HOME/.bun/bin:\$PATH\""
-  fi
-  ok "bun: v$(bun --version) (just installed)"
-}
+cat <<EOF
 
-# -------------------------------------------------------------------
-# Clone & build
-# -------------------------------------------------------------------
+Listo. Prueba:
+  fnharness --accounts     # cuentas disponibles
+  fnharness                # sesión interactiva con la última cuenta usada
 
-clone_repo() {
-  if [ -d "$INSTALL_DIR" ]; then
-    warn "$INSTALL_DIR already exists"
-    if [ -d "$INSTALL_DIR/.git" ]; then
-      info "Pulling latest changes..."
-      git -C "$INSTALL_DIR" pull --ff-only origin main 2>/dev/null || {
-        warn "Pull failed, continuing with existing copy"
-      }
-    fi
-  else
-    info "Cloning repository..."
-    git clone --depth 1 "$REPO" "$INSTALL_DIR"
-  fi
-  ok "Source: $INSTALL_DIR"
-}
-
-install_deps() {
-  info "Installing dependencies..."
-  cd "$INSTALL_DIR"
-  bun install --frozen-lockfile 2>/dev/null || bun install
-  ok "Dependencies installed"
-}
-
-build_binary() {
-  info "Building claude-multimodel (all experimental features enabled)..."
-  cd "$INSTALL_DIR"
-  bun run build:dev:full
-  ok "Binary built: $INSTALL_DIR/cli-dev"
-}
-
-link_binary() {
-  local link_dir="$HOME/.local/bin"
-  mkdir -p "$link_dir"
-
-  ln -sf "$INSTALL_DIR/cli-dev" "$link_dir/claude-multimodel"
-  ok "Symlinked: $link_dir/claude-multimodel"
-
-  if ! echo "$PATH" | tr ':' '\n' | grep -qx "$link_dir"; then
-    warn "$link_dir is not on your PATH"
-    echo ""
-    printf "${YELLOW}  Add this to your shell profile (~/.bashrc, ~/.zshrc, etc.):${RESET}\n"
-    printf "${BOLD}    export PATH=\"\$HOME/.local/bin:\$PATH\"${RESET}\n"
-    echo ""
-  fi
-}
-
-# -------------------------------------------------------------------
-# Main
-# -------------------------------------------------------------------
-
-header
-info "Starting installation..."
-echo ""
-
-check_os
-check_git
-check_bun
-echo ""
-
-clone_repo
-install_deps
-build_binary
-link_binary
-
-echo ""
-printf "${GREEN}${BOLD}  Installation complete!${RESET}\n"
-echo ""
-printf "  ${BOLD}Run it:${RESET}\n"
-printf "    ${CYAN}claude-multimodel${RESET}                  # interactive REPL\n"
-printf "    ${CYAN}claude-multimodel -p \"your prompt\"${RESET}  # one-shot mode\n"
-echo ""
-printf "  ${BOLD}Set your API key:${RESET}\n"
-printf "    ${CYAN}export ANTHROPIC_API_KEY=\"sk-ant-...\"${RESET}\n"
-echo ""
-printf "  ${BOLD}Or log in with Claude.ai:${RESET}\n"
-printf "    ${CYAN}claude-multimodel /login${RESET}\n"
-echo ""
-printf "  ${DIM}Source: $INSTALL_DIR${RESET}\n"
-printf "  ${DIM}Binary: $INSTALL_DIR/cli-dev${RESET}\n"
-printf "  ${DIM}Link:   ~/.local/bin/claude-multimodel${RESET}\n"
-echo ""
+La primera vez con la cuenta claude, escribe /login dentro de la sesión. Con modelos locales o de
+otros proveedores usa /account (selector de cuentas).
+EOF
