@@ -347,7 +347,7 @@ function ModeIndicator({
   // doesn't push the mode indicator off-screen.
   // FnHarness always shows the permission mode, including the default one.
   const modePart = currentMode && !getIsRemoteMode() ? <Text color={getModeColor(currentMode)} dimColor={!hasActiveMode} key="mode">
-        {hasActiveMode ? `${permissionModeSymbol(currentMode)} ${permissionModeTitle(currentMode).toLowerCase()} on` : '⏵ default mode'}
+        {hasActiveMode ? `${permissionModeSymbol(currentMode)} ${permissionModeTitle(currentMode).toLowerCase()} on` : '⏵ simple mode'}
         {shouldShowModeHint && <Text dimColor>
             {' '}
             <KeyboardShortcutHint shortcut={modeCycleShortcut} action="cycle" parens />
