@@ -10,7 +10,7 @@ uses_types: []
 framework: "bun-ink"
 entry_point: "bin/fnharness"
 dir_path: "apps/fnharness"
-repo_url: ""
+repo_url: "https://github.com/gutierenmanuel/fnharness$1"
 e2e_checks:
   - id: unit
     cmd: "cd apps/fnharness && PATH=$HOME/.local/bun-npm/node_modules/.bin:$PATH bun test src scripts"
