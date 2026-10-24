@@ -25,6 +25,7 @@ import type { CacheSafeParams } from '../../utils/forkedAgent.js';
 import { lazySchema } from '../../utils/lazySchema.js';
 import { createUserMessage, extractTextContent, isSyntheticMessage, normalizeMessages } from '../../utils/messages.js';
 import { getAgentModel } from '../../utils/model/agent.js';
+import { agentAccountsPromptSection, validateAgentModelParam } from '../../utils/model/routedModels.js';
 import { permissionModeSchema } from '../../utils/permissions/PermissionMode.js';
 import type { PermissionResult } from '../../utils/permissions/PermissionResult.js';
 import { filterDeniedAgents, getDenyRuleForAgent } from '../../utils/permissions/permissions.js';
@@ -83,7 +84,7 @@ const baseInputSchema = lazySchema(() => z.object({
   description: z.string().describe('A short (3-5 word) description of the task'),
   prompt: z.string().describe('The task for the agent to perform'),
   subagent_type: z.string().optional().describe('The type of specialized agent to use for this task'),
-  model: z.enum(['sonnet', 'opus', 'haiku']).optional().describe("Optional model override for this agent. Takes precedence over the agent definition's model frontmatter. If omitted, uses the agent definition's model, or inherits from the parent."),
+  model: z.string().optional().describe("Optional model override for this agent: 'sonnet', 'opus' or 'haiku', or 'cuenta:modelo' to run it on another connected account (e.g. 'claude:haiku', 'qwen36:qwen36-35b-heretic-q4km'; see the list in the tool description). Takes precedence over the agent definition's model frontmatter. If omitted, uses the agent definition's model, or inherits from the parent."),
   run_in_background: z.boolean().optional().describe('Set to true to run this agent in the background. You will be notified when it completes.')
 }));
 
@@ -221,7 +222,7 @@ export const AgentTool = buildTool({
     // Use inline env check instead of coordinatorModule to avoid circular
     // dependency issues during test module loading.
     const isCoordinator = feature('COORDINATOR_MODE') ? isEnvTruthy(process.env.CLAUDE_CODE_COORDINATOR_MODE) : false;
-    return await getPrompt(filteredAgents, isCoordinator, allowedAgentTypes);
+    return (await getPrompt(filteredAgents, isCoordinator, allowedAgentTypes)) + (await agentAccountsPromptSection());
   },
   name: AGENT_TOOL_NAME,
   searchHint: 'delegate work to a subagent',
@@ -250,6 +251,11 @@ export const AgentTool = buildTool({
   }: AgentToolInput, toolUseContext, canUseTool, assistantMessage, onProgress?) {
     const startTime = Date.now();
     const model = isCoordinatorMode() ? undefined : modelParam;
+    // `cuenta:modelo` must name an account that can serve right now.
+    const modelError = validateAgentModelParam(model);
+    if (modelError) {
+      throw new Error(modelError);
+    }
 
     // Get app state for permission mode and agent filtering
     const appState = toolUseContext.getAppState();
@@ -690,6 +696,7 @@ export const AgentTool = buildTool({
         description,
         prompt,
         selectedAgent,
+        model: resolvedAgentModel,
         setAppState: rootSetAppState,
         // Don't link to parent's abort controller -- background agents should
         // survive when the user presses ESC to cancel the main thread.
@@ -821,6 +828,7 @@ export const AgentTool = buildTool({
             description,
             prompt,
             selectedAgent,
+            model: resolvedAgentModel,
             setAppState: rootSetAppState,
             toolUseId: toolUseContext.toolUseId,
             autoBackgroundMs: getAutoBackgroundMs() || undefined

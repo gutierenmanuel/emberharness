@@ -473,6 +473,7 @@ export function registerAsyncAgent({
   description,
   prompt,
   selectedAgent,
+  model,
   setAppState,
   parentAbortController,
   toolUseId
@@ -481,6 +482,8 @@ export function registerAsyncAgent({
   description: string;
   prompt: string;
   selectedAgent: AgentDefinition;
+  /** Resolved model; `cuenta:modelo` when the agent runs on another account. */
+  model?: string;
   setAppState: SetAppState;
   parentAbortController?: AbortController;
   toolUseId?: string;
@@ -497,6 +500,7 @@ export function registerAsyncAgent({
     prompt,
     selectedAgent,
     agentType: selectedAgent.agentType ?? 'general-purpose',
+    model,
     abortController,
     retrieved: false,
     lastReportedToolCount: 0,
@@ -533,6 +537,7 @@ export function registerAgentForeground({
   description,
   prompt,
   selectedAgent,
+  model,
   setAppState,
   autoBackgroundMs,
   toolUseId
@@ -541,6 +546,8 @@ export function registerAgentForeground({
   description: string;
   prompt: string;
   selectedAgent: AgentDefinition;
+  /** Resolved model; `cuenta:modelo` when the agent runs on another account. */
+  model?: string;
   setAppState: SetAppState;
   autoBackgroundMs?: number;
   toolUseId?: string;
@@ -562,6 +569,7 @@ export function registerAgentForeground({
     prompt,
     selectedAgent,
     agentType: selectedAgent.agentType ?? 'general-purpose',
+    model,
     abortController,
     unregisterCleanup,
     retrieved: false,
