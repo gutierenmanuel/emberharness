@@ -14,6 +14,10 @@ enables `VOICE_MODE`, `AGENT_TRIGGERS` and `MONITOR_TOOL`. `AGENT_TRIGGERS_REMOT
 triggers, needs Anthropic services) stays off. `MONITOR_TOOL` compiles now: the tool lives in
 `src/tools/MonitorTool/`.
 
+FnHarness note (24/10/2026): the Matrix event channel (`FNHARNESS_EVENTS` JSONL out,
+`FNHARNESS_INPUT` FIFO in; contract in `docs/matrix_events.md`) is not behind a compile flag. It is
+always built in and off at runtime: without those environment variables nothing is written or read.
+
 FnHarness note (24/10/2026, fallback-hooks): the `fallbackModel` setting / `--fallback-model a,b,c`
 chain works across accounts (`qwen36`, `claude:haiku`, `openrouter:x/y`) and the hook events
 `PostToolBatch`, `DirectoryAdded`, `PreModelSwitch` and `PostModelSwitch` exist. None of it is behind a

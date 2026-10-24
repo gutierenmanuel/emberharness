@@ -1,6 +1,8 @@
 # Contrato de eventos y entrada para el puente de Matrix (v1)
 
-Estado: contrato acordado, implementación en curso (fase 2 de `docs/plans/matrix_default_harness.md`).
+Estado: implementado en fnharness (fase 2 de `docs/plans/matrix_default_harness.md`): emisor en
+`src/utils/matrixEvents.ts` (lógica pura) y `src/utils/matrixEventsRuntime.ts` (efectos), tests en
+`src/utils/matrixEvents.test.ts` y `tests/e2e/matrixEvents.e2e.test.ts`.
 Quien cambie este documento sube `v` y actualiza a la vez el emisor (fnharness) y el lector (puente
 `apps/agents_and_robots`, paquete `pkg/terminal`).
 
@@ -43,11 +45,24 @@ Tipos de evento:
 | `permission_prompt` | `tool_use_id`, `tool`, `summary` | Aparece un diálogo de permiso (en modo bypass nunca se emite) |
 | `input_queued` | `id`, `text_len` | Llegó una entrada por `FNHARNESS_INPUT` mientras el modelo trabajaba |
 | `input_accepted` | `id`, `text_len` | Una entrada por `FNHARNESS_INPUT` se envió como prompt |
-| `session_switch` | `old_session_id`, `new_session_id`, `reason` (`clear` \| `resume` \| `compact`) | Cambió el `session_id`; sustituye al hook `SessionStart` que hoy apunta el id nuevo en el state file |
+| `session_switch` | `old_session_id`, `new_session_id`, `reason` (`clear` \| `resume` \| `compact`) | Cambió el `session_id`; sustituye al hook `SessionStart` que hoy apunta el id nuevo en el state file. fnharness conserva el id al compactar, así que hoy solo emite `clear` y `resume`; `compact` queda reservado |
 | `exit` | `code` | El proceso termina |
 
 Garantías de orden: `session_start` es el primer evento; `ready` nunca se emite entre `turn_start` y
 `turn_end`; todo `ask_user` va seguido de su `ask_user_done`; `exit` es el último.
+
+Notas de implementación:
+
+- `ready` se emite una vez por periodo ocioso (el prompt sin turno, sin interfaz de comando local y sin
+  nada en cola) y se repite tras cada `turn_end` que deja el prompt libre. Si había entradas encoladas
+  por `FNHARNESS_INPUT`, en su lugar se emite `input_accepted` de la siguiente y `ready` espera.
+- Un turno interrumpido con Escape emite `turn_end` con `reason: "interrupted"` antes del `ready`
+  siguiente, aunque el prompt ya esté libre.
+- `turn_start.source`: `user` (tecleado o entrada del FIFO con el prompt libre), `queued` (esperó en
+  una cola, la del FIFO o la del REPL) o `scheduled` (notificaciones y prompts meta).
+- `permission_prompt.summary` es la descripción del diálogo, aplanada y cortada a 200 caracteres.
+- En modo `-p` se emiten `session_start`, `turn_start`, `turn_end`, `ready` (al quedar la cola vacía) y
+  `exit`; `FNHARNESS_INPUT` solo se lee en modo interactivo.
 
 ## Canal de entrada: `FNHARNESS_INPUT`
 
@@ -57,8 +72,15 @@ una línea JSON por mensaje. El puente escribe cada línea completa con un únic
 | `type` | Campos | Efecto |
 |---|---|---|
 | `prompt` | `id`, `text` | Envía `text` como si el usuario lo hubiera tecleado y pulsado Enter. Si el modelo está trabajando, se encola (`input_queued`) y se envía cuando acabe el turno |
-| `ask_answer` | `tool_use_id`, `selected` (lista de `label`), `text` (respuesta libre, opcional) | Responde al diálogo abierto de `AskUserQuestion`; `selected` y `text` son excluyentes salvo en multiselección |
+| `ask_answer` | `tool_use_id`, `selected` (lista de `label`), `text` (respuesta libre, opcional), `answers` (opcional) | Responde al diálogo abierto de `AskUserQuestion`; `selected` y `text` son excluyentes salvo en multiselección |
 | `interrupt` | — | Equivale a Escape: interrumpe el turno en curso |
+
+Reglas de `ask_answer`: con una sola pregunta, `selected` lleva el `label` elegido (en multiselección,
+varios, que se unen con `, `, y `text` se añade como una opción más); `text` solo es la respuesta libre
+("Other"). Con varias preguntas, `selected[i]` responde a la pregunta `i`. La extensión opcional
+`answers` (`{ "<texto de la pregunta>": "<respuesta>" }`) responde a todas por texto y tiene prioridad;
+es un campo añadido y opcional, por lo que `v` sigue en 1. Si no hay un diálogo abierto con ese
+`tool_use_id`, la línea se descarta con log de depuración.
 
 Una línea que no sea JSON válido o con `type` desconocido se descarta y se registra en el log de
 depuración; nunca tumba la sesión.

@@ -48,6 +48,27 @@ Dentro de la sesión:
 El catálogo completo está en [docs/COMMANDS.md](docs/COMMANDS.md). La cuenta `claude` usa la API
 nativa de Anthropic; su login (`/login`) es propio de fnharness.
 
+## Canal de eventos para Matrix
+
+Dos variables de entorno, apagadas por defecto (sin ellas fnharness no escribe ni lee nada). El
+contrato completo, con todos los eventos y campos, está en [docs/matrix_events.md](docs/matrix_events.md).
+
+| Variable | Qué hace |
+|---|---|
+| `FNHARNESS_EVENTS=<ruta>.jsonl` | Añade una línea JSON por evento (`session_start`, `ready`, `turn_start`, `turn_end`, `ask_user`, `ask_user_done`, `permission_prompt`, `input_queued`, `input_accepted`, `session_switch`, `exit`). Se abre en modo append con permisos 0600 y cada línea es un único `write`. |
+| `FNHARNESS_INPUT=<fifo>` | FIFO (`mkfifo`) del que se lee una línea JSON por mensaje: `prompt`, `ask_answer`, `interrupt`. Solo en modo interactivo. Las líneas inválidas se descartan con un log de depuración. |
+
+```bash
+mkfifo /tmp/fnh.in
+FNHARNESS_EVENTS=/tmp/fnh.events.jsonl FNHARNESS_INPUT=/tmp/fnh.in fnharness &
+tail -f /tmp/fnh.events.jsonl &
+echo '{"type":"prompt","id":"1","text":"resume este repo"}' > /tmp/fnh.in
+```
+
+La lógica pura (construcción y serialización de eventos, parseo de la entrada, cola) está en
+`src/utils/matrixEvents.ts`; los efectos (fichero, FIFO, enganches al REPL) en
+`src/utils/matrixEventsRuntime.ts`.
+
 ## Estructura
 
 | Ruta | Contenido |

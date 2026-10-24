@@ -3,6 +3,7 @@ import { feature } from 'bun:bundle';
 import * as React from 'react';
 import { EnterPlanModeTool } from 'src/tools/EnterPlanModeTool/EnterPlanModeTool.js';
 import { ExitPlanModeV2Tool } from 'src/tools/ExitPlanModeTool/ExitPlanModeV2Tool.js';
+import { useMatrixPermissionRequest } from '../../hooks/useMatrixPermissionRequest.js';
 import { useNotifyAfterTimeout } from '../../hooks/useNotifyAfterTimeout.js';
 import { useKeybinding } from '../../keybindings/useKeybinding.js';
 import type { AnyObject, Tool, ToolUseContext } from '../../Tool.js';
@@ -188,6 +189,14 @@ export function PermissionRequest(t0) {
   }
   const notificationMessage = t3;
   useNotifyAfterTimeout(notificationMessage, "permission_prompt");
+  // Matrix event channel (docs/matrix_events.md): `permission_prompt`, or `ask_user` for AskUserQuestion.
+  useMatrixPermissionRequest({
+    toolUseID: toolUseConfirm.toolUseID,
+    description: toolUseConfirm.description,
+    input: toolUseConfirm.input,
+    isAskUserQuestion: toolUseConfirm.tool === AskUserQuestionTool,
+    toolName: toolUseConfirm.tool.name
+  });
   let t4;
   if ($[7] !== toolUseConfirm.tool) {
     t4 = permissionComponentForTool(toolUseConfirm.tool);
