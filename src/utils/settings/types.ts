@@ -376,6 +376,14 @@ export const SettingsSchema = lazySchema(() =>
         .string()
         .optional()
         .describe('Override the default model used by Claude Code'),
+      fallbackModel: z
+        .union([z.string(), z.array(z.string()).max(3)])
+        .optional()
+        .describe(
+          'Fallback chain (max 3) tried in order when the primary model/account is unavailable or overloaded. ' +
+            'Each entry is "account", "account:model" (claude:haiku, openrouter:x/y) or a model of the active account. ' +
+            'The --fallback-model flag (comma-separated) takes precedence',
+        ),
       // Enterprise allowlist of models
       availableModels: z
         .array(z.string())

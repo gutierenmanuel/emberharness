@@ -4,7 +4,17 @@ import type {
   ToolUseBlock,
 } from '@anthropic-ai/sdk/resources/index.mjs'
 import type { CanUseToolFn } from './hooks/useCanUseTool.js'
+import {
+  executePostToolBatchHooks,
+  hasHooksForEvent,
+} from './utils/hooks.js'
+import { buildToolBatchCalls } from './utils/hooks/toolBatch.js'
 import { FallbackTriggeredError } from './services/api/withRetry.js'
+import {
+  applyFallback,
+  peekNextFallback,
+  restorePrimary,
+} from './services/api/fallbackChain.js'
 import {
   calculateTokenWarningState,
   isAutoCompactEnabled,
@@ -78,7 +88,9 @@ import {
 import { notifyCommandLifecycle } from './utils/commandLifecycle.js'
 import { headlessProfilerCheckpoint } from './utils/headlessProfiler.js'
 import {
+  getDefaultMainLoopModel,
   getRuntimeMainLoopModel,
+  parseUserSpecifiedModel,
   renderModelName,
 } from './utils/model/model.js'
 import {
@@ -216,6 +228,11 @@ type State = {
   transition: Continue | undefined
 }
 
+/** Model id on the native Claude account for a chain entry (`claude:haiku`). */
+function resolveClaudeFallbackModel(alias: string | undefined): string {
+  return alias ? parseUserSpecifiedModel(alias) : getDefaultMainLoopModel()
+}
+
 export async function* query(
   params: QueryParams,
 ): AsyncGenerator<
@@ -261,6 +278,10 @@ async function* queryLoop(
     skipCacheWrite,
   } = params
   const deps = params.deps ?? productionDeps()
+
+  // A fallback-chain substitution lasts one user turn: a new main-thread
+  // query tries the primary account again.
+  if (!params.toolUseContext.agentId) restorePrimary()
 
   // Mutable cross-iteration state. The loop body destructures this at the top
   // of each iteration so reads stay bare-name (`messages`, `toolUseContext`).
@@ -891,9 +912,21 @@ async function* queryLoop(
             }
           }
         } catch (innerError) {
-          if (innerError instanceof FallbackTriggeredError && fallbackModel) {
+          const chainNext =
+            innerError instanceof FallbackTriggeredError
+              ? peekNextFallback(currentModel)
+              : null
+          if (
+            innerError instanceof FallbackTriggeredError &&
+            (chainNext || fallbackModel)
+          ) {
+            // Cross-account chain first (switches the live backend for the
+            // rest of the turn); the legacy single-model flag otherwise.
+            const switchedTo = chainNext
+              ? applyFallback(chainNext, resolveClaudeFallbackModel)
+              : fallbackModel!
             // Fallback was triggered - switch model and retry
-            currentModel = fallbackModel
+            currentModel = switchedTo
             attemptWithFallback = true
 
             // Clear assistant messages since we'll retry the entire request
@@ -919,7 +952,7 @@ async function* queryLoop(
             }
 
             // Update tool use context with new model
-            toolUseContext.options.mainLoopModel = fallbackModel
+            toolUseContext.options.mainLoopModel = switchedTo
 
             // Thinking signatures are model-bound: replaying a protected-thinking
             // block (e.g. capybara) to an unprotected fallback (e.g. opus) 400s.
@@ -933,7 +966,7 @@ async function* queryLoop(
               original_model:
                 innerError.originalModel as AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS,
               fallback_model:
-                fallbackModel as AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS,
+                switchedTo as AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS,
               entrypoint:
                 'cli' as AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS,
               queryChainId: queryChainIdForAnalytics,
@@ -943,7 +976,9 @@ async function* queryLoop(
             // Yield system message about fallback — use 'warning' level so
             // users see the notification without needing verbose mode
             yield createSystemMessage(
-              `Switched to ${renderModelName(innerError.fallbackModel)} due to high demand for ${renderModelName(innerError.originalModel)}`,
+              chainNext
+                ? `${renderModelName(innerError.originalModel)} is unavailable: switched to ${chainNext.target.raw} (${renderModelName(switchedTo)}) for this turn`
+                : `Switched to ${renderModelName(innerError.fallbackModel)} due to high demand for ${renderModelName(innerError.originalModel)}`,
               'warning',
             )
 
@@ -1518,6 +1553,69 @@ async function* queryLoop(
     // If a hook indicated to prevent continuation, stop here
     if (shouldPreventContinuation) {
       return { reason: 'hook_stopped' }
+    }
+
+    // PostToolBatch hooks: once per batch of tool calls, before the next model
+    // call. They can add context or stop the loop.
+    if (toolUseBlocks.length > 0 && hasHooksForEvent('PostToolBatch')) {
+      let stopAfterBatch = false
+      for await (const r of executePostToolBatchHooks(
+        buildToolBatchCalls(toolUseBlocks, toolResults),
+        updatedToolUseContext,
+        updatedToolUseContext.getAppState().toolPermissionContext.mode,
+        toolUseContext.abortController.signal,
+      )) {
+        const out: Message[] = []
+        if (
+          r.message &&
+          !(
+            r.message.type === 'attachment' &&
+            r.message.attachment.type === 'hook_blocking_error'
+          )
+        ) {
+          out.push(r.message)
+        }
+        if (r.blockingError) {
+          stopAfterBatch = true
+          out.push(
+            createAttachmentMessage({
+              type: 'hook_blocking_error',
+              hookName: 'PostToolBatch',
+              toolUseID: toolUseBlocks[0]!.id,
+              hookEvent: 'PostToolBatch',
+              blockingError: r.blockingError,
+            }),
+          )
+        }
+        if (r.preventContinuation) {
+          stopAfterBatch = true
+          out.push(
+            createAttachmentMessage({
+              type: 'hook_stopped_continuation',
+              message: r.stopReason || 'Execution stopped by PostToolBatch hook',
+              hookName: 'PostToolBatch',
+              toolUseID: toolUseBlocks[0]!.id,
+              hookEvent: 'PostToolBatch',
+            }),
+          )
+        }
+        if (r.additionalContexts && r.additionalContexts.length > 0) {
+          out.push(
+            createAttachmentMessage({
+              type: 'hook_additional_context',
+              content: r.additionalContexts,
+              hookName: 'PostToolBatch',
+              toolUseID: toolUseBlocks[0]!.id,
+              hookEvent: 'PostToolBatch',
+            }),
+          )
+        }
+        for (const m of out) {
+          yield m
+          toolResults.push(m)
+        }
+      }
+      if (stopAfterBatch) return { reason: 'hook_stopped' }
     }
 
     if (tracking?.compacted) {

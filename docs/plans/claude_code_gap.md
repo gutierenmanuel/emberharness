@@ -39,7 +39,7 @@ Orden = prioridad sugerida para uso diario como agente de terminal con modelos l
 | 1 | `/loop` autopaced + `ScheduleWakeup` (y Cron*) | Cron* + `/loop` fijo: flag-ok `AGENT_TRIGGERS`; `ScheduleWakeup` y modo autopaced: ausente | S (activar) + M (wakeup) | ninguna | Alta |
 | 2 | Tool `Monitor` | flag-roto `MONITOR_TOOL` (falta `MonitorTool.js` y `MonitorMcpTask`) | M | ninguna | Alta |
 | 3 | `/goal` | ausente | M | modelo (evaluador) | Alta |
-| 4 | `fallbackModel` (ajuste) + hooks nuevos | ausente (solo `--fallback-model` CLI); 6 eventos de hook y tipo `mcp_tool` ausentes | S | ninguna | Alta |
+| 4 | `fallbackModel` (ajuste) + hooks nuevos | **hecho** (24/10/2026, rama quick/fallback-hooks): cadena de fallback entre cuentas, `PostToolBatch`, `DirectoryAdded`, `PreModelSwitch`, `PostModelSwitch`; pendientes `UserPromptExpansion`, `MessageDisplay` y tipo `mcp_tool` | S | ninguna | Alta |
 | 5 | Sesiones en segundo plano y agent view (`--bg`, `claude agents`, `attach`, `logs`, `stop`, `/background`) | flag-roto `BG_SESSIONS` (falta `src/cli/bg.js`); vista ausente | L | ninguna | Media-alta |
 | 6 | `/fork`, `/subtask` (subagente bifurcado) | flag-roto `FORK_SUBAGENT` (falta `commands/fork`); `/subtask` ausente | M | ninguna | Media |
 | 7 | Auto mode (clasificador de permisos) | flag-roto `TRANSCRIPT_CLASSIFIER` (falta el prompt `.txt`); `BASH_CLASSIFIER` flag-ok | L | modelo (clasificador) | Media |
@@ -57,7 +57,7 @@ Ya presentes y sin brecha relevante (verificadas): `EnterWorktree`/`ExitWorktree
 (oculto: se maneja desde `/config`), `/context`, `/stats`, `/cost`, `/tasks`, `/btw`, `/branch`,
 `/compact`, `/memory` con memdir y `EXTRACT_MEMORIES`, skills y `/skills`, `/agents`, `LSP`,
 `ToolSearch`, `TaskCreate/Get/List/Update/Stop`, `NotebookEdit`, `/sandbox`, `/add-dir`, `/effort`,
-`/mcp`, `/hooks` con 27 eventos y tipos `command`, `prompt`, `agent`, `http`, skills empaquetadas
+`/mcp`, `/hooks` con 31 eventos y tipos `command`, `prompt`, `agent`, `http`, skills empaquetadas
 `batch`, `simplify`, `loop` (apagada), `debug`, `verify`, `claude-api`, `update-config`.
 
 ## Estado de las tandas 1 y 2 (rama quick/loop, 24/10/2026)
@@ -87,6 +87,49 @@ Pendiente de esas tandas:
 - Con `fixed` + prompt de mantenimiento, el texto de `loop.md` se copia al crear la tarea cron, así
   que editarlo no afecta a un bucle ya creado (en modo dinámico sí, porque cada vuelta reentra en la skill).
 - `PushNotification` y `SleepTool` siguen sin existir.
+
+## Estado del punto 4: fallbackModel y hooks nuevos (rama quick/fallback-hooks, 24/10/2026)
+
+Hecho, con tests unitarios y e2e (`tests/e2e/cli.e2e.test.ts`):
+
+- **Cadena de fallback entre cuentas.** Ajuste `fallbackModel` (cadena o lista) y `--fallback-model a,b,c`
+  (coma; el flag gana al ajuste), máximo 3 entradas sin duplicados, válidos también en interactivo.
+  Formato de cada entrada: `cuenta` (`qwen36`), `cuenta:modelo` (`claude:haiku`, `openrouter:x/y`) o
+  `modelo` de la cuenta activa. El prefijo cuenta una cuenta solo si es `claude`, un preset o una
+  cuenta guardada, así que ids con dos puntos (`qwen3:8b`) siguen siendo modelos. Código:
+  `src/services/api/fallbackChain.ts` (parseo y elección puros con tests; estado mínimo para aplicar
+  y restaurar), enganchado en `withRetry.ts` y `query.ts`.
+- **Cuándo salta.** Tras 3 intentos fallidos con error de disponibilidad (5xx, 529, o el 503 que el
+  adaptador devuelve con «conexión rechazada» a un `llama-server` caído), solo en peticiones de
+  primer plano. Auth, facturación, límite de uso (429) y 4xx no saltan. Las entradas no resolubles
+  (falta la clave, cuenta desconocida) se saltan. Avisa con un mensaje de sistema de nivel warning.
+- **Dura un turno**, como en Claude Code: el siguiente prompt del hilo principal restaura la cuenta
+  principal (`restorePrimary`) y la prueba otra vez. No toca `accounts.json`.
+- **Hooks nuevos** (formato de `https://code.claude.com/docs/en/hooks.md`): `PostToolBatch` (entrada
+  `tool_calls`, `additionalContext`, `decision: block`/`continue:false` paran el bucle), `DirectoryAdded`
+  (`directory`, `source`; en segundo plano), `PreModelSwitch` (`from_model`, `to_model`,
+  `requested_model`, `source`, más `from_account`/`to_account`; bloquea con exit 2,
+  `decision: block` o `permissionDecision: deny`; matcher sobre el nombre canónico de `to_model`) y
+  `PostModelSwitch` (mismos campos; stdout o `additionalContext` llegan al modelo con la siguiente
+  petición, solo el del último cambio). Se disparan desde `/model <x>`, el selector de `/model`,
+  `/account` (y su selector) y `/add-dir`. Código: `utils/hooks.ts`, `commands/model/switchGuard.ts`,
+  `commands/account/actions.ts` (`switchAccountWithHooks`), `utils/hooks/pendingHookContext.ts`.
+
+Pendiente de este punto:
+
+- `PreModelSwitch` con `ask`: se trata como rechazo (la doc lo permite solo en `/model` interactivo,
+  aquí no hay diálogo de confirmación). El timeout del hook sí bloquea.
+- `PreModelSwitch` / `PostModelSwitch` no se disparan aún desde `Alt+P`, `/config`, fast mode,
+  `set_model` del SDK ni al restaurar el modelo en `--resume` (`source: sdk`/`resume`/`auto` están
+  en el esquema). Tampoco desde el fallback: la doc oficial no los lanza para la sustitución de un turno.
+- Los campos de coste de `PreModelSwitch` (`prompt_cache_warm`, `cache_ttl`, `estimated_cache_write_usd`,
+  `pricing`) se rellenan con valores neutros y `context_tokens` vale 0 salvo que el llamante lo pase.
+- El fallback no se aplica a subagentes como cadena independiente (cambian la cuenta global hasta el
+  siguiente turno principal) ni se salta modelos con ventana menor al compactar.
+- `DirectoryAdded` con `source: register_repo_root` (SDK) no tiene aún disparador; `--add-dir` de
+  arranque no lo dispara (igual que la doc).
+- Siguen ausentes `UserPromptExpansion`, `MessageDisplay` y el tipo de hook `mcp_tool`.
+- El aviso del cambio sale solo como mensaje de sistema en el hilo; `/status` no muestra la cadena.
 
 ## Detalle por funcionalidad
 
