@@ -35,6 +35,8 @@ import type { AgentDefinition } from '../tools/AgentTool/loadAgentsDir.js'
 import { EXIT_PLAN_MODE_V2_TOOL_NAME } from '../tools/ExitPlanModeTool/constants.js'
 import { TASK_OUTPUT_TOOL_NAME } from '../tools/TaskOutputTool/constants.js'
 import type { Message } from '../types/message.js'
+import { compactToolDescription, isCompactToolSet } from '../constants/compactPrompts.js'
+import { shouldInjectAgentListInMessages } from '../tools/AgentTool/prompt.js'
 import { isAgentSwarmsEnabled } from './agentSwarmsEnabled.js'
 import {
   modelSupportsStructuredOutputs,
@@ -144,10 +146,21 @@ export async function toolToAPISchema(
   // call — name-only keying returned a stale schema (5.4% → 51% err rate, see
   // PR#25424). MCP tools also set inputJSONSchema but each has a stable schema,
   // so including it preserves their GB-flip cache stability.
-  const cacheKey =
+  // FnHarness: the Simple tool set carries compact descriptions; they get their
+  // own cache entries so switching profile mid-session never reuses the wrong
+  // text.
+  const compactDescription = isCompactToolSet(options.tools)
+    ? compactToolDescription(
+        tool.name,
+        options.agents,
+        !shouldInjectAgentListInMessages(),
+      )
+    : undefined
+  const baseKey =
     'inputJSONSchema' in tool && tool.inputJSONSchema
       ? `${tool.name}:${jsonStringify(tool.inputJSONSchema)}`
       : tool.name
+  const cacheKey = compactDescription === undefined ? baseKey : `compact:${baseKey}`
   const cache = getToolSchemaCache()
   let base = cache.get(cacheKey)
   if (!base) {
@@ -168,12 +181,14 @@ export async function toolToAPISchema(
 
     base = {
       name: tool.name,
-      description: await tool.prompt({
-        getToolPermissionContext: options.getToolPermissionContext,
-        tools: options.tools,
-        agents: options.agents,
-        allowedAgentTypes: options.allowedAgentTypes,
-      }),
+      description:
+        compactDescription ??
+        (await tool.prompt({
+          getToolPermissionContext: options.getToolPermissionContext,
+          tools: options.tools,
+          agents: options.agents,
+          allowedAgentTypes: options.allowedAgentTypes,
+        })),
       input_schema,
     }
 

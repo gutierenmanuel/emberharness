@@ -2,6 +2,7 @@
 import { type as osType, version as osVersion, release as osRelease } from 'os'
 import { env } from '../utils/env.js'
 import { getIsGit } from '../utils/git.js'
+import { buildCompactSystemPrompt, isCompactToolSet } from './compactPrompts.js'
 import { getCwd } from '../utils/cwd.js'
 import { getIsNonInteractiveSession } from '../bootstrap/state.js'
 import { getCurrentWorktreeSession } from '../utils/worktree.js'
@@ -474,6 +475,24 @@ export async function getSystemPrompt(
       getLanguageSection(settings.language),
       getOutputStyleSection(outputStyleConfig),
     ].filter((s): s is string => typeof s === 'string' && s.length > 0)
+  }
+
+  // FnHarness: the Simple tool set (context profile tools:simple) gets a short
+  // system prompt of its own; the full agent prompt would eat a local model's
+  // window. CLAUDE.md files still arrive through the user context.
+  if (isCompactToolSet(tools)) {
+    return [
+      buildCompactSystemPrompt({
+        cwd,
+        isGit: await getIsGit(),
+        platform: env.platform,
+        shell: getShellInfoLine().replace(/^Shell: /, ''),
+        osVersion: getUnameSR(),
+        date: getSessionStartDate(),
+        additionalDirs: additionalWorkingDirectories,
+        language: settings.language,
+      }),
+    ]
   }
 
   if (

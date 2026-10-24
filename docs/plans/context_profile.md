@@ -12,7 +12,7 @@ entra al modelo en cada petición, con tres ejes independientes:
 |---|---|---|
 | `mcp` | `full` · `folder` · `user` · `none` | Tools e instrucciones de servidores MCP según el `scope` de su config: `folder` = `project` y `local`; `user` = `user`; los demás scopes (`dynamic`, `claudeai`, `managed`, `enterprise`, plugins) solo con `full`. |
 | `skill` | `full` · `folder` · `user` · `none` | Skills y comandos que ve el modelo (lista `skill_listing` y validación de `SkillTool`) según su `source`: `folder` = `projectSettings`/`localSettings`; `user` = `userSettings`; `bundled`, `plugin`, `mcp` y `policySettings` solo con `full`. Con `none` no se envía `SkillTool`. Los slash commands siguen disponibles para la persona. |
-| `tools` | `full` · `simple` · `none` | Tools integradas: `simple` = Bash, Read, Write, Edit, Glob y Grep; `none` = ninguna (solo chat). |
+| `tools` | `full` · `simple` · `none` | Tools integradas: `simple` = Bash, Read, Write, Edit, Glob, Grep y Agent, con prompt de sistema y descripciones compactos (sección 4); `none` = ninguna (solo chat). |
 
 Presets, en el orden en que los rota Ctrl+Tab (Ctrl+Shift+Tab va al revés):
 
@@ -74,8 +74,21 @@ ollama, lmstudio, `custom` en 127.0.0.1...) → Simple; el resto → Full. Al ca
   `claude.ts` los convierte a texto (`flattenToolBlocks`) antes de enviar.
 - Con `tools:none` `getSystemPrompt` devuelve un prompt corto de chat (~0,5k tokens) en vez del de
   agente (~6k).
-- Subagentes (`AgentTool`, `resumeAgent`): solo existen con `tools:full`; heredan los ejes `mcp` y
-  `skill` (`filterWorkerToolsByProfile`).
+- Subagentes (`AgentTool`, `resumeAgent`): `Agent` está en Simple, así que una sesión local puede
+  lanzarlos; el subagente recibe siempre las tools integradas completas y hereda los ejes `mcp` y
+  `skill` (`filterWorkerToolsByProfile`). Con `tools:none` no hay `Agent`.
+- Prompts compactos de Simple (`src/constants/compactPrompts.ts`): cuando el conjunto de tools es el
+  de Simple (`isCompactToolSet`: las seis tools de archivos y shell, con o sin `Agent`, y nada más),
+  `getSystemPrompt` devuelve un prompt propio de fnharness (identidad, entorno con cwd, git sí/no,
+  plataforma, shell y fecha, reglas mínimas de uso de tools, seguridad y estilo) en lugar del de
+  Claude Code, y `toolToAPISchema` sustituye el texto de `tool.prompt()` por una descripción de un
+  párrafo para cada una de las siete tools. Los `input_schema` no se tocan. Las descripciones
+  compactas se cachean con clave `compact:<tool>` para no mezclarse con las completas al cambiar
+  de perfil. La lista de tipos de agente va en la descripción de `Agent` (una línea por tipo, 90
+  caracteres) salvo que ya viaje como adjunto. `CLAUDE.md` de proyecto y usuario siguen entrando por
+  el contexto de usuario, igual que en los demás perfiles. La detección es por el conjunto de tools
+  (no por el perfil) porque `getSystemPrompt` no recibe el perfil; un subagente con menos de seis
+  tools mantiene los prompts normales.
 - Al cambiar de perfil se vacía la caché de secciones del prompt de sistema
   (`clearSystemPromptSections`), que depende del conjunto de tools.
 - Estimación (`src/utils/contextProfileEstimate.ts`): prompt de sistema + esquemas de tools que se
@@ -102,26 +115,47 @@ payload (lo construye el harness; solo cambia el id de modelo), así que no se m
 | Full | 14 | 6.457 | 10.386 | 330 | ~17,2k | ~17k |
 | Folder | 14 | 6.457 | 10.386 | 145 | ~17,0k | ~17k |
 | User | 14 | 6.457 | 10.386 | 145 | ~17,0k | ~17k |
-| Simple | 6 | 6.165 | 5.374 | 88 | ~11,6k | ~12k |
+| Simple (antes: 6 tools, prompt completo) | 6 | 6.165 | 5.374 | 88 | ~11,6k | ~12k |
+| Simple (ahora: 7 tools con Agent, compacto) | 7 | 359 | 2.520 | 88 | ~3,0k | ~2,8k |
 | Nothing | 0 | 486 | 0 | 88 | ~0,6k | ~453 |
+
+Detalle de Simple por tool, en caracteres (descripción antes / ahora; el schema no cambia): Bash
+10.122 / 486 (schema 1.428), Read 1.680 / 273 (740), Edit 1.095 / 247 (552), Write 618 / 215 (348),
+Glob 371 / 157 (539), Grep 866 / 314 (2.442), Agent 751 con tres tipos de agente (schema 1.002; la
+descripción completa de Agent mide ~16,7k caracteres y no se envía en Simple).
 
 En este sandbox Folder y User solo se diferencian de Full en la lista de skills bundled; con
 servidores MCP de usuario o de proyecto la diferencia crece con ellos.
 
-Lectura: con Simple quedan ~11,6k de 32k. Lo que más pesa ahora es el propio prompt de sistema
-(~6k) y la descripción de Bash (la mayor parte de los 5,4k de tools). Siguiente paso posible: un
-prompt de sistema compacto también para `tools:simple` y una descripción corta de Bash para modelos
-locales.
+Lectura: Simple pasa de ~11,6k a ~3,0k tokens de 32k (con Agent incluida): el prompt de sistema baja
+de ~6,2k a ~0,36k y las definiciones de tools de ~5,4k a ~2,5k, de las cuales ~1,6k son input schemas
+que se mantienen intactos (el de Grep pesa 2,4k caracteres). 
+Prueba real con qwen36 (llama-server, `-p`, tarea «crea hola.txt con Write, léelo con Read y corre
+`wc -c hola.txt` con Bash», 6 ejecuciones por variante, temperatura 0,5): el prompt completo antiguo
+lo hizo bien 6 de 6; el compacto final, 5 de 6 (4 limpias, 1 con las llamadas desordenadas pero el
+fichero creado, 1 que afirmó haber creado el fichero sin llamar a ninguna tool). Aprendido al ajustar
+el prompt, midiendo con la petición real repetida contra el modelo: (1) una línea «las rutas deben ser
+absolutas» hacía que el modelo comprobara antes de escribir y alucinara resultados (3/12 → 11/12 al
+quitarla; los schemas y descripciones ya lo dicen); (2) las reglas de orden y paralelismo de tools
+también empeoraban; (3) la sección «Lead with the action, not the reasoning» del prompt original es la
+que más ayuda y se conservó; (4) palabras como «overwrite» o «existing file» en seguridad o en la
+descripción de Write inducen al modelo a decir que el fichero ya existe. Con un modelo de 35B el
+margen de error sigue siendo apreciable: si el modelo afirma algo sin llamar a la tool, hay que
+repetir o pasar a Full en una cuenta mayor.
 
 ## 6. Pruebas
 
 - Unitarias: `bun run test:unit` (presets, ciclo, parseo, filtros, default por cuenta, aplanado,
   persistencia en `accounts.json`, `FNHARNESS_CONTEXT_PROFILE`, secuencias de Ctrl+Tab).
-- e2e (`tests/e2e/scope.e2e.test.ts`): cuenta local → solo las 6 tools básicas; perfil guardado en
+- e2e (`tests/e2e/scope.e2e.test.ts`): cuenta local → exactamente las 7 tools básicas (con `Agent`); perfil guardado en
   `accounts.json` respetado (Nothing → sin tools); Full frente a Nothing (sin tools y prompt de
   sistema de menos de la mitad); paso a Nothing tras llamadas a Bash con `--continue` (la petición
   no lleva `tool_calls` ni mensajes `tool`, sí el texto `[tool call Bash ...]`); y la TUI en un
   pseudo-terminal recibiendo `CSI 9;5u` → `CSI 27;5;9~` → `CSI 9;6u` (simple → nothing → full →
   nothing, comprobado en `accounts.json` y en el pie).
+- e2e de Simple compacto: la petición lleva exactamente las 7 tools, el prompt de sistema es el de
+  fnharness (con el cwd), prompt + definiciones de tools suman menos de 4k tokens (caracteres / 4),
+  el prompt es menos de una cuarta parte del de Full y los `parameters` de cada tool son idénticos a
+  los de Full. Unitarias: `src/constants/compactPrompts.test.ts`.
 - A mano en pseudo-terminal: `/scope` (selector con las estimaciones de la tabla) y
   `/scope user tools:simple` (pie `ctx: m:user s:user t:simple ~12k tok`).

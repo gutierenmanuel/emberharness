@@ -35,15 +35,33 @@ async function capture(fn: () => Promise<unknown>): Promise<ChatBody[]> {
 }
 
 const toolNames = (b: ChatBody) => (b.tools ?? []).map(t => t.function.name).sort()
-const SIMPLE = ['Bash', 'Edit', 'Glob', 'Grep', 'Read', 'Write']
+const SIMPLE = ['Agent', 'Bash', 'Edit', 'Glob', 'Grep', 'Read', 'Write']
 
 describe.skipIf(!hasCli)('context profile e2e', () => {
-  test('a local account starts in Simple: only the six basic tools are sent', async () => {
+  test('a local account starts in Simple: exactly the seven basic tools are sent', async () => {
     const { configDir, cwd } = makeSandbox()
     const reqs = await capture(() => runPrint(fakeEnv(fake.baseUrl, configDir), cwd, ['di hola']))
     expect(reqs.length).toBeGreaterThan(0)
     expect(toolNames(reqs[0]!)).toEqual(SIMPLE)
   }, 70_000)
+
+  test('Simple sends a compact system prompt and compact tool descriptions', async () => {
+    const { configDir, cwd } = makeSandbox()
+    const [simple] = await capture(() => runPrint(fakeEnv(fake.baseUrl, configDir, { FNHARNESS_CONTEXT_PROFILE: 'simple' }), cwd, ['di hola']))
+    const [full] = await capture(() => runPrint(fakeEnv(fake.baseUrl, configDir, { FNHARNESS_CONTEXT_PROFILE: 'full' }), cwd, ['di hola']))
+    const system = (b: ChatBody) => JSON.stringify(b.messages.filter(m => m.role === 'system'))
+    const toolsJson = (b: ChatBody) => JSON.stringify(b.tools ?? [])
+    expect(toolNames(simple!)).toEqual(SIMPLE)
+    // Own short prompt: identity and environment, not the Claude Code agent prompt.
+    expect(system(simple!)).toContain('fnharness')
+    expect(system(simple!)).toContain(cwd)
+    // Whole fixed cost (system + tool definitions) stays under ~4k tokens (chars / 4).
+    expect((system(simple!).length + toolsJson(simple!).length) / 4).toBeLessThan(4000)
+    expect(system(simple!).length).toBeLessThan(system(full!).length / 4)
+    // Input schemas are untouched: the same parameters as in Full for every shared tool.
+    const params = (b: ChatBody, n: string) => JSON.stringify((b.tools as any[]).find(t => t.function.name === n).function.parameters)
+    for (const n of SIMPLE) expect(params(simple!, n)).toBe(params(full!, n))
+  }, 140_000)
 
   test('a profile saved for the account in accounts.json is honoured', async () => {
     const { configDir, cwd } = makeSandbox()
