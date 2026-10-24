@@ -25,6 +25,13 @@ per request (MCP servers by config scope, skills by origin, built-in tools full/
 per account (`contextProfile` in `accounts.json` / `.claude.json`); local backends default to Simple.
 Not behind a feature flag. See `docs/plans/context_profile.md`.
 
+FnHarness note (24/10/2026, mcp-reload): MCP servers hot-reload without a restart and none of it is
+behind a build flag. `/mcp reload [server]` and `/mcp reconnect all`; a watcher over every
+`.mcp.json` from the cwd upwards and the global `.claude.json` (set `FNHARNESS_MCP_WATCH=0` to turn it
+off); local (stdio) servers that die are relaunched with backoff (4 attempts, budget restored after
+60 s of stable uptime); and the model gets a short system reminder when the tool set of a server
+changes. Details in `docs/plans/mcp_reload.md`.
+
 Important: "bundle cleanly" does not always mean "runtime-safe". Some flags
 still depend on optional native modules, claude.ai OAuth, GrowthBook gates, or
 externalized `@ant/*` packages.

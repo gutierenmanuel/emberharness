@@ -1,4 +1,5 @@
 import type { ToolUseBlock } from '@anthropic-ai/sdk/resources/index.mjs'
+import { noSuchToolMessage } from '../mcp/toolGone.js'
 import {
   createUserMessage,
   REJECT_MESSAGE,
@@ -88,12 +89,12 @@ export class StreamingToolExecutor {
             content: [
               {
                 type: 'tool_result',
-                content: `<tool_use_error>Error: No such tool available: ${block.name}</tool_use_error>`,
+                content: `<tool_use_error>Error: ${noSuchToolMessage(block.name)}</tool_use_error>`,
                 is_error: true,
                 tool_use_id: block.id,
               },
             ],
-            toolUseResult: `Error: No such tool available: ${block.name}`,
+            toolUseResult: `Error: ${noSuchToolMessage(block.name)}`,
             sourceToolAssistantUUID: assistantMessage.uuid,
           }),
         ],

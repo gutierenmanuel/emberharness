@@ -92,7 +92,7 @@ El tipo indica cómo se ejecuta: `local` (texto), `local-jsx` (interfaz Ink) o `
 
 | Comando | Alias | Descripción | Tipo | Backend no-Anthropic |
 |---|---|---|---|---|
-| `/mcp [enable\|disable [servidor]]` | | Gestiona servidores MCP. | local-jsx | Sí |
+| `/mcp [reload [servidor] \| reconnect <servidor\|all> \| enable\|disable [servidor]]` | | Gestiona servidores MCP. `reload` relee `.mcp.json`, `.claude.json` y settings y aplica solo la diferencia (añade, reconecta lo cambiado, desconecta lo eliminado); con nombre fuerza además la reconexión de ese servidor. `reconnect all` reintenta los que están `failed`, `needs-auth` o `pending`. Un JSON roto aborta la recarga sin tocar nada. | local-jsx | Sí |
 | `/plugin` | `/plugins`, `/marketplace` | Gestiona plugins. | local-jsx | Sí |
 | `/recap` | | Resumen de una línea de dónde está la sesión (reutiliza `services/awaySummary.ts` con el modelo rápido). | local | No |
 | `/reload-skills` | | Reescanea los directorios de skills sin reiniciar y dice cuáles son nuevas o han desaparecido; el menú de `/` se refresca. | local | No |

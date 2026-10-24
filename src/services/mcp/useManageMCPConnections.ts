@@ -46,6 +46,7 @@ import {
   doesEnterpriseMcpConfigExist,
   filterMcpServersByPolicy,
   getClaudeCodeMcpConfigs,
+  getMcpConfigsByScope,
   isMcpServerDisabled,
   setMcpServerEnabled,
 } from 'src/services/mcp/config.js'
@@ -59,7 +60,12 @@ import {
   useAppStateStore,
   useSetAppState,
 } from '../../state/AppState.js'
+import { refreshGlobalConfigFromDisk } from '../../utils/config.js'
+import { getCwd } from '../../utils/cwd.js'
+import { getGlobalClaudeFile } from '../../utils/env.js'
 import { errorMessage } from '../../utils/errors.js'
+import { settingsChangeDetector } from '../../utils/settings/changeDetector.js'
+import { resetSettingsCache } from '../../utils/settings/settingsCache.js'
 /* eslint-enable @typescript-eslint/no-require-imports */
 import { logMCPDebug, logMCPError } from '../../utils/log.js'
 import { enqueue } from '../../utils/messageQueueManager.js'
@@ -82,12 +88,47 @@ import {
 } from './claudeai.js'
 import { registerElicitationHandler } from './elicitationHandler.js'
 import { getMcpPrefix } from './mcpStringUtils.js'
+import {
+  createCoalescedRunner,
+  createDebouncer,
+  isMcpWatchEnabled,
+  MCP_WATCH_DEBOUNCE_MS,
+  mcpCwdChanged,
+  type McpConfigWatcher,
+  startMcpConfigWatcher,
+} from './configWatcher.js'
+import {
+  diffMcpConfigs,
+  formatMcpDiffNotice,
+  hasBlockingConfigErrors,
+  type McpConfigDiff,
+} from './reloadDiff.js'
+import {
+  decideStdioRestart,
+  formatRestartNotice,
+  INITIAL_RESTART_STATE,
+  type RestartState,
+  STDIO_MAX_ATTEMPTS,
+} from './reconnectPolicy.js'
 import { commandBelongsToServer, excludeStalePluginClients } from './utils.js'
 
 // Constants for reconnection with exponential backoff
 const MAX_RECONNECT_ATTEMPTS = 5
 const INITIAL_BACKOFF_MS = 1000
 const MAX_BACKOFF_MS = 30000
+
+/** Outcome of an MCP config reload (`/mcp reload`, config watcher). */
+export type McpReloadResult = {
+  /** True when a config file was broken: nothing was touched. */
+  aborted: boolean
+  diff: McpConfigDiff
+  warnings: string[]
+}
+
+export type McpReloadOptions = {
+  /** Reconnect these servers even if their config did not change. */
+  forceNames?: string[]
+}
 
 /**
  * Create a unique key for a plugin error to enable deduplication
@@ -155,6 +196,16 @@ export function useManageMCPConnections(
 
   // Track active reconnection attempts to allow cancellation
   const reconnectTimersRef = useRef<Map<string, NodeJS.Timeout>>(new Map())
+  // Restart budget of local (stdio) servers that die by themselves.
+  const stdioRestartRef = useRef<Map<string, RestartState>>(new Map())
+  // True once the hook unmounted: no restarts while the session shuts down.
+  const stoppedRef = useRef(false)
+  useEffect(() => {
+    stoppedRef.current = false
+    return () => {
+      stoppedRef.current = true
+    }
+  }, [])
 
   // Dedup the --channels blocked warning per skip kind so that a user who
   // sees "run /login" (auth skip), logs in, then hits the policy gate
@@ -330,6 +381,13 @@ export function useManageMCPConnections(
           // re-running for every already-connected server on each state change.
           registerElicitationHandler(client.client, client.name, setAppState)
 
+          // Uptime clock for the stdio restart policy: attempts only reset
+          // once the process stays up long enough (anti crash-loop).
+          stdioRestartRef.current.set(client.name, {
+            attempts: stdioRestartRef.current.get(client.name)?.attempts ?? 0,
+            connectedAt: Date.now(),
+          })
+
           client.client.onclose = () => {
             const configType = client.config.type ?? 'stdio'
 
@@ -351,9 +409,76 @@ export function useManageMCPConnections(
               return
             }
 
+            // Local (stdio) process died on its own: relaunch with backoff,
+            // within a budget that only resets after a stable uptime.
+            if (configType === 'stdio') {
+              const restartStdio = (): void => {
+                if (stoppedRef.current) return
+                const decision = decideStdioRestart(
+                  stdioRestartRef.current.get(client.name) ??
+                    INITIAL_RESTART_STATE,
+                  Date.now(),
+                )
+                stdioRestartRef.current.set(client.name, decision.next)
+                addNotification({
+                  key: `mcp-restart-${client.name}`,
+                  text: formatRestartNotice(client.name, decision),
+                  priority: 'medium',
+                  color: decision.action === 'retry' ? undefined : 'warning',
+                  timeoutMs: 8000,
+                })
+                if (decision.action === 'give-up') {
+                  logMCPDebug(
+                    client.name,
+                    `stdio server keeps dying, giving up after ${decision.attempts} restarts`,
+                  )
+                  updateServer({ ...client, type: 'failed' })
+                  return
+                }
+                logMCPDebug(
+                  client.name,
+                  `stdio server exited, restart ${decision.attempt}/${STDIO_MAX_ATTEMPTS} in ${decision.delayMs}ms`,
+                )
+                updateServer({
+                  ...client,
+                  type: 'pending',
+                  reconnectAttempt: decision.attempt,
+                  maxReconnectAttempts: STDIO_MAX_ATTEMPTS,
+                })
+                const existing = reconnectTimersRef.current.get(client.name)
+                if (existing) clearTimeout(existing)
+                const timer = setTimeout(() => {
+                  reconnectTimersRef.current.delete(client.name)
+                  if (stoppedRef.current || isMcpServerDisabled(client.name)) {
+                    return
+                  }
+                  reconnectMcpServerImpl(client.name, client.config).then(
+                    result => {
+                      if (result.client.type === 'connected') {
+                        onConnectionAttempt(result)
+                      } else {
+                        // It did not even start: that counts as another death.
+                        restartStdio()
+                      }
+                    },
+                    error => {
+                      logMCPError(
+                        client.name,
+                        `stdio restart failed: ${errorMessage(error)}`,
+                      )
+                      restartStdio()
+                    },
+                  )
+                }, decision.delayMs)
+                reconnectTimersRef.current.set(client.name, timer)
+              }
+              restartStdio()
+              return
+            }
+
             // Handle automatic reconnection for remote transports
-            // Skip stdio (local process) and sdk (internal) - they don't support reconnection
-            if (configType !== 'stdio' && configType !== 'sdk') {
+            // Skip sdk (internal) - it doesn't support reconnection
+            if (configType !== 'sdk') {
               const transportType = getTransportDisplayName(configType)
               logMCPDebug(
                 client.name,
@@ -762,23 +887,17 @@ export function useManageMCPConnections(
     [updateServer],
   )
 
-  // Initialize all servers to pending state if they don't exist in appState.
-  // Re-runs on session change (/clear) and on /reload-plugins (pluginReconnectKey).
-  // On plugin reload, also disconnects stale plugin MCP servers (scope 'dynamic')
-  // that no longer appear in configs — prevents ghost tools from disabled plugins.
-  // Skip claude.ai dedup here to avoid blocking on the network fetch; the connect
-  // useEffect below runs immediately after and dedups before connecting.
-  const sessionId = getSessionId()
-  useEffect(() => {
-    async function initializeServersAsPending() {
-      const { servers: existingConfigs, errors: mcpErrors } = isStrictMcpConfig
-        ? { servers: {}, errors: [] }
-        : await getClaudeCodeMcpConfigs(dynamicMcpConfig)
-      const configs = { ...existingConfigs, ...dynamicMcpConfig }
+  // Servers being shut down because their config changed or vanished.
+  const pendingCleanupRef = useRef<Map<string, Promise<void>>>(new Map())
 
-      // Add MCP errors to plugin errors for UI visibility (deduplicated)
-      addErrorsToAppState(setAppState, mcpErrors)
-
+  // Reconcile AppState with `configs`: stale servers (config changed, plugin
+  // gone and, with pruneRemoved, user/project/local servers deleted from their
+  // file) are disconnected and everything missing is added as pending.
+  const applyConfigsToState = useCallback(
+    (
+      configs: Record<string, ScopedMcpServerConfig>,
+      options?: { pruneRemoved?: boolean; forceNames?: ReadonlySet<string> },
+    ) => {
       setAppState(prevState => {
         // Disconnect MCP servers that are stale: plugin servers removed from
         // config, or any server whose config hash changed (edited .mcp.json).
@@ -787,6 +906,7 @@ export function useManageMCPConnections(
         const { stale, ...mcpWithoutStale } = excludeStalePluginClients(
           prevState.mcp,
           configs,
+          options,
         )
         // Clean up stale connections. Fire-and-forget — state updaters must
         // be synchronous. Three hazards to defuse before calling cleanup:
@@ -800,6 +920,7 @@ export function useManageMCPConnections(
         //      cache is empty → real connect attempt → spawn/OAuth just to
         //      immediately kill it. Only connected servers need cleanup.
         for (const s of stale) {
+          stdioRestartRef.current.delete(s.name)
           const timer = reconnectTimersRef.current.get(s.name)
           if (timer) {
             clearTimeout(timer)
@@ -807,7 +928,16 @@ export function useManageMCPConnections(
           }
           if (s.type === 'connected') {
             s.client.onclose = undefined
-            void clearServerCache(s.name, s.config).catch(() => {})
+            // Remember the shutdown so a reload can wait for the old process
+            // to exit before spawning its replacement (no orphan stdio).
+            const cleanup = clearServerCache(s.name, s.config)
+              .catch(() => {})
+              .finally(() => {
+                if (pendingCleanupRef.current.get(s.name) === cleanup) {
+                  pendingCleanupRef.current.delete(s.name)
+                }
+              })
+            pendingCleanupRef.current.set(s.name, cleanup)
           }
         }
 
@@ -837,6 +967,28 @@ export function useManageMCPConnections(
           },
         }
       })
+    },
+    [setAppState],
+  )
+
+  // Initialize all servers to pending state if they don't exist in appState.
+  // Re-runs on session change (/clear) and on /reload-plugins (pluginReconnectKey).
+  // On plugin reload, also disconnects stale plugin MCP servers (scope 'dynamic')
+  // that no longer appear in configs — prevents ghost tools from disabled plugins.
+  // Skip claude.ai dedup here to avoid blocking on the network fetch; the connect
+  // useEffect below runs immediately after and dedups before connecting.
+  const sessionId = getSessionId()
+  useEffect(() => {
+    async function initializeServersAsPending() {
+      const { servers: existingConfigs, errors: mcpErrors } = isStrictMcpConfig
+        ? { servers: {}, errors: [] }
+        : await getClaudeCodeMcpConfigs(dynamicMcpConfig)
+      const configs = { ...existingConfigs, ...dynamicMcpConfig }
+
+      // Add MCP errors to plugin errors for UI visibility (deduplicated)
+      addErrorsToAppState(setAppState, mcpErrors)
+
+      applyConfigsToState(configs)
     }
 
     void initializeServersAsPending().catch(error => {
@@ -1058,6 +1210,10 @@ export function useManageMCPConnections(
         clearTimeout(existingTimer)
         reconnectTimersRef.current.delete(serverName)
       }
+      // A manual reconnect closes the old connection on purpose: its onclose
+      // must not start an automatic restart that races this one.
+      stdioRestartRef.current.delete(serverName)
+      if (client.type === 'connected') client.client.onclose = undefined
 
       const result = await reconnectMcpServerImpl(serverName, client.config)
 
@@ -1089,6 +1245,8 @@ export function useManageMCPConnections(
           clearTimeout(existingTimer)
           reconnectTimersRef.current.delete(serverName)
         }
+
+        stdioRestartRef.current.delete(serverName)
 
         // Persist disabled state to disk FIRST before clearing cache
         // This is important because the onclose handler checks disk state
@@ -1125,7 +1283,182 @@ export function useManageMCPConnections(
     [store, updateServer, onConnectionAttempt],
   )
 
-  return { reconnectMcpServer, toggleMcpServer }
+  // Serialises reloads: a config change while a reload is in flight waits for it.
+  const reloadChainRef = useRef<Promise<unknown>>(Promise.resolve())
+
+  const reloadMcpConfigNow = useCallback(
+    async (options?: McpReloadOptions): Promise<McpReloadResult> => {
+      // The global config is refreshed from disk only once a second; a reload
+      // must see what was just written. Half-written content is ignored below.
+      const globalOk = refreshGlobalConfigFromDisk()
+      resetSettingsCache()
+      const { servers, errors } = isStrictMcpConfig
+        ? { servers: {}, errors: [] }
+        : await getClaudeCodeMcpConfigs(dynamicMcpConfig)
+      const empty: McpConfigDiff = {
+        added: [],
+        removed: [],
+        changed: [],
+        unchanged: [],
+      }
+      // A broken file parses to "no servers" and would look like every server
+      // was deleted: keep the live connections exactly as they are.
+      // (getClaudeCodeMcpConfigs only returns plugin errors, so the file parse
+      // errors are collected per scope here.)
+      const fileErrors = isStrictMcpConfig
+        ? []
+        : (['project', 'user', 'local', 'enterprise'] as const).flatMap(
+            scope => getMcpConfigsByScope(scope).errors,
+          )
+      if (!globalOk || hasBlockingConfigErrors(fileErrors)) {
+        const warnings = fileErrors
+          .filter(e => !e.message.startsWith('MCP config file not found'))
+          .map(e => e.message)
+        if (!globalOk) warnings.push('global config is not valid JSON yet')
+        return { aborted: true, diff: empty, warnings }
+      }
+      addErrorsToAppState(setAppState, errors)
+
+      const configs = { ...servers, ...dynamicMcpConfig }
+      const force = new Set(options?.forceNames ?? [])
+      const diff = diffMcpConfigs(store.getState().mcp.clients, configs)
+      for (const name of force) {
+        const i = diff.unchanged.indexOf(name)
+        if (i !== -1) {
+          diff.unchanged.splice(i, 1)
+          diff.changed.push(name)
+        }
+      }
+      diff.changed.sort()
+
+      applyConfigsToState(configs, { pruneRemoved: true, forceNames: force })
+
+      // Wait for replaced/removed stdio processes to exit before spawning
+      // their successors (same command twice would fight over ports/files).
+      await Promise.all(
+        [...diff.changed, ...diff.removed].map(
+          n => pendingCleanupRef.current.get(n) ?? Promise.resolve(),
+        ),
+      )
+
+      const toConnect = Object.fromEntries(
+        [...diff.added, ...diff.changed]
+          .filter(n => configs[n] && !isMcpServerDisabled(n))
+          .map(n => [n, configs[n]!]),
+      )
+      if (Object.keys(toConnect).length > 0) {
+        // Not awaited: slow servers must not block the caller. Each result
+        // lands in AppState through onConnectionAttempt.
+        getMcpToolsCommandsAndResources(onConnectionAttempt, toConnect).catch(
+          error => {
+            logMCPError(
+              'useManageMcpConnections',
+              `Failed to connect after reload: ${errorMessage(error)}`,
+            )
+          },
+        )
+      }
+      return { aborted: false, diff, warnings: [] }
+    },
+    [
+      store,
+      setAppState,
+      isStrictMcpConfig,
+      dynamicMcpConfig,
+      applyConfigsToState,
+      onConnectionAttempt,
+    ],
+  )
+
+  /**
+   * Re-reads every MCP config source and applies only the difference: new
+   * servers connect, edited ones reconnect, deleted ones disconnect and the
+   * rest keeps its live connection.
+   */
+  const reloadMcpConfig = useCallback(
+    (options?: McpReloadOptions): Promise<McpReloadResult> => {
+      const run = reloadChainRef.current.then(() =>
+        reloadMcpConfigNow(options),
+      )
+      reloadChainRef.current = run.catch(() => {})
+      return run
+    },
+    [reloadMcpConfigNow],
+  )
+
+  // Hot reload: watch .mcp.json / .claude.json / settings and apply only what
+  // changed. Disabled with FNHARNESS_MCP_WATCH=0 or --strict-mcp-config.
+  useEffect(() => {
+    if (!isMcpWatchEnabled() || isStrictMcpConfig) return
+    let stopped = false
+    let watcher: McpConfigWatcher | null = null
+
+    // Each toast replaces the previous one (a repeated key would be dropped
+    // while the old one is still on screen).
+    let toastSeq = 0
+    const toast = (text: string, color?: 'warning') => {
+      const previous = `mcp-config-reload-${toastSeq}`
+      toastSeq++
+      addNotification({
+        key: `mcp-config-reload-${toastSeq}`,
+        invalidates: [previous],
+        text,
+        priority: 'medium',
+        color,
+        timeoutMs: 8000,
+      })
+    }
+
+    const runner = createCoalescedRunner(async () => {
+      try {
+        const result = await reloadMcpConfig()
+        if (stopped) return
+        if (result.aborted) {
+          toast('MCP: config file is not valid JSON yet, keeping the current servers', 'warning')
+          return
+        }
+        const text = formatMcpDiffNotice(result.diff)
+        if (text) toast(text)
+      } catch (error) {
+        logMCPError('configWatcher', `Reload failed: ${errorMessage(error)}`)
+      }
+    })
+
+    const start = async () => {
+      await watcher?.stop()
+      watcher = null
+      const next = await startMcpConfigWatcher({
+        cwd: getCwd(),
+        globalFile: getGlobalClaudeFile(),
+        onChange: () => void runner.run(),
+        onInvalid: path =>
+          toast(`MCP: ${basename(path)} is not valid JSON yet, keeping the current servers`, 'warning'),
+      })
+      if (stopped) await next.stop()
+      else watcher = next
+    }
+    void start().catch(error =>
+      logMCPError('configWatcher', `Failed to start: ${errorMessage(error)}`),
+    )
+
+    // Settings carry the project-server approvals and policy allow/deny lists.
+    const settingsDebounce = createDebouncer(MCP_WATCH_DEBOUNCE_MS, () => void runner.run())
+    const unsubscribeSettings = settingsChangeDetector.subscribe(() => settingsDebounce.trigger())
+    // /cd swaps the project .mcp.json files that apply.
+    const unsubscribeCwd = mcpCwdChanged.subscribe(() => {
+      void start().then(() => runner.run())
+    })
+
+    return () => {
+      stopped = true
+      settingsDebounce.cancel()
+      unsubscribeSettings()
+      unsubscribeCwd()
+      void watcher?.stop()
+    }
+  }, [isStrictMcpConfig, reloadMcpConfig, addNotification])
+
+  return { reconnectMcpServer, toggleMcpServer, reloadMcpConfig }
 }
 
 function getTransportDisplayName(type: string): string {

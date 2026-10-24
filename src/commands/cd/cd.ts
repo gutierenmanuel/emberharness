@@ -10,6 +10,7 @@ import {
 import { clearCommandsCache } from '../../commands.js'
 import { clearSystemPromptSections } from '../../constants/systemPromptSections.js'
 import type { LocalCommandCall } from '../../types/command.js'
+import { mcpCwdChanged } from '../../services/mcp/configWatcher.js'
 import { clearMemoryFileCaches } from '../../utils/claudemd.js'
 import { getProjectPathForConfig, isPathTrusted } from '../../utils/config.js'
 import { getCwd } from '../../utils/cwd.js'
@@ -62,6 +63,8 @@ export const call: LocalCommandCall = async args => {
   resetSettingsCache()
   updateHooksConfigSnapshot()
   clearCommandsCache()
+  // The project .mcp.json files that apply are different now.
+  mcpCwdChanged.emit()
 
   return { type: 'text', value: `Now working in ${getCwd()}` }
 }
