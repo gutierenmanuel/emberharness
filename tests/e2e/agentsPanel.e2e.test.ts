@@ -29,7 +29,7 @@ afterAll(() => mock.kill())
 describe.skipIf(!hasCli)('agents panel e2e', () => {
   test('background agents are listed under the prompt', async () => {
     const { configDir, cwd } = makeSandbox()
-    const env = { ...fakeEnv(`http://127.0.0.1:${PORT}/v1`, configDir, { CLAUDE_MULTIMODEL_MODEL: 'mock-model' }), COLUMNS: '120', LINES: '30', TERM: 'xterm-256color' } as Record<string, string | undefined>
+    const env = { ...fakeEnv(`http://127.0.0.1:${PORT}/v1`, configDir, { CLAUDE_MULTIMODEL_MODEL: 'mock-model', FNHARNESS_CONTEXT_PROFILE: 'full' }), COLUMNS: '120', LINES: '30', TERM: 'xterm-256color' } as Record<string, string | undefined>
     delete env.TMUX
     const proc = Bun.spawn(['script', '-qc', `timeout 22 ${CLI}`, '/dev/null'], {
       cwd,
