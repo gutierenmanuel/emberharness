@@ -929,6 +929,12 @@ export const SettingsSchema = lazySchema(() =>
               ),
           }
         : {}),
+      goalJudge: z
+        .string()
+        .optional()
+        .describe(
+          'Account id (e.g. "claude") whose small model evaluates /goal conditions. Defaults to the active account.',
+        ),
       prefersReducedMotion: z
         .boolean()
         .optional()

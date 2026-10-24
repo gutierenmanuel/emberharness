@@ -174,6 +174,20 @@ Herramientas del modelo: `CronCreate`, `CronList`, `CronDelete` (cron de 5 campo
 
 `Monitor` lanza un comando en segundo plano y entrega cada línea de stdout al modelo como notificación `<task-notification>` con un bloque `<event>`. Parámetros: `command`, `description`, `timeout_ms` (por defecto 5 min, máx. 30), `persistent` (sin plazo) y los extras `include` y `exclude` (regex por línea). Las líneas se agrupan cada 400 ms, se limpian de ANSI, se recortan a 2000 caracteres y se limitan a 100 por ventana de 10 s (el exceso se cuenta y se avisa; un flujo desbocado se detiene). Usa las mismas reglas de permisos que Bash, aparece en la pastilla del pie como `N monitors` y se detiene con `TaskStop`. No se implementó la fuente WebSocket de Claude Code.
 
+### 2.12 `/goal`
+
+Comando integrado (tipo `local-jsx`, disponible también en `-p`). Mantiene al agente trabajando turno tras turno hasta que un evaluador confirma que la condición se cumple o es imposible. Funciona con cualquier cuenta.
+
+| Entrada | Qué pasa |
+|---|---|
+| `/goal <condición> [--judge <cuenta>] [--turns N]` | Fija el objetivo de la sesión y arranca el trabajo con un mensaje meta. Tras cada turno del agente (cuando se dispararía el hook Stop) el evaluador recibe la condición y el final de la conversación y responde `met`, `not_met` o `impossible`. Con `not_met` se le devuelve su motivo al agente y sigue. |
+| `/goal` | Muestra el estado: condición, turnos, tiempo, tokens, evaluador y último veredicto. |
+| `/goal clear` (también `off`, `stop`, `cancel`) | Quita el objetivo. |
+
+Reglas de parada: condición cumplida; evaluador dice imposible; 3 turnos seguidos sin ninguna llamada a herramienta; tope de turnos (30 por defecto, `--turns`); fallo del evaluador. Al parar se escribe un mensaje de resumen y el objetivo se descarta. Tras cada turno se muestra una línea `◎ /goal · turno 2/30 · 1m 12s · 8.4k tokens · <condición>` como mensaje de sistema y como notificación del pie. Los tokens suman agente y evaluador.
+
+Evaluador: por defecto la cuenta y el modelo pequeño activos. Los modelos locales pequeños juzgan mal, así que se puede fijar otra cuenta con `--judge claude` (modelo rápido de Anthropic), con la variable `FNHARNESS_GOAL_JUDGE` o con el ajuste `goalJudge` de `settings.json`; el orden de prioridad es ese. Para llamar al evaluador se cambia de cuenta un instante y se restaura al terminar. El objetivo vive en memoria: no sobrevive a un reinicio. Código: `src/utils/goal/` (lógica pura en `goalLogic.ts`, estado y juez en `goalState.ts`), `src/commands/goal/` y el gancho en `src/query/stopHooks.ts`.
+
 ## 3. CLI de línea de comandos
 
 Forma general: `claude [options] [command] [prompt]`; el binario es `./cli` (también `bin.claude` y `bin.claude-multimodel` en `package.json`). Por defecto abre una sesión interactiva; `-p/--print` imprime y sale. Versión: `./cli --version` devuelve `2.1.87 (Claude Code)`.

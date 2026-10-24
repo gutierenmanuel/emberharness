@@ -45,6 +45,12 @@ externalized `@ant/*` packages.
   `/loop` (fixed interval via cron, or self-paced with `ScheduleWakeup`). Fully
   local, so it works with OpenAI-compatible accounts. Session-scoped tasks;
   recurring tasks expire after 7 days. `CLAUDE_CODE_DISABLE_CRON=1` turns it off.
+- `/goal` (always on, no flag)
+  Built-in command that keeps the agent working until an evaluator says the
+  condition holds (or is impossible). Works in the TUI and in `-p`. Stops after
+  3 tool-less turns or a turn cap (`--turns`, default 30). The evaluator defaults
+  to the active account; `--judge <account>`, `FNHARNESS_GOAL_JUDGE` or the
+  `goalJudge` setting pick another one (small local models judge poorly).
 - `MONITOR_TOOL`
   The `Monitor` tool: runs a shell command in the background and delivers each
   stdout line to the model as a `<task-notification>` event (batched, filtered,
