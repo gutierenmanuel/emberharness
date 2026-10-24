@@ -1,4 +1,5 @@
 import { feature } from 'bun:bundle'
+import { formatMcpToolsChanged } from '../services/mcp/toolsDelta.js'
 import type { BetaUsage as Usage } from '@anthropic-ai/sdk/resources/beta/messages/messages.mjs'
 import type {
   ContentBlock,
@@ -4211,6 +4212,14 @@ You have exited auto mode. The user may now want to interact more directly. You 
       }
       return wrapMessagesInSystemReminder([
         createUserMessage({ content: parts.join('\n\n'), isMeta: true }),
+      ])
+    }
+    case 'mcp_tools_changed': {
+      return wrapMessagesInSystemReminder([
+        createUserMessage({
+          content: formatMcpToolsChanged(attachment.changes),
+          isMeta: true,
+        }),
       ])
     }
     case 'mcp_instructions_delta': {

@@ -20,6 +20,13 @@ chain works across accounts (`qwen36`, `claude:haiku`, `openrouter:x/y`) and the
 feature flag. Still missing from the official event list: `UserPromptExpansion`, `MessageDisplay`
 and the `mcp_tool` hook type (see `docs/plans/claude_code_gap.md`).
 
+FnHarness note (24/10/2026, mcp-reload): MCP servers hot-reload without a restart and none of it is
+behind a build flag. `/mcp reload [server]` and `/mcp reconnect all`; a watcher over every
+`.mcp.json` from the cwd upwards and the global `.claude.json` (set `FNHARNESS_MCP_WATCH=0` to turn it
+off); local (stdio) servers that die are relaunched with backoff (4 attempts, budget restored after
+60 s of stable uptime); and the model gets a short system reminder when the tool set of a server
+changes. Details in `docs/plans/mcp_reload.md`.
+
 Important: "bundle cleanly" does not always mean "runtime-safe". Some flags
 still depend on optional native modules, claude.ai OAuth, GrowthBook gates, or
 externalized `@ant/*` packages.

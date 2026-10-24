@@ -189,4 +189,50 @@ describe.skipIf(!hasCli)('mcp hot reload (TUI)', () => {
       await tui.stop()
     }
   }, 120_000)
+
+  test('the model is told once when the tools of a server change, and not otherwise', async () => {
+    const { configDir, cwd } = makeSandbox()
+    writeFileSync(join(configDir, 'settings.json'), JSON.stringify({ enableAllProjectMcpServers: true }))
+    const toolsFile = join(cwd, 'tools.txt')
+    writeFileSync(toolsFile, 'one,two')
+    writeFileSync(join(cwd, '.mcp.json'), JSON.stringify({ mcpServers: { dyn: serverEntry({ FIX_TOOLS_FILE: toolsFile }) } }))
+    const tui = startTui(fakeEnv(fake.baseUrl, configDir, { ENABLE_TOOL_SEARCH: 'false' }), cwd)
+    const PHRASE = 'tools of some MCP servers changed'
+    const lastWithTools = (from: number): string => {
+      const reqs = fake.requests.slice(from)
+      for (let i = reqs.length - 1; i >= 0; i--) {
+        if (((reqs[i] as Req).tools ?? []).length > 0) return JSON.stringify(reqs[i])
+      }
+      return ''
+    }
+    const ask = async (q: string) => {
+      const n = fake.requests.length
+      tui.line(q)
+      await waitUntil(() => fake.requests.length > n, 30_000, 'request')
+      await sleep(800)
+      return lastWithTools(n)
+    }
+    try {
+      await tui.waitFor(/for shortcuts|bypass|simple mode|❯|>/i, 30_000)
+      await sleep(4000)
+      const first = await ask('uno')
+      expect(first).toContain('mcp__dyn__one')
+      expect(first).not.toContain(PHRASE)
+
+      writeFileSync(toolsFile, 'two,three')
+      await sleep(3000)
+      const second = await ask('dos')
+      expect(second).toContain(PHRASE)
+      expect(second).toContain('now available: mcp__dyn__three')
+      expect(second).toContain('no longer available: mcp__dyn__one')
+      expect(second.split(PHRASE).length - 1).toBe(1)
+      await sleep(2000)
+
+      // nothing changed since: no second notice in the history
+      const third = await ask('tres')
+      expect(third.split(PHRASE).length - 1).toBe(1)
+    } finally {
+      await tui.stop()
+    }
+  }, 180_000)
 })
