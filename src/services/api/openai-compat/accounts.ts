@@ -29,6 +29,8 @@ export type StoredAccount = {
   apiKey?: string
   model?: string
   smallModel?: string
+  /** Context profile (/scope, Ctrl+Tab) remembered for this account. */
+  contextProfile?: { mcp: string; skill: string; tools: string }
 }
 
 export type AccountStore = {

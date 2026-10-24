@@ -36,6 +36,8 @@ import type { PermissionMode } from '../utils/permissions/PermissionMode.js'
 import { getInitialSettings } from '../utils/settings/settings.js'
 import type { SettingsJson } from '../utils/settings/types.js'
 import { shouldEnableThinkingByDefault } from '../utils/thinking.js'
+import type { ContextProfile } from '../utils/contextProfile.js'
+import { resolveInitialContextProfile } from '../utils/contextProfileStore.js'
 import type { Store } from './store.js'
 
 export type CompletionBoundary =
@@ -227,6 +229,8 @@ export type AppState = DeepImmutable<{
     queue: ElicitationRequestEvent[]
   }
   thinkingEnabled: boolean | undefined
+  /** FnHarness: what reaches the model (MCP, skills, tools). Undefined = Full. */
+  contextProfile?: ContextProfile
   promptSuggestionEnabled: boolean
   sessionHooks: SessionHooksState
   tungstenActiveSession?: {
@@ -537,6 +541,7 @@ export function getDefaultAppState(): AppState {
       queue: [],
     },
     thinkingEnabled: shouldEnableThinkingByDefault(),
+    contextProfile: resolveInitialContextProfile(),
     promptSuggestionEnabled: shouldEnablePromptSuggestion(),
     sessionHooks: new Map(),
     inbox: {

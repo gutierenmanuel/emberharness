@@ -164,6 +164,7 @@ import { processSessionStartHooks } from '../utils/sessionStart.js';
 import { executeSessionEndHooks, getSessionEndHookTimeoutMs } from '../utils/hooks.js';
 import { type IDESelection, useIdeSelection } from '../hooks/useIdeSelection.js';
 import { getTools, assembleToolPool } from '../tools.js';
+import { filterMcpClientsByProfile, filterToolsByProfile, scopeLookup } from '../utils/contextProfile.js';
 import type { AgentDefinition } from '../tools/AgentTool/loadAgentsDir.js';
 import { resolveAgentTools } from '../tools/AgentTool/agentToolUtils.js';
 import { resumeAgentBackground } from '../tools/AgentTool/resumeAgent.js';
@@ -2415,10 +2416,13 @@ export function REPL({
     // async as servers connect — the store may have newer MCP state than
     // the closure captured at render time. Also doubles as refreshTools()
     // for mid-query tool list updates.
+    // FnHarness: the context profile is read once per turn so a change made
+    // mid-turn (Ctrl+Tab, /scope) only applies from the next one.
+    const contextProfile = s.contextProfile;
     const computeTools = () => {
       const state = store.getState();
       const assembled = assembleToolPool(state.toolPermissionContext, state.mcp.tools);
-      const merged = mergeAndFilterTools(combinedInitialTools, assembled, state.toolPermissionContext.mode);
+      const merged = filterToolsByProfile(mergeAndFilterTools(combinedInitialTools, assembled, state.toolPermissionContext.mode), contextProfile, scopeLookup(mergeClients(initialMcpClients, state.mcp.clients)));
       if (!mainThreadAgentDefinition) return merged;
       return resolveAgentTools(mainThreadAgentDefinition, merged, false, true).resolvedTools;
     };
@@ -2435,7 +2439,8 @@ export function REPL({
         },
         // Merge fresh from store rather than closing over useMergedClients'
         // memoized output. initialMcpClients is a prop (session-constant).
-        mcpClients: mergeClients(initialMcpClients, s.mcp.clients),
+        mcpClients: filterMcpClientsByProfile(mergeClients(initialMcpClients, s.mcp.clients), contextProfile),
+        contextProfile,
         mcpResources: s.mcp.resources,
         ideInstallationStatus: ideInstallationStatus,
         isNonInteractiveSession: false,
