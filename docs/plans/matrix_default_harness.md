@@ -364,3 +364,6 @@ debe mantener como Claude Code: `<config>/sessions/<pid>.json` (con el `sessionI
   devuelve el lanzador: con fnharness hay que dejarlo vacío o igual a `FNHARNESS_HOME`.
 - Los tests Go de `shell/terminal` usan por defecto el lanzador de `~/fn_registry`; el piloto necesita el lanzador con
   el arreglo 1 (`FN_TERMINAL_LAUNCHER`) hasta que ese árbol principal se actualice.
+- El `./cli` compilado del árbol principal de fnharness (el que usa `~/.local/bin/fnharness`) es anterior a los
+  arreglos 3 y 4: hay que ejecutar `bun run build` allí antes de lanzar salas reales. El piloto contra ese binario
+  antiguo falla en los subtests `e` y `f`, que es justo lo que corrigen esos arreglos.
