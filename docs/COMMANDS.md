@@ -276,6 +276,7 @@ Configuración, MCP y plugins:
 | `--strict-mcp-config` | Solo usa los de `--mcp-config`. |
 | `--plugin-dir <path>` | Carga plugins de un directorio solo para esta sesión (repetible). |
 | `--bare` | Modo mínimo (sin hooks, LSP, sincronización de plugins, memoria automática, lecturas de llavero ni autodescubrimiento de `CLAUDE.md`); fija `CLAUDE_CODE_SIMPLE=1`. |
+| `--safe-mode` | Arranque de diagnóstico: sin `CLAUDE.md`, skills, hooks, MCP (ni `--mcp-config`) ni plugins (ni `--plugin-dir`); la autenticación y el resto no cambian. Fija `FNHARNESS_SAFE_MODE=1`. |
 | `--file <specs...>` | Archivos a descargar al inicio (`file_id:ruta`). |
 
 Integraciones y depuración:

@@ -65,6 +65,20 @@ export function isBareMode(): boolean {
 }
 
 /**
+ * --safe-mode / FNHARNESS_SAFE_MODE — diagnostic start: no CLAUDE.md, skills,
+ * hooks, MCP servers or plugins. Unlike --bare it keeps auth and every other
+ * normal behaviour, so a failure that disappears here is caused by user
+ * configuration. Checks argv too because some gates run before main.tsx's
+ * action handler.
+ */
+export function isSafeMode(): boolean {
+  return (
+    isEnvTruthy(process.env.FNHARNESS_SAFE_MODE) ||
+    process.argv.includes('--safe-mode')
+  )
+}
+
+/**
  * Parses an array of environment variable strings into a key-value object
  * @param envVars Array of strings in KEY=VALUE format
  * @returns Object with key-value pairs

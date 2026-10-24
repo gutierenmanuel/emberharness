@@ -249,7 +249,7 @@ Pendiente de esas tandas:
 | `/reload-skills` | 2.1.152 | Reescanea skills sin reiniciar | ausente (`/reload-plugins` sí) |
 | `/skill-doctor` | 2.1.261 | Coste en contexto y uso de cada skill | ausente |
 | `skillOverrides` (settings) | n/d | Forzar visibilidad de skills desde ajustes | ausente |
-| `--safe-mode` | 2.1.169 | Arranca sin CLAUDE.md, skills, hooks, MCP ni plugins (diagnóstico) | ausente |
+| `--safe-mode` | 2.1.169 | Arranca sin CLAUDE.md, skills, hooks, MCP ni plugins (diagnóstico) | HECHO (`isSafeMode()` en `utils/envUtils.ts`, con test e2e) |
 | `--restricted` | 2.1.248 | Quita herramientas que ejecutan código y confina archivos | ausente |
 | `--system-prompt-snapshot`, `--permission-prompts`, `--exclude-dynamic-system-prompt-sections`, `--prompt-suggestions`, `-n/--name`, `--plugin-url`, `--forward-subagent-text`, `--ax-screen-reader` | varias | Opciones de CLI nuevas | ausentes (hay servicio `PromptSuggestion`, sin flag) |
 | `/powerup`, `/team-onboarding` | 2.1.90, 2.1.101 | Lecciones interactivas; guía de onboarding de equipo | ausentes, baja utilidad |
