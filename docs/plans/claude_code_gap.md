@@ -243,7 +243,7 @@ Pendiente de esas tandas:
 |---|---|---|---|
 | `/recap` | 2.1.108 | Resumen de una línea al volver a la sesión (y automático tras ausencia) | `/recap` manual HECHO (`commands/recap/`, no necesita el flag). El aviso automático tras ausencia sigue tras `AWAY_SUMMARY` + GrowthBook `tengu_sedge_lantern` (false en 3P): pendiente |
 | `/cd <ruta>` | n/d | Mueve la sesión a otro directorio conservando la conversación | HECHO (`commands/cd/`; exige directorio ya confiado; la transcripción sigue en su proyecto original) |
-| `/autocompact [auto\|tokens]` y `--autocompact` | n/d | Ventana de autocompactación configurable (100k a 1M) | ausente (`/compact` sí) |
+| `/autocompact [auto\|tokens]` y `--autocompact` | n/d | Ventana de autocompactación configurable (100k a 1M) | HECHO (`/autocompact` y `--autocompact`, `services/compact/autoCompactOverride.ts`; umbral en tokens, no ventana; solo sesión) |
 | `/focus` | 2.1.269 (tip) | Vista con solo el último prompt, resumen de herramientas y respuesta final | ausente |
 | `/tui fullscreen` | 2.1.110 | Renderizador alt-screen sin parpadeo | ausente |
 | `/reload-skills` | 2.1.152 | Reescanea skills sin reiniciar | ausente (`/reload-plugins` sí) |

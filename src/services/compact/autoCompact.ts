@@ -22,6 +22,10 @@ import {
   ERROR_MESSAGE_USER_ABORT,
   type RecompactionInfo,
 } from './compact.js'
+import {
+  applyThresholdOverride,
+  getAutoCompactOverride,
+} from './autoCompactOverride.js'
 import { runPostCompactCleanup } from './postCompactCleanup.js'
 import { trySessionMemoryCompaction } from './sessionMemoryCompact.js'
 
@@ -86,9 +90,13 @@ const MAX_CONSECUTIVE_AUTOCOMPACT_FAILURES = 3
 export function getAutoCompactThreshold(model: string): number {
   const effectiveContextWindow = getEffectiveContextWindowSize(model)
 
-  const autocompactThreshold =
+  // /autocompact <tokens> or --autocompact can lower (never raise) the
+  // window-derived default; the proportional buffers stay as they were.
+  const autocompactThreshold = applyThresholdOverride(
     effectiveContextWindow -
-    scaledBuffer(AUTOCOMPACT_BUFFER_TOKENS, effectiveContextWindow, 0.1)
+      scaledBuffer(AUTOCOMPACT_BUFFER_TOKENS, effectiveContextWindow, 0.1),
+    getAutoCompactOverride(),
+  )
 
   // Override for easier testing of autocompact
   const envPercent = process.env.CLAUDE_AUTOCOMPACT_PCT_OVERRIDE
@@ -163,6 +171,10 @@ export function calculateTokenWarningState(
 
 export function isAutoCompactEnabled(): boolean {
   if (isEnvTruthy(process.env.DISABLE_COMPACT)) {
+    return false
+  }
+  // /autocompact off or --autocompact off (session only)
+  if (getAutoCompactOverride()?.kind === 'off') {
     return false
   }
   // Allow disabling just auto-compact (keeps manual /compact working)

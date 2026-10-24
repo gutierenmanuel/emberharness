@@ -39,6 +39,7 @@ El tipo indica cómo se ejecuta: `local` (texto), `local-jsx` (interfaz Ink) o `
 | `/tasks` | `/bashes` | Lista y gestiona tareas en segundo plano. | local-jsx | Sí |
 | `/diff` | | Muestra cambios sin confirmar y diffs por turno. | local-jsx | Sí |
 | `/add-dir <ruta>` | | Añade un directorio de trabajo. | local-jsx | Sí |
+| `/autocompact [auto\|off\|<tokens>]` | | Umbral de autocompactación de esta sesión: sin argumento muestra el estado; `off` la desactiva; `150k`/`1m` la dispara a ese número de tokens (solo puede bajar el umbral por defecto, mínimo 10k; los márgenes proporcionales de ventanas pequeñas no cambian); `auto` vuelve al valor por defecto. | local | No |
 | `/cd <ruta>` | | Mueve la sesión a otro directorio conservando la conversación (cwd, raíz de proyecto, ajustes, hooks y `CLAUDE.md` se recalculan). Solo entra en directorios ya confiados. | local | No |
 
 ### 2.2 Modelo y razonamiento
@@ -278,6 +279,7 @@ Configuración, MCP y plugins:
 | `--strict-mcp-config` | Solo usa los de `--mcp-config`. |
 | `--plugin-dir <path>` | Carga plugins de un directorio solo para esta sesión (repetible). |
 | `--bare` | Modo mínimo (sin hooks, LSP, sincronización de plugins, memoria automática, lecturas de llavero ni autodescubrimiento de `CLAUDE.md`); fija `CLAUDE_CODE_SIMPLE=1`. |
+| `--autocompact <auto\|off\|tokens>` | Umbral de autocompactación para la sesión (igual que `/autocompact`). |
 | `--safe-mode` | Arranque de diagnóstico: sin `CLAUDE.md`, skills, hooks, MCP (ni `--mcp-config`) ni plugins (ni `--plugin-dir`); la autenticación y el resto no cambian. Fija `FNHARNESS_SAFE_MODE=1`. |
 | `--file <specs...>` | Archivos a descargar al inicio (`file_id:ruta`). |
 

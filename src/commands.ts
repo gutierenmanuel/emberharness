@@ -1,5 +1,6 @@
 // biome-ignore-all assist/source/organizeImports: ANT-ONLY import markers must not be reordered
 import addDir from './commands/add-dir/index.js'
+import autocompact from './commands/autocompact/index.js'
 import cd from './commands/cd/index.js'
 import recap from './commands/recap/index.js'
 import autofixPr from './commands/autofix-pr/index.js'
@@ -261,6 +262,7 @@ const COMMANDS = memoize((): Command[] => [
   addDir,
   advisor,
   agents,
+  autocompact,
   branch,
   btw,
   cd,
