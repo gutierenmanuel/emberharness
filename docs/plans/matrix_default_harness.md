@@ -1,6 +1,8 @@
 # FnHarness como arnés por defecto de las salas de Matrix
 
-Plan ejecutable. Fecha: 24/10/2026. Estado: borrador para aprobar, nada implementado.
+Plan ejecutable. Fecha: 24/10/2026. Estado (24/10/2026): fases 1 a 5 y 7 implementadas, probadas e integradas; fase 6 (migración de
+agentes) preparada en el runbook de la sección 10 y sin ejecutar; fase 8 (cambio del default) pendiente
+de decisión del dueño. El default sigue siendo `claude`.
 
 Objetivo: que cualquier sala de Matrix (DM de un agente, sala de grupo, conversaciones creadas con
 `!nueva`, pool precalentado) pueda correr sobre `fnharness` en lugar de `claude`, eligiendo cuenta y
@@ -367,3 +369,63 @@ debe mantener como Claude Code: `<config>/sessions/<pid>.json` (con el `sessionI
 - El `./cli` compilado del árbol principal de fnharness (el que usa `~/.local/bin/fnharness`) es anterior a los
   arreglos 3 y 4: hay que ejecutar `bun run build` allí antes de lanzar salas reales. El piloto contra ese binario
   antiguo falla en los subtests `e` y `f`, que es justo lo que corrigen esos arreglos.
+
+## 10. Estado de las fases y runbook de la fase 6 (migración, sin ejecutar)
+
+### 10.1 Estado
+
+| Fase | Estado | Dónde |
+|---|---|---|
+| 0 Inventario | Hecha | §1 |
+| 1 Pruebas de contrato | Hecha | `tests/e2e/streamJson`, `launchFlags`, `resume` |
+| 2 Canal de eventos | Hecha | `src/utils/matrixEvents*.ts`, `docs/matrix_events.md` |
+| 3 Paridad de entorno | Hecha (script probado en HOME temporal; sin aplicar al HOME real) | `scripts/sync_env.sh`, `docs/sync_env.md` |
+| 4 Selector de arnés | Hecha | lanzador 1.13.1 y puente (`terminal.harness`, lector de eventos) |
+| 5 Piloto | Hecha, con cuatro arreglos | §9 |
+| 6 Migración de agentes | **Preparada, no ejecutada** por decisión del dueño (seguimos con `claude` hasta probarlo en casa) | §10.2 |
+| 7 Cuenta por sala | Hecha (`!cuenta`, herencia con `account_from: dm`, pool); falta el coste en la cabecera | puente, `harnessaccount.go` |
+| 8 Cambio del default | **No hecha** (excluida expresamente) | — |
+
+### 10.2 Requisitos previos, una sola vez
+
+1. Recompilar el binario del árbol principal: `cd apps/fnharness && bun run build`. Las salas usan
+   `~/.local/bin/fnharness`, que apunta a `bin/fnharness` y por tanto a `./cli`; un `./cli` anterior a los
+   arreglos del piloto falla en `/clear` y en los hilos de subagentes.
+2. Decidir y aplicar la paridad de entorno: `scripts/sync_env.sh --check` muestra qué falta (hooks,
+   MCP, enlaces); `scripts/sync_env.sh` lo aplica con copia de seguridad. Antes, leer la tabla de
+   `docs/sync_env.md`: los hooks `goal_*` comparten estado con Claude Code y
+   `goal_phase_eval.sh`/`obsidian_session_report.sh` dependen de dónde está el transcript, así que se
+   prueban en una sesión real.
+3. Login de la cuenta `claude` en fnharness si hace falta (`/login` dentro de la sesión); las
+   credenciales ya son un enlace a las de `~/.claude`. Probar que la renovación del token con dos
+   binarios no desloguea a `claude`.
+4. Comprobar `~/.fnharness/settings.json`: debe llevar `skipDangerousModePermissionPrompt: true`, o la
+   sesión de la sala se quedará esperando el aviso del modo bypass.
+5. En `config.yaml` del agente, `terminal.config_dir` debe quedar vacío o igual a `FNHARNESS_HOME`
+   (el puente lo prefiere al que devuelve el lanzador).
+
+### 10.3 Migrar un agente
+
+Orden recomendado: `lista-compra`, `asistente-voz`, `fnzcode`, `fnclaude`, `pc-a`. `claude-work`
+no se migra: el lanzador lo rechaza (cuenta de empresa).
+
+1. En `apps/agents_and_robots/agents/<agente>/config.yaml`, bajo `terminal:` añadir
+   `harness: fnharness` y `account: claude` (o la cuenta deseada; `fnharness --accounts` las lista).
+2. Recargar solo ese agente por la API de agentsadmin (`POST /api/v1/bots/<id>/reload`). No reiniciar
+   el launcher.
+3. Comprobar en su sala: un mensaje con respuesta, `!screen` (debe verse la cabecera de FnHarness),
+   una pregunta con botones, `!nueva`, `!cuenta` y, si el agente usa voz, una nota de voz.
+4. Si algo falla: volver a `harness: claude` (o quitar la línea), recargar de nuevo y listo. Las
+   sesiones de cada arnés viven en `~/.claude/projects` y `~/.fnharness/projects`: una conversación nacida
+   en un arnés no se continúa en el otro, y la sala abre una sesión nueva al cambiar.
+
+`fnzcode` pasa a ser una cuenta de fnharness (`account: <cuenta GLM>`), de modo que `claude-glm` deja de
+hacer falta en cuanto el agente migre; mientras tanto no se retira.
+
+### 10.4 Fase 8 cuando el dueño lo decida
+
+Cambiar el valor por defecto de `terminal.harness` en la configuración del launcher a `fnharness` y
+recargar los agentes uno a uno; cada uno puede volver a `claude` con una línea. Antes de hacerlo, tener
+cubiertos en una semana de uso real los puntos pendientes de la §7: hooks `SessionStart` y `PreToolUse
+AskUserQuestion` del `--settings` con fnharness, `/resume` interactivo, y el acceso de red de fnharness
+al marketplace de Anthropic al arrancar.
