@@ -168,6 +168,11 @@ export function dispose(): Promise<void> {
  */
 export const subscribe = skillsChanged.subscribe
 
+/** Tell subscribers (the REPL) to re-fetch commands, e.g. after /reload-skills. */
+export function notifyChanged(): void {
+  skillsChanged.emit()
+}
+
 async function getWatchablePaths(): Promise<string[]> {
   const fs = getFsImplementation()
   const paths: string[] = []
@@ -307,5 +312,6 @@ export const skillChangeDetector = {
   initialize,
   dispose,
   subscribe,
+  notifyChanged,
   resetForTesting,
 }

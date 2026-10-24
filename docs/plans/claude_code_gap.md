@@ -241,15 +241,15 @@ Pendiente de esas tandas:
 
 | Comando / ajuste | Desde | Qué hace | Estado en fnharness |
 |---|---|---|---|
-| `/recap` | 2.1.108 | Resumen de una línea al volver a la sesión (y automático tras ausencia) | `AWAY_SUMMARY` flag-ok (`services/awaySummary.ts`); falta el comando manual |
-| `/cd <ruta>` | n/d | Mueve la sesión a otro directorio conservando la conversación | ausente |
-| `/autocompact [auto\|tokens]` y `--autocompact` | n/d | Ventana de autocompactación configurable (100k a 1M) | ausente (`/compact` sí) |
+| `/recap` | 2.1.108 | Resumen de una línea al volver a la sesión (y automático tras ausencia) | `/recap` manual HECHO (`commands/recap/`, no necesita el flag). El aviso automático tras ausencia sigue tras `AWAY_SUMMARY` + GrowthBook `tengu_sedge_lantern` (false en 3P): pendiente |
+| `/cd <ruta>` | n/d | Mueve la sesión a otro directorio conservando la conversación | HECHO (`commands/cd/`; exige directorio ya confiado; la transcripción sigue en su proyecto original) |
+| `/autocompact [auto\|tokens]` y `--autocompact` | n/d | Ventana de autocompactación configurable (100k a 1M) | HECHO (`/autocompact` y `--autocompact`, `services/compact/autoCompactOverride.ts`; umbral en tokens, no ventana; solo sesión) |
 | `/focus` | 2.1.269 (tip) | Vista con solo el último prompt, resumen de herramientas y respuesta final | ausente |
 | `/tui fullscreen` | 2.1.110 | Renderizador alt-screen sin parpadeo | ausente |
-| `/reload-skills` | 2.1.152 | Reescanea skills sin reiniciar | ausente (`/reload-plugins` sí) |
+| `/reload-skills` | 2.1.152 | Reescanea skills sin reiniciar | HECHO (`commands/reload-skills/`, avisa al REPL con `skillChangeDetector.notifyChanged()`) |
 | `/skill-doctor` | 2.1.261 | Coste en contexto y uso de cada skill | ausente |
 | `skillOverrides` (settings) | n/d | Forzar visibilidad de skills desde ajustes | ausente |
-| `--safe-mode` | 2.1.169 | Arranca sin CLAUDE.md, skills, hooks, MCP ni plugins (diagnóstico) | ausente |
+| `--safe-mode` | 2.1.169 | Arranca sin CLAUDE.md, skills, hooks, MCP ni plugins (diagnóstico) | HECHO (`isSafeMode()` en `utils/envUtils.ts`, con test e2e) |
 | `--restricted` | 2.1.248 | Quita herramientas que ejecutan código y confina archivos | ausente |
 | `--system-prompt-snapshot`, `--permission-prompts`, `--exclude-dynamic-system-prompt-sections`, `--prompt-suggestions`, `-n/--name`, `--plugin-url`, `--forward-subagent-text`, `--ax-screen-reader` | varias | Opciones de CLI nuevas | ausentes (hay servicio `PromptSuggestion`, sin flag) |
 | `/powerup`, `/team-onboarding` | 2.1.90, 2.1.101 | Lecciones interactivas; guía de onboarding de equipo | ausentes, baja utilidad |

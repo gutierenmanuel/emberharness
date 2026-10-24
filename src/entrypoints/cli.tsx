@@ -307,6 +307,11 @@ async function main(): Promise<void> {
     process.env.CLAUDE_CODE_SIMPLE = '1';
   }
 
+  // --safe-mode: same early treatment so module-level gates see it.
+  if (args.includes('--safe-mode')) {
+    process.env.FNHARNESS_SAFE_MODE = '1';
+  }
+
   // No special flags detected, load and run the full CLI
   const {
     startCapturingEarlyInput

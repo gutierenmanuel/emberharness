@@ -32,6 +32,7 @@ import {
 import {
   getClaudeConfigHomeDir,
   isBareMode,
+  isSafeMode,
   isEnvTruthy,
 } from '../utils/envUtils.js'
 import { isENOENT, isFsInaccessible } from '../utils/errors.js'
@@ -647,6 +648,8 @@ export const getSkillDirCommands = memoize(
 
     // Load from additional directories (--add-dir)
     const additionalDirs = getAdditionalDirectoriesForClaudeMd()
+    // --safe-mode: no user/project/managed/--add-dir skills at all.
+    if (isSafeMode()) return []
     const skillsLocked = isRestrictedToPluginOnly('skills')
     const projectSettingsEnabled =
       isSettingSourceEnabled('projectSettings') && !skillsLocked

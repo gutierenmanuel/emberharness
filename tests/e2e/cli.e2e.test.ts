@@ -5,7 +5,7 @@
  */
 
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
-import { writeFileSync } from 'fs'
+import { mkdirSync, writeFileSync } from 'fs'
 import { join } from 'path'
 import {
   CLI,
@@ -82,4 +82,36 @@ describe.skipIf(!hasCli)('cli e2e', () => {
     expect(text).toContain('default mode')
     expect(text).toContain('0 shells · 0 monitors · 0 agents')
   }, 30_000)
+
+  test('--safe-mode starts without CLAUDE.md or project skills', async () => {
+    const { configDir, cwd } = makeSandbox()
+    writeFileSync(join(cwd, 'CLAUDE.md'), 'MARCADOR_CLAUDEMD_QWERTY')
+    const skillDir = join(cwd, '.claude', 'skills', 'skill-marcador')
+    mkdirSync(skillDir, { recursive: true })
+    writeFileSync(
+      join(skillDir, 'SKILL.md'),
+      '---\nname: skill-marcador\ndescription: MARCADOR_SKILL_ASDFG\n---\nhola',
+    )
+    const run = async (extra: string[]) => {
+      const before = fake.requests.length
+      const proc = Bun.spawn([CLI, '-p', ...extra, 'di hola'], {
+        cwd,
+        env: fakeEnv(fake.baseUrl, configDir),
+        stdin: 'ignore',
+        stdout: 'pipe',
+        stderr: 'pipe',
+        timeout: 60_000,
+      })
+      await new Response(proc.stdout).text()
+      await proc.exited
+      return JSON.stringify(fake.requests.slice(before))
+    }
+    const normal = await run([])
+    expect(normal).toContain('MARCADOR_CLAUDEMD_QWERTY')
+    expect(normal).toContain('MARCADOR_SKILL_ASDFG')
+    const safe = await run(['--safe-mode'])
+    expect(safe.length).toBeGreaterThan(2)
+    expect(safe).not.toContain('MARCADOR_CLAUDEMD_QWERTY')
+    expect(safe).not.toContain('MARCADOR_SKILL_ASDFG')
+  }, 150_000)
 })

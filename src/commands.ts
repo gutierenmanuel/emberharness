@@ -1,5 +1,8 @@
 // biome-ignore-all assist/source/organizeImports: ANT-ONLY import markers must not be reordered
 import addDir from './commands/add-dir/index.js'
+import autocompact from './commands/autocompact/index.js'
+import cd from './commands/cd/index.js'
+import recap from './commands/recap/index.js'
 import autofixPr from './commands/autofix-pr/index.js'
 import backfillSessions from './commands/backfill-sessions/index.js'
 import btw from './commands/btw/index.js'
@@ -134,6 +137,7 @@ import branch from './commands/branch/index.js'
 import agents from './commands/agents/index.js'
 import plugin from './commands/plugin/index.js'
 import reloadPlugins from './commands/reload-plugins/index.js'
+import reloadSkills from './commands/reload-skills/index.js'
 import rewind from './commands/rewind/index.js'
 import heapDump from './commands/heapdump/index.js'
 import mockLimits from './commands/mock-limits/index.js'
@@ -259,8 +263,10 @@ const COMMANDS = memoize((): Command[] => [
   addDir,
   advisor,
   agents,
+  autocompact,
   branch,
   btw,
+  cd,
   chrome,
   clear,
   color,
@@ -294,7 +300,9 @@ const COMMANDS = memoize((): Command[] => [
   plugin,
   pr_comments,
   releaseNotes,
+  recap,
   reloadPlugins,
+  reloadSkills,
   rename,
   resume,
   session,
