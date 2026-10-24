@@ -211,7 +211,7 @@ export function formatOutcome(
 export function buildKickoffPrompt(condition: string): string {
   return `A goal is now active for this session: ${condition}
 
-Work toward it now. After every turn an independent evaluator checks whether the condition holds, and you will keep being asked to continue until it does. Use tools to make real progress and to verify the result, and state clearly in your final message what you did and what the evidence is.`
+Do the work needed to make this condition true, using your normal tools (files, shell). When you believe it holds, verify it with a tool call and then state in one short message what you did and the evidence. An independent evaluator checks the condition after you finish; this is not a scheduled or recurring task, so do not use the cron tools.`
 }
 
 /** Meta message that keeps the agent going when the judge said "not met". */

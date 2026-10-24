@@ -15,6 +15,7 @@ import {
 } from '../../services/api/openai-compat/profiles.js'
 import type { ToolUseContext } from '../../Tool.js'
 import type { Message } from '../../types/message.js'
+import { logForDebugging } from '../debug.js'
 import { errorMessage } from '../errors.js'
 import { createUserMessage, extractTextContent } from '../messages.js'
 import { getSmallFastModel } from '../model/model.js'
@@ -159,11 +160,13 @@ export async function runGoalCheck(
     return { text: formatOutcome('judge_error', state, now, errorMessage(err)), continueWith: null }
   }
 
+  logForDebugging(`[goal] verdict=${verdict.status} reason=${verdict.reason}`)
   const decision = decideAfterTurn(state, verdict, {
     usedTools: turnUsedTools(sinceCheckpoint),
     totalTokens: getTotalInputTokens() + getTotalOutputTokens(),
     lastUuid,
   })
+  logForDebugging(`[goal] decision=${decision.action} turns=${decision.state.turns}`)
   if (decision.action === 'continue') {
     current = decision.state
     return {
