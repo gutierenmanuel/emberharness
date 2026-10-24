@@ -242,7 +242,7 @@ Pendiente de esas tandas:
 | Comando / ajuste | Desde | Qué hace | Estado en fnharness |
 |---|---|---|---|
 | `/recap` | 2.1.108 | Resumen de una línea al volver a la sesión (y automático tras ausencia) | `AWAY_SUMMARY` flag-ok (`services/awaySummary.ts`); falta el comando manual |
-| `/cd <ruta>` | n/d | Mueve la sesión a otro directorio conservando la conversación | ausente |
+| `/cd <ruta>` | n/d | Mueve la sesión a otro directorio conservando la conversación | HECHO (`commands/cd/`; exige directorio ya confiado; la transcripción sigue en su proyecto original) |
 | `/autocompact [auto\|tokens]` y `--autocompact` | n/d | Ventana de autocompactación configurable (100k a 1M) | ausente (`/compact` sí) |
 | `/focus` | 2.1.269 (tip) | Vista con solo el último prompt, resumen de herramientas y respuesta final | ausente |
 | `/tui fullscreen` | 2.1.110 | Renderizador alt-screen sin parpadeo | ausente |

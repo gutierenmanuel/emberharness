@@ -39,6 +39,7 @@ El tipo indica cómo se ejecuta: `local` (texto), `local-jsx` (interfaz Ink) o `
 | `/tasks` | `/bashes` | Lista y gestiona tareas en segundo plano. | local-jsx | Sí |
 | `/diff` | | Muestra cambios sin confirmar y diffs por turno. | local-jsx | Sí |
 | `/add-dir <ruta>` | | Añade un directorio de trabajo. | local-jsx | Sí |
+| `/cd <ruta>` | | Mueve la sesión a otro directorio conservando la conversación (cwd, raíz de proyecto, ajustes, hooks y `CLAUDE.md` se recalculan). Solo entra en directorios ya confiados. | local | No |
 
 ### 2.2 Modelo y razonamiento
 
