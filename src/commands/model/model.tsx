@@ -18,6 +18,15 @@ import { persistModelForActiveAccount } from '../account/actions.js';
 import { guardModelSwitch } from './switchGuard.js';
 import { warmActiveAccountModels } from '../../services/api/openai-compat/warmModels.js';
 import { validateModel } from '../../utils/model/validateModel.js';
+import type { AppState } from '../../state/AppState.js';
+import { getModelOptions } from '../../utils/model/modelOptions.js';
+import { gatherAccountModelGroups, type AccountModelGroup } from '../../utils/model/routedModels.js';
+import { sessionAccountId, splitAccountModel } from '../../services/api/accountRouting.js';
+import { accountPredicate } from '../../services/api/fallbackChain.js';
+import { CLAUDE_ACCOUNT_ID, accountsFilePath, loadStore } from '../../services/api/openai-compat/accounts.js';
+import { getMultimodelProfile } from '../../services/api/openai-compat/profiles.js';
+import { switchAccountWithHooks } from '../account/actions.js';
+import { UnifiedModelPicker } from './UnifiedModelPicker.js';
 function ModelPickerWrapper(t0) {
   const $ = _c(17);
   const {
@@ -301,12 +310,93 @@ export const call: LocalJSXCommandCall = async (onDone, _context, args) => {
     logEvent('tengu_model_command_inline', {
       args: args as AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS
     });
-    return <SetModelAndClose args={args} onDone={onDone} />;
+    // `/model cuenta:modelo`: another account switches the session to it;
+    // the session's own account just sets the model (`qwen3:8b` stays a model).
+    const split = splitAccountModel(args, accountPredicate(loadStore(accountsFilePath())));
+    if (split && split.account !== sessionAccountId()) {
+      await switchToAccountModel(split.account, split.model || 'default', _context.setAppState, onDone);
+      return null;
+    }
+    return <SetModelAndClose args={split ? split.model || 'default' : args} onDone={onDone} />;
   }
   // Fill the per-account cache (GET /models, short timeout) before the picker reads it.
   await warmActiveAccountModels();
-  return <ModelPickerWrapper onDone={onDone} />;
+  const session = sessionAccountId();
+  const sessionModel = _context.getAppState().mainLoopModel ?? null;
+  const groups = await gatherAccountModelGroups({
+    sessionModel: session === CLAUDE_ACCOUNT_ID ? null : getMultimodelProfile()?.model ?? null,
+    claudeOptions: session === CLAUDE_ACCOUNT_ID ? getModelOptions().map(o => ({
+      value: o.value ?? 'default',
+      label: o.label,
+      description: o.description
+    })) : undefined
+  });
+  const current = {
+    account: session,
+    model: session === CLAUDE_ACCOUNT_ID ? sessionModel : getMultimodelProfile()?.model ?? sessionModel
+  };
+  return <UnifiedModelCommand groups={groups} current={current} onDone={onDone} setAppState={_context.setAppState} />;
 };
+
+/**
+ * Switches the session to `account` and `model` in one go through
+ * switchAccountWithHooks, so PreModelSwitch/PostModelSwitch run and the model
+ * is remembered for that account, exactly like `/account <id> <modelo>`.
+ */
+async function switchToAccountModel(account: string, model: string, setAppState: (f: (prev: AppState) => AppState) => void, onDone: (result?: string, options?: {
+  display?: CommandResultDisplay;
+}) => void): Promise<void> {
+  try {
+    const wanted = model === 'default' ? undefined : model;
+    const result = await switchAccountWithHooks(account, wanted);
+    if (result.model === undefined) {
+      // A PreModelSwitch hook refused: nothing changed.
+      onDone(result.message, {
+        display: 'system'
+      });
+      return;
+    }
+    const sessionModel = account === CLAUDE_ACCOUNT_ID ? wanted ?? null : result.model;
+    setAppState(prev => ({
+      ...prev,
+      mainLoopModel: sessionModel,
+      mainLoopModelForSession: null
+    }));
+    const suffix = account === CLAUDE_ACCOUNT_ID ? ` · modelo ${chalk.bold(renderModelLabel(sessionModel))}` : '';
+    onDone(result.message + suffix, {
+      display: 'system'
+    });
+  } catch (err) {
+    onDone(err instanceof Error ? err.message : String(err), {
+      display: 'system'
+    });
+  }
+}
+function UnifiedModelCommand({
+  groups,
+  current,
+  onDone,
+  setAppState
+}: {
+  groups: AccountModelGroup[];
+  current: {
+    account: string;
+    model: string | null;
+  };
+  onDone: (result?: string, options?: {
+    display?: CommandResultDisplay;
+  }) => void;
+  setAppState: (f: (prev: AppState) => AppState) => void;
+}): React.ReactNode {
+  // A model of the session's own account goes through the usual /model <name> path.
+  const [sameAccountModel, setSameAccountModel] = React.useState<string | null>(null);
+  if (sameAccountModel !== null) {
+    return <SetModelAndClose args={sameAccountModel} onDone={onDone} />;
+  }
+  return <UnifiedModelPicker groups={groups} current={current} onCancel={() => onDone(`Kept model as ${chalk.bold(renderModelLabel(current.model))}`, {
+    display: 'system'
+  })} onPick={(account, model) => account === current.account ? setSameAccountModel(model) : void switchToAccountModel(account, model, setAppState, onDone)} />;
+}
 function renderModelLabel(model: string | null): string {
   const rendered = renderDefaultModelSetting(model ?? getDefaultMainLoopModelSetting());
   return model === null ? `${rendered} (default)` : rendered;
