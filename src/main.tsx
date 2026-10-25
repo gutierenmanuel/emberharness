@@ -154,6 +154,8 @@ import { logContextMetrics } from 'src/utils/api.js';
 import { CLAUDE_IN_CHROME_MCP_SERVER_NAME, isClaudeInChromeMCPServer } from 'src/utils/claudeInChrome/common.js';
 import { registerCleanup } from 'src/utils/cleanupRegistry.js';
 import { eagerParseCliFlag } from 'src/utils/cliArgs.js';
+import { defaultLocalSettingSources } from 'src/services/api/openai-compat/leanLocal.js';
+import { getMultimodelProfile } from 'src/services/api/openai-compat/profiles.js';
 import { createEmptyAttributionState } from 'src/utils/commitAttribution.js';
 import { countConcurrentSessions, registerSession, updateSessionName } from 'src/utils/concurrentSessions.js';
 import { getCwd } from 'src/utils/cwd.js';
@@ -515,6 +517,13 @@ function eagerLoadSettings(): void {
   const settingSourcesArg = eagerParseCliFlag('--setting-sources');
   if (settingSourcesArg !== undefined) {
     loadSettingSourcesFromFlag(settingSourcesArg);
+  } else {
+    // Local accounts start lean: only user settings (no project CLAUDE.md, rules or hooks).
+    const lean = defaultLocalSettingSources({
+      baseUrl: getMultimodelProfile()?.baseUrl,
+      explicitFlag: settingSourcesArg
+    });
+    if (lean) loadSettingSourcesFromFlag(lean);
   }
   profileCheckpoint('eagerLoadSettings_end');
 }

@@ -103,7 +103,7 @@ describe.skipIf(!hasCli)('small pack e2e', () => {
         ],
       },
     })
-    const text = await runP(['--settings', settings, '/saluda Ana Maria'], cwd, fakeEnv(fake.baseUrl, configDir, { FNHARNESS_CONTEXT_PROFILE: 'full' }))
+    const text = await runP(['--settings', settings, '/saluda Ana Maria'], cwd, fakeEnv(fake.baseUrl, configDir, { FNHARNESS_CONTEXT_PROFILE: 'full', FNHARNESS_LOCAL_LEAN: '0' }))
     expect(text).toContain(REPLY)
     const input = JSON.parse(readFileSync(out, 'utf8'))
     expect(input).toMatchObject({

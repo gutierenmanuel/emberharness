@@ -1,6 +1,7 @@
 import type { ChildProcess, ExecFileException } from 'child_process'
 import { execFile, spawn } from 'child_process'
 import memoize from 'lodash-es/memoize.js'
+import { accessSync, constants as fsConstants, realpathSync, statSync } from 'fs'
 import { homedir } from 'os'
 import * as path from 'path'
 import { logEvent } from 'src/services/analytics/index.js'
@@ -9,7 +10,6 @@ import { isInBundledMode } from './bundledMode.js'
 import { logForDebugging } from './debug.js'
 import { isEnvDefinedFalsy } from './envUtils.js'
 import { execFileNoThrow } from './execFileNoThrow.js'
-import { findExecutable } from './findExecutable.js'
 import { logError } from './log.js'
 import { getPlatform } from './platform.js'
 import { countCharInString } from './stringUtils.js'
@@ -28,6 +28,56 @@ type RipgrepConfig = {
   argv0?: string
 }
 
+/**
+ * A real `rg` file on PATH. Walks PATH by hand instead of `which`: a shell
+ * function or alias named rg (a common trick to run the claude binary as rg)
+ * is not an executable and must not count.
+ */
+export function findRealExecutable(
+  name: string,
+  pathEnv: string | undefined = process.env.PATH,
+  isExecutableFile: (p: string) => boolean = defaultIsExecutableFile,
+): string | null {
+  for (const dir of (pathEnv ?? '').split(path.delimiter)) {
+    if (!dir || !path.isAbsolute(dir)) continue
+    const candidate = path.join(dir, name)
+    if (isExecutableFile(candidate)) return candidate
+  }
+  return null
+}
+
+function defaultIsExecutableFile(p: string): boolean {
+  try {
+    if (!statSync(p).isFile()) return false
+    accessSync(p, fsConstants.X_OK)
+    return true
+  } catch {
+    return false
+  }
+}
+
+/**
+ * Places where a ripgrep shipped with fnharness can live, in order: the
+ * FNHARNESS_RG override, `vendor/ripgrep/<arch>-<platform>/rg` next to the
+ * compiled binary (installed by scripts/install-ripgrep.sh), and the original
+ * upstream location inside the bundle (only exists when running from source).
+ */
+export function bundledRipgrepCandidates(input: {
+  env: Record<string, string | undefined>
+  execDir: string
+  moduleDir: string
+  platform: string
+  arch: string
+}): string[] {
+  const bin = input.platform === 'win32' ? 'rg.exe' : 'rg'
+  const sub = `${input.arch}-${input.platform}`
+  return [
+    ...(input.env.FNHARNESS_RG ? [input.env.FNHARNESS_RG] : []),
+    path.join(input.execDir, 'vendor', 'ripgrep', sub, bin),
+    path.resolve(input.moduleDir, 'vendor', 'ripgrep', sub, bin),
+  ]
+}
+
 const getRipgrepConfig = memoize((): RipgrepConfig => {
   const userWantsSystemRipgrep = isEnvDefinedFalsy(
     process.env.USE_BUILTIN_RIPGREP,
@@ -35,10 +85,9 @@ const getRipgrepConfig = memoize((): RipgrepConfig => {
 
   // Try system ripgrep if user wants it (or if nothing is specified = default to system if available)
   if (userWantsSystemRipgrep || process.env.USE_BUILTIN_RIPGREP === undefined) {
-    const { cmd: systemPath } = findExecutable('rg', [])
-    if (systemPath !== 'rg') {
-      // SECURITY: Use command name 'rg' instead of systemPath to prevent PATH hijacking
-      // If we used systemPath, a malicious ./rg.exe in current directory could be executed
+    if (findRealExecutable('rg')) {
+      // SECURITY: Use command name 'rg' instead of the resolved path to prevent PATH hijacking
+      // If we used the path, a malicious ./rg.exe in current directory could be executed
       // Using just 'rg' lets the OS resolve it safely with NoDefaultCurrentDirectoryInExePath protection
       return { mode: 'system', command: 'rg', args: [] }
     }
@@ -55,12 +104,20 @@ const getRipgrepConfig = memoize((): RipgrepConfig => {
     }
   }
 
-  const rgRoot = path.resolve(__dirname, 'vendor', 'ripgrep')
-  const command =
-    process.platform === 'win32'
-      ? path.resolve(rgRoot, `${process.arch}-win32`, 'rg.exe')
-      : path.resolve(rgRoot, `${process.arch}-${process.platform}`, 'rg')
-
+  let execDir = path.dirname(process.execPath)
+  try {
+    execDir = path.dirname(realpathSync(process.execPath))
+  } catch {}
+  const candidates = bundledRipgrepCandidates({
+    env: process.env,
+    execDir,
+    moduleDir: __dirname,
+    platform: process.platform,
+    arch: process.arch,
+  })
+  // In the compiled ./cli the module dir lives in the virtual $bunfs, so the
+  // upstream path never exists there; the one next to the binary does.
+  const command = candidates.find(c => defaultIsExecutableFile(c)) ?? candidates[candidates.length - 1]!
   return { mode: 'builtin', command, args: [] }
 })
 

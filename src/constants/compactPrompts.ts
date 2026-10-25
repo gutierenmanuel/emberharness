@@ -120,3 +120,85 @@ export function compactToolDescription(
   if (name === 'Agent') return compactAgentDescription(agents, listAgents)
   return COMPACT_TOOL_DESCRIPTIONS[name]
 }
+
+/**
+ * CLAUDE.md files arrive as one string: a header followed by one
+ * "Contents of <path> (...):" segment per file, in priority order (user,
+ * project from the root down to the cwd, rules). A big project CLAUDE.md plus
+ * its rules/*.md can cost 5k+ tokens, most of it irrelevant to a 35B local
+ * model. In the compact profile a file longer than `maxFileChars`, or one that
+ * would push the total over `maxTotalChars`, is left out whole (never cut in
+ * the middle) and listed in one line so the model can Read it on demand.
+ * `maxFileChars` <= 0 disables the trimming.
+ */
+export const COMPACT_CLAUDE_MD_MAX_FILE_CHARS = 4000
+export const COMPACT_CLAUDE_MD_MAX_TOTAL_CHARS = 6000
+
+export function trimClaudeMdForCompact(
+  claudeMd: string,
+  maxFileChars: number = COMPACT_CLAUDE_MD_MAX_FILE_CHARS,
+  maxTotalChars: number = COMPACT_CLAUDE_MD_MAX_TOTAL_CHARS,
+): string {
+  if (maxFileChars <= 0) return claudeMd
+  const segments = claudeMd.split(/(?=^Contents of )/m)
+  const kept: string[] = []
+  const omitted: string[] = []
+  let total = 0
+  for (const seg of segments) {
+    const path = /^Contents of (\S+)/.exec(seg)?.[1]
+    if (path && (seg.length > maxFileChars || total + seg.length > maxTotalChars)) {
+      omitted.push(path)
+      continue
+    }
+    kept.push(seg)
+    total += seg.length
+  }
+  if (omitted.length === 0) return claudeMd
+  const note = `Long instruction files omitted to save context (Read them if the task needs them): ${omitted.join(', ')}`
+  return `${kept.join('').trimEnd()}\n\n${note}\n`
+}
+
+/**
+ * Input schemas carry long per-parameter descriptions written for Claude
+ * (Grep alone is ~2.4k chars). In the compact profile every `description` of a
+ * property is cut to its first sentence and at most `maxChars` characters.
+ * Names, types, enums, required lists and nesting are untouched, so the
+ * parameters stay identical for validation. `maxChars` <= 0 disables it.
+ */
+export const COMPACT_SCHEMA_DESC_MAX_CHARS = 90
+
+export function shortenDescription(text: string, maxChars: number): string {
+  // First sentence (a period followed by a capital); "e.g." and "i.e." do not end it.
+  const first = text.split(/(?<=[.!?])(?<!e\.g\.)(?<!i\.e\.)\s+(?=[A-Z])/, 1)[0]!.trim()
+  let out = first
+  if (out.length > maxChars) {
+    const cut = out.slice(0, maxChars)
+    const sp = cut.lastIndexOf(' ')
+    out = sp > maxChars / 2 ? cut.slice(0, sp) : cut
+  }
+  // Never leave a parenthesis open.
+  const open = out.lastIndexOf('(')
+  if (open >= 0 && open > out.lastIndexOf(')')) out = out.slice(0, open)
+  return out.replace(/[,;:(\s]+$/, '')
+}
+
+export function slimSchemaDescriptions<T>(
+  schema: T,
+  maxChars: number = COMPACT_SCHEMA_DESC_MAX_CHARS,
+): T {
+  if (maxChars <= 0) return schema
+  const walk = (node: unknown, isPropertyMap: boolean): unknown => {
+    if (Array.isArray(node)) return node.map(n => walk(n, false))
+    if (node === null || typeof node !== 'object') return node
+    const out: Record<string, unknown> = {}
+    for (const [k, v] of Object.entries(node as Record<string, unknown>)) {
+      if (!isPropertyMap && k === 'description' && typeof v === 'string') {
+        out[k] = shortenDescription(v, maxChars)
+      } else {
+        out[k] = walk(v, !isPropertyMap && k === 'properties')
+      }
+    }
+    return out
+  }
+  return walk(schema, false) as T
+}

@@ -25,6 +25,12 @@ cd fnharness
 `install.sh` acepta `FNHARNESS_DIR` (ruta de instalación), `FNHARNESS_REPO` (remoto) y
 `FNHARNESS_LINK_DIR` (dónde enlazar el comando).
 
+`Grep` y `Glob` necesitan `ripgrep`, y dentro de `./cli` no hay uno embebido. fnharness usa primero un
+`rg` real del PATH (un archivo ejecutable: una función de shell llamada `rg` no cuenta) y, si no hay,
+`vendor/ripgrep/<arq>-<so>/rg` junto al binario, que `install.sh` descarga con
+`scripts/install-ripgrep.sh` (release oficial, sha256 verificado, sin `sudo` ni paquetes del sistema;
+`vendor/` está en `.gitignore`). `FNHARNESS_RG=/ruta/rg` fuerza otro binario.
+
 ## Uso
 
 ```bash
@@ -122,6 +128,25 @@ Usa el objeto `timings` de llama-server (`prompt_n`, `prompt_ms`, `cache_n`, `pr
 herramientas) se agregan; las consultas auxiliares sin herramientas se descartan. En
 `-p --output-format json` el resultado lleva el campo `local_speed`. `FNHARNESS_LOCAL_SPEED=0` lo
 desactiva. Código: `src/services/api/openai-compat/speedStats.ts`.
+
+## Modo ligero para cuentas locales
+
+Una cuenta local (`baseUrl` en `localhost`, `127.0.0.1` o `[::1]`) tiene una ventana pequeña y un
+primer token lento, así que arranca con una dieta de prompt. En `fn_registry` el prompt de una sesión
+nueva baja de ~10,8k a ~1,3k tokens. Medidas y método: `reports/llm_speed_bench/prompt_diet/README.md`
+del registry.
+
+| Qué | Dónde aplica | Desactivar |
+|---|---|---|
+| `--setting-sources user` por defecto: sin los `CLAUDE.md` del proyecto, `.claude/rules` ni hooks de proyecto (el `CLAUDE.md` global sí) | cuentas locales | `FNHARNESS_LOCAL_LEAN=0`, o pasar `--setting-sources ...` explícito (siempre manda) |
+| Sin `gitStatus` en el prompt de sistema | perfil Simple | (implícito) |
+| `CLAUDE.md` de más de 4.000 caracteres (o por encima de 6.000 en total) se listan en una línea para leerlos con `Read` | perfil Simple | `FNHARNESS_LOCAL_MD_MAX_CHARS=0` |
+| Descripciones de parámetros de los schemas: primera frase, máx. 90 caracteres | perfil Simple | `FNHARNESS_LOCAL_SCHEMA_DESC_MAX=0` |
+| `Edit` sobre un archivo no leído lo da por leído en vez de fallar con «File has not been read yet» | solo cuentas locales; `claude` y las remotas conservan la protección original | (implícito) |
+| Contexto estable (`CLAUDE.md`, fecha) antes de los adjuntos de hooks, para que la caché del prefijo sobreviva a un id de sesión nuevo | todas las cuentas | (implícito) |
+
+`FNHARNESS_LOCAL_LEAN=0 fnharness --account qwen36` vuelve a cargar los ajustes y `CLAUDE.md` del
+proyecto. Código: `src/services/api/openai-compat/leanLocal.ts`.
 
 ## Estructura
 

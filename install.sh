@@ -54,6 +54,13 @@ info "Compilando ./cli"
 [[ -x "$install_dir/cli" ]] || fail "la compilación no dejó $install_dir/cli"
 ok "Binario: $install_dir/cli"
 
+info "ripgrep para Grep y Glob (sin sudo, junto al binario)"
+if command -v rg >/dev/null 2>&1 && [[ "$(type -t rg)" == file ]]; then
+  ok "rg del sistema: $(command -v rg)"
+else
+  "$install_dir/scripts/install-ripgrep.sh" || info "sin ripgrep: Grep y Glob fallarán hasta instalar rg o ejecutar scripts/install-ripgrep.sh"
+fi
+
 mkdir -p "$LINK_DIR"
 ln -sf "$install_dir/bin/fnharness" "$LINK_DIR/fnharness"
 ok "Enlace: $LINK_DIR/fnharness"

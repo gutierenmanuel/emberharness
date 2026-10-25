@@ -1479,6 +1479,18 @@ export function getToolUseIDs(
  * - A tool call result (user message with tool_result content)
  * - Any assistant message
  */
+const USER_CONTEXT_MARKER =
+  "<system-reminder>\nAs you answer the user's questions, you can use the following context:"
+
+function isUserContextMessage(message: Message): boolean {
+  return (
+    message.type === 'user' &&
+    message.isMeta === true &&
+    typeof message.message.content === 'string' &&
+    message.message.content.startsWith(USER_CONTEXT_MARKER)
+  )
+}
+
 export function reorderAttachmentsForAPI(messages: Message[]): Message[] {
   // We build `result` backwards (push) and reverse once at the end — O(N).
   // Using unshift inside the loop would be O(N²).
@@ -1500,7 +1512,11 @@ export function reorderAttachmentsForAPI(messages: Message[]): Message[] {
         message.type === 'assistant' ||
         (message.type === 'user' &&
           Array.isArray(message.message.content) &&
-          message.message.content[0]?.type === 'tool_result')
+          message.message.content[0]?.type === 'tool_result') ||
+        // The context message (CLAUDE.md, date) is stable; hook output and other
+        // attachments carry per-session data (ids, status). Keeping them after
+        // it leaves the long stable prefix cacheable on prefix-cache backends.
+        (i === 0 && isUserContextMessage(message))
 
       if (isStoppingPoint && pendingAttachments.length > 0) {
         // Hit a stopping point — attachments stop here (go after the stopping point).
