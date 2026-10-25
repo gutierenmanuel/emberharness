@@ -8,6 +8,8 @@ import {
   profileForAccount,
   saveStore,
   startupAccountId,
+  startupSource,
+  withDefault,
 } from './accounts.js'
 import { setActiveProfile } from './profiles.js'
 
@@ -55,5 +57,34 @@ describe('accounts', () => {
     setActiveProfile(null, 'claude', env)
     expect(env.ANTHROPIC_MODEL).toBe('orig')
     expect(env.ANTHROPIC_DEFAULT_SONNET_MODEL).toBeUndefined()
+  })
+
+  test('default account: --account > default > last used > claude', () => {
+    const store = { active: 'ollama', default: 'qwen36', accounts: {} }
+    expect(startupAccountId(store, {})).toBe('qwen36')
+    expect(startupSource(store, {})).toBe('default')
+    expect(startupAccountId(store, { CLAUDE_MULTIMODEL_ACCOUNT: 'groq' })).toBe('groq')
+    expect(startupSource(store, { CLAUDE_MULTIMODEL_ACCOUNT: 'groq' })).toBe('flag')
+    const last = { active: 'ollama', accounts: {} }
+    expect(startupAccountId(last, {})).toBe('ollama')
+    expect(startupSource(last, {})).toBe('last')
+    expect(startupAccountId({ accounts: {} }, {})).toBe('claude')
+    expect(startupSource({ accounts: {} }, {})).toBe('fallback')
+  })
+
+  test('a default that no longer exists is skipped instead of aborting the launch', () => {
+    expect(startupAccountId({ active: 'ollama', default: 'gone', accounts: {} }, {})).toBe('ollama')
+    expect(startupAccountId({ default: 'mine', accounts: { mine: { provider: 'custom' } } }, {})).toBe('mine')
+  })
+
+  test('withDefault validates, sets and clears; the store round-trips it', () => {
+    expect(() => withDefault({ accounts: {} }, 'nope')).toThrow(/Unknown account/)
+    const set = withDefault({ active: 'ollama', accounts: {} }, 'qwen36')
+    expect(set.default).toBe('qwen36')
+    expect(set.active).toBe('ollama')
+    expect('default' in withDefault(set, null)).toBe(false)
+    const path = tmp()
+    saveStore(set, path)
+    expect(loadStore(path).default).toBe('qwen36')
   })
 })

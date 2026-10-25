@@ -74,11 +74,28 @@ El código completo del panel estaba en el árbol pero compilado fuera (`"extern
 
 Enter abre el transcript (`── count utils ──` en el borde, fila `●`), `Esc` vuelve.
 
+## Paridad con 2.1.310 (rama `quick/panel-parity`, 25/10/2026)
+
+- Los agentes terminados desaparecen del panel a los 5 s (`PANEL_GRACE_MS` en `utils/task/framework.ts` y
+  `state/teammateViewHelpers.ts`, antes 30 s). La notificación del transcript se muestra como
+  `Agent "desc" finished · 11s` (`components/messages/agentNotificationSummary.ts`, con tests); el modelo sigue
+  recibiendo el texto `completed` original. Fallos y paradas no cambian.
+- El mensaje de lanzamiento de varios agentes en una misma respuesta ya agrupaba (`renderGroupedAgentToolUse`);
+  el árbol usa ahora `├ ` / `└ ` como Claude Code actual (antes `├─`). Solo se agrupa si los agentes llegan en
+  la misma respuesta del modelo (mismo `message.id`): lanzados en turnos distintos salen como llamadas sueltas.
+  La regla `AGENT_PAR` del mock emite dos `Explore` en una sola respuesta.
+- Hint `Message @<tipo>…` en el input al abrir un agente local (antes solo existía para teammates). Escribir ahí
+  ya enviaba el mensaje al agente (`onAgentSubmit`: `queuePendingMessage` si corre, `resumeAgentBackground` si
+  terminó), igual que SendMessage.
+- Agente integrado `Explore` (y `Plan`) siempre activo: `areExplorePlanAgentsEnabled()` devuelve `true` sin la
+  feature flag, que solo estaba en el set `dev-full`. Es solo lectura por `disallowedTools` (Agent, ExitPlanMode,
+  Edit, Write, NotebookEdit) y por prompt; Bash no está restringido por permisos, solo por el prompt.
+- Tests: unit de `agentNotificationSummary`; e2e `agentsPanel.e2e.test.ts` cubre árbol, tipo `Explore`, hint,
+  aviso `finished` y desaparición de las filas.
+
 ## Diferencias que quedan
 
-- Los agentes terminados siguen unos segundos en la lista (`evictAfter`) en vez de desaparecer al instante.
-- Falta el árbol `├ └` con las descripciones en el mensaje de lanzamiento y la línea
-  `Agent "…" finished · 11s`; el input del agente abierto no muestra el marcador `Message @tipo…`.
-- No existe el agente integrado `Explore` (solo `general-purpose`, `statusline-setup`, `claude-code-guide`).
+- El Bash de `Explore` no tiene lista blanca de comandos: la restricción de solo lectura es del prompt.
+- Los agentes lanzados en turnos separados no se agrupan en un solo mensaje (igual que upstream).
 - El pie conserva el contador de agentes además del panel (decisión: se pidió mantenerlo).
 - Los tokens del panel dependen de que el backend informe `usage`; con el mock quedan en blanco.

@@ -24,9 +24,21 @@ GRAY='\033[90m'
 # Extraer datos del JSON
 MODEL=$(echo "$INPUT" | jq -r '.model.display_name // "Unknown"')
 CONTEXT_PCT=$(echo "$INPUT" | jq -r '.context_window.used_percentage // 0' | xargs printf "%.0f")
-CONTEXT_TOTAL=$(echo "$INPUT" | jq -r '.context_window.context_window_size // 200000')
+# Sin ventana conocida no se supone 200k: 0 = desconocida (se pinta "?").
+CONTEXT_TOTAL=$(echo "$INPUT" | jq -r '.context_window.context_window_size // 0')
 CURRENT_DIR=$(echo "$INPUT" | jq -r '.workspace.current_dir // "~"' | sed "s|$HOME|~|")
 SESSION_ID=$(echo "$INPUT" | jq -r '.session_id // ""')
+
+# Bloque .fnharness del arnés: cuenta activa, ventana REAL del backend, servidor y velocidad.
+# Un solo jq; los valores salen ya entrecomillados para el shell (@sh).
+ACC_ID=""; ACC_LABEL=""; ACC_PROVIDER=""; ACC_URL=""; ACC_LOCAL=false; ACC_MODEL=""; ACC_SRV_MODEL=""
+WIN_SRC=""; COMPACT_AT=""; MAX_OUT=""; SRV_ONLINE=""; SRV_NCTX=""
+SPD_TTFT=""; SPD_GEN=""; SPD_PROMPT=""; SPD_DRAFT_N=""; SPD_DRAFT_OK=""; COST_KIND=""
+eval "$(echo "$INPUT" | jq -r '.fnharness // empty | @sh "ACC_ID=\(.account.id // "") ACC_LABEL=\(.account.label // "") ACC_PROVIDER=\(.account.provider // "") ACC_URL=\(.account.base_url // "") ACC_LOCAL=\(.account.local // false) ACC_MODEL=\(.account.model // "") ACC_SRV_MODEL=\(.account.server_model // "") WIN_SRC=\(.context.source // "") COMPACT_AT=\(.context.autocompact_at // "") MAX_OUT=\(.context.max_output_tokens // "") SRV_ONLINE=\(if .server then .server.online else "" end) SRV_NCTX=\(.server.n_ctx // "") SPD_TTFT=\(.speed.ttft_s // "") SPD_GEN=\(.speed.generation_tokens_per_second // "") SPD_PROMPT=\(.speed.prompt_tokens_per_second // "") SPD_DRAFT_N=\(.speed.draft_tokens // "") SPD_DRAFT_OK=\(.speed.draft_accepted_tokens // "") COST_KIND=\(.cost.kind // "")"' 2>/dev/null)"
+NOT_CLAUDE=0
+[ -n "$ACC_ID" ] && [ "$ACC_ID" != "claude" ] && NOT_CLAUDE=1
+# En cuentas que no son Claude el modelo real es el del servidor o el id, nunca un alias de Claude.
+if [ "$NOT_CLAUDE" = "1" ]; then MODEL="${ACC_SRV_MODEL:-${ACC_MODEL:-$MODEL}}"; fi
 
 # Proveedor GLM (z.ai): el modelo real llega en .model.id (con GLM el
 # display_name puede ser un alias Anthropic como "Opus"; se muestra el id).
@@ -87,7 +99,7 @@ CONTEXT_USED=$((INPUT_TOKENS + CACHE_READ + CACHE_CREATION))
 # porcentaje sobre él, sin sonda empírica del gateway. La compactación interna
 # de Claude Code sigue guiándose por su propio límite; esta corrección afecta
 # solo a la visualización (statusline y sidecars de ~/.claude/runtime).
-if echo "$MODEL" | grep -qi 'glm-5.3' && [ "$CONTEXT_TOTAL" -le 200000 ]; then
+if [ "$NOT_CLAUDE" = "0" ] && echo "$MODEL" | grep -qi 'glm-5.3' && [ "$CONTEXT_TOTAL" -le 200000 ]; then
     CONTEXT_TOTAL=1000000
     if [ "$CONTEXT_USED" -gt 0 ]; then
         CONTEXT_PCT=$(echo "scale=0; $CONTEXT_USED * 100 / $CONTEXT_TOTAL" | bc)
@@ -95,7 +107,7 @@ if echo "$MODEL" | grep -qi 'glm-5.3' && [ "$CONTEXT_TOTAL" -le 200000 ]; then
 fi
 
 # Calcular porcentaje manualmente si el del JSON es 0
-if [ "$CONTEXT_PCT" -eq 0 ] && [ "$CONTEXT_USED" -gt 0 ]; then
+if [ "$CONTEXT_PCT" -eq 0 ] && [ "$CONTEXT_USED" -gt 0 ] && [ "$CONTEXT_TOTAL" -gt 0 ]; then
     CONTEXT_PCT=$(echo "scale=0; $CONTEXT_USED * 100 / $CONTEXT_TOTAL" | bc)
 fi
 
@@ -152,7 +164,7 @@ if [ -n "$SESSION_ID" ]; then
     if jq -n \
         --argjson pct "${CONTEXT_PCT:-0}" \
         --argjson used "${CONTEXT_USED:-0}" \
-        --argjson total "${CONTEXT_TOTAL:-200000}" \
+        --argjson total "${CONTEXT_TOTAL:-0}" \
         --argjson r5 "${SL_R5:-0}" \
         --argjson r7 "${SL_R7:-0}" \
         --argjson r5r "${SL_R5_RESET:-0}" \
@@ -347,6 +359,20 @@ format_tokens() {
     fi
 }
 
+# Tokens con un decimal si no son redondos (32768 -> 32k, 29500 -> 29.5k, 200000 -> 200k, 1000000 -> 1M)
+fmt_k() {
+    local n=$1
+    if [ "$n" -ge 1000000 ]; then
+        printf '%s' "$(echo "scale=1; $n / 1000000" | bc | sed 's/\.0$//')M"
+    elif [ "$n" -ge 1024 ] && [ $((n % 1024)) -eq 0 ]; then
+        printf '%dk' $((n / 1024))
+    elif [ "$n" -ge 1000 ]; then
+        printf '%s' "$(echo "scale=1; $n / 1000" | bc | sed 's/\.0$//')k"
+    else
+        printf '%d' "$n"
+    fi
+}
+
 # Hora actual
 CURRENT_TIME=$(date +"%H:%M")
 
@@ -357,12 +383,18 @@ LINE1=""
 
 # 1. Modelo
 LINE1="${LINE1}${BOLD}${CYAN}${MODEL}${RESET}"
-[ -n "${FNHARNESS_ACCOUNT_LABEL:-}" ] && LINE1="${LINE1} ${DIM}[${FNHARNESS_ACCOUNT_LABEL}]${RESET}"
+if [ -n "$ACC_ID" ]; then
+    LINE1="${LINE1} ${DIM}[${ACC_ID}]${RESET}"
+elif [ -n "${FNHARNESS_ACCOUNT_LABEL:-}" ]; then
+    LINE1="${LINE1} ${DIM}[${FNHARNESS_ACCOUNT_LABEL}]${RESET}"
+fi
 
 # 2. Contexto con barra y usado/total
 CONTEXT_USED_FMT=$(format_tokens $CONTEXT_USED)
-CONTEXT_TOTAL_FMT=$(format_tokens $CONTEXT_TOTAL)
-LINE1="${LINE1} ${GRAY}│${RESET} ${BOLD}CTX:${RESET} $(progress_bar $CONTEXT_PCT) ${YELLOW}${CONTEXT_PCT}%${RESET} ${DIM}(${CONTEXT_USED_FMT}/${CONTEXT_TOTAL_FMT})${RESET}"
+if [ "$CONTEXT_TOTAL" -gt 0 ]; then CONTEXT_TOTAL_FMT=$(fmt_k $CONTEXT_TOTAL); else CONTEXT_TOTAL_FMT="?"; fi
+COMPACT_STR=""
+[ -n "$COMPACT_AT" ] && COMPACT_STR=" ${DIM}⟳$(fmt_k "$COMPACT_AT")${RESET}"
+LINE1="${LINE1} ${GRAY}│${RESET} ${BOLD}CTX:${RESET} $(progress_bar $CONTEXT_PCT) ${YELLOW}${CONTEXT_PCT}%${RESET} ${DIM}(${CONTEXT_USED_FMT}/${CONTEXT_TOTAL_FMT})${RESET}${COMPACT_STR}"
 
 # 3. Tokens entrada/salida (formateados)
 INPUT_FMT=$(format_tokens $INPUT_TOKENS)
@@ -394,6 +426,10 @@ LINE2=""
 if [ "$IS_GLM" = "1" ]; then
     EST_CR_FMT=$(printf '%.1f' "${EST_CR:-0}" 2>/dev/null || echo 0)
     LINE2="${LINE2}${BOLD}${GREEN}~ⓒ${EST_CR_FMT}${RESET}"
+elif [ "$COST_KIND" = "free" ]; then
+    LINE2="${LINE2}${DIM}local · sin coste${RESET}"
+elif [ "$COST_KIND" = "unpriced" ]; then
+    LINE2="${LINE2}${DIM}sin tarifa${RESET}"
 elif (( $(echo "$TOTAL_COST > 0" | bc -l) )); then
     LINE2="${LINE2}${BOLD}${GREEN}\$${TOTAL_COST}${RESET}"
 else
@@ -424,6 +460,8 @@ if [ "$GLM_NO_LIMITS" = "1" ]; then
         PC_HIT_PCT=$(printf '%.0f' "$(echo "$PC_HIT * 100" | bc -l)")
         LINE2="${LINE2} ${DIM}(cache:${PC_HIT_PCT}%)${RESET}"
     fi
+elif [ "$NOT_CLAUDE" = "1" ]; then
+    : # 5h/7d son límites de la cuenta de Claude: no aplican a otros backends
 else
 LINE2="${LINE2} ${GRAY}│${RESET} ${BOLD}Limits:${RESET}"
 
@@ -536,5 +574,43 @@ fi
 [ -n "$SESSION_ID" ] && echo -e "  ${DIM}🔗 fnharness --resume ${SESSION_ID}${RESET}"
 
 # Imprimir resultado (2 líneas)
+# ===== LÍNEA 3: cuenta y backend =====
+LINE3=""
+if [ -n "$ACC_ID" ]; then
+    if [ "$NOT_CLAUDE" = "1" ]; then
+        LINE3="${BOLD}${MAGENTA}${ACC_ID}${RESET} ${DIM}${ACC_LABEL}${RESET}"
+        [ -n "$ACC_URL" ] && LINE3="${LINE3} ${DIM}@ $(printf '%s' "$ACC_URL" | sed -E 's#^https?://##; s#/v1(beta)?$##')${RESET}"
+        if [ "$SRV_ONLINE" = "true" ]; then LINE3="${LINE3} ${GREEN}● en línea${RESET}"
+        elif [ "$SRV_ONLINE" = "false" ]; then LINE3="${LINE3} ${RED}○ sin respuesta${RESET}"; fi
+    else
+        LINE3="${BOLD}${MAGENTA}claude${RESET} ${DIM}Anthropic${RESET}"
+    fi
+    case "$WIN_SRC" in
+        server) SRC_STR="servidor" ;; preset) SRC_STR="preset" ;; catalog) SRC_STR="catálogo" ;;
+        claude) SRC_STR="" ;; *) SRC_STR="sin dato" ;;
+    esac
+    WIN_STR="ventana $CONTEXT_TOTAL_FMT"
+    [ -n "$SRC_STR" ] && WIN_STR="$WIN_STR ($SRC_STR)"
+    [ "$WIN_SRC" = "server" ] && [ -n "$SRV_NCTX" ] && WIN_STR="ventana $(fmt_k "$SRV_NCTX") (servidor)"
+    LINE3="${LINE3} ${GRAY}│${RESET} ${DIM}${WIN_STR}${RESET}"
+    [ -n "$MAX_OUT" ] && LINE3="${LINE3} ${DIM}· salida máx $(fmt_k "$MAX_OUT")${RESET}"
+    [ -n "$COMPACT_AT" ] && LINE3="${LINE3} ${DIM}· autocompacta a $(fmt_k "$COMPACT_AT")${RESET}"
+    if [ "$ACC_LOCAL" = "true" ]; then
+        if [ -n "$SPD_TTFT$SPD_GEN" ]; then
+            SPD="⚡"
+            [ -n "$SPD_TTFT" ] && SPD="$SPD TTFT $(printf '%.2f' "$SPD_TTFT") s"
+            [ -n "$SPD_GEN" ] && SPD="$SPD · gen $(printf '%.1f' "$SPD_GEN") tok/s"
+            [ -n "$SPD_PROMPT" ] && SPD="$SPD · lectura $(printf '%.0f' "$SPD_PROMPT") tok/s"
+            if [ -n "$SPD_DRAFT_N" ] && [ "$SPD_DRAFT_N" != "0" ]; then
+                SPD="$SPD · espec. $(( ${SPD_DRAFT_OK:-0} * 100 / SPD_DRAFT_N ))%"
+            fi
+            LINE3="${LINE3} ${GRAY}│${RESET} ${CYAN}${SPD}${RESET}"
+        else
+            LINE3="${LINE3} ${GRAY}│${RESET} ${DIM}⚡ sin medidas aún${RESET}"
+        fi
+    fi
+fi
+
 echo -e "$LINE1"
 echo -e "$LINE2"
+if [ -n "$LINE3" ]; then echo -e "$LINE3"; fi
