@@ -1,6 +1,6 @@
 {
   "name": "fnharness",
-  "version": "0.8.0",
+  "version": "0.9.0",
   "upstreamVersion": "2.1.87",
   "private": true,
   "description": "Reconstructed Bun CLI workspace for the Claude Code source snapshot.",

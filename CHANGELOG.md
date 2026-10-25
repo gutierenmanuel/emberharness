@@ -1,5 +1,52 @@
 # Changelog de FnHarness
 
+## v0.9.0 (25/10/2026)
+
+### Novedades
+
+- sesiones en segundo plano con --bg, ps, logs, stop, attach, rm y /background
+- PushNotification local con notify-send y aviso en la TUI de respaldo
+- paridad con Claude Code 2.1.310 en el panel de subagentes
+- comandos /fork y /subtask para lanzar subagentes en segundo plano
+- eventos UserPromptExpansion y MessageDisplay y tipo de hook mcp_tool
+- Esc cancela la espera de un /loop autopaced con el aviso Pending wakeup cancelled
+- barra por cuenta con ventana real, servidor, velocidad y coste
+- cuenta predeterminada al abrir, con /account default y --set-default
+- línea de velocidad (TTFT, lectura, generación, especulación) para modelos locales
+- enganchar el canal de eventos al REPL, al modo -p, a /clear y a los diálogos
+- emisor puro y capa de efectos del canal de eventos
+- scripts/sync_env.sh para alinear ~/.fnharness con la config de Claude Code
+
+### Correcciones
+
+- el meta.json del subagente guarda el toolUseId de la llamada Agent
+- /clear actualiza el sessionId de sessions/<pid>.json
+- bin/fnharness acepta --account en cualquier posición
+- el harness e2e respeta el ancho del pty y los saltos de cursor
+- instalador propio desde Gitea en lugar del de claude-multimodel
+
+### Documentación
+
+- estado del paquete pequeño (Esc en /loop, hooks nuevos, PushNotification local)
+- cuenta predeterminada y nueva barra de estado
+- estado de las fases y runbook de migración de la fase 6
+- avisa de recompilar el cli del árbol principal tras los arreglos del piloto
+- resultado del piloto de la fase 5 con el puente de Matrix
+- contrato implementado, uso de las variables y nota en FEATURES
+- resultado de la fase 1 en los riesgos abiertos del plan de Matrix
+- guia de sync_env y tabla de compatibilidad de hooks del dueno
+- README del repo y repo_url en app.md
+- plan de arnés por defecto en Matrix y contrato de eventos v1
+
+### Tests
+
+- esperar a sessions/<pid>.json antes de leerlo en el test de /clear
+- /fork y /subtask toleran el repintado parcial de la fila del panel
+- reglas PREGUNTA y ECO en el backend OpenAI falso
+- e2e del canal de eventos con TUI en pseudo-terminal y backend falso
+- contrato e2e del puente de Matrix (stream-json, flags de arranque, resume)
+- pruebas de sync_env.sh sobre un HOME temporal
+
 ## v0.8.0 (24/10/2026)
 
 ### Novedades
