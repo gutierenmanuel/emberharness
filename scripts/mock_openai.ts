@@ -10,6 +10,7 @@
 //   user text containing "MONITOR_STOP_DEMO"        -> Monitor(endless ticker), then TaskStop on its id
 //   user text containing "<event>"                   -> plain text acknowledging the event
 //   user text containing "AGENT_DEMO"                -> two Agent calls (run_in_background) whose sub-agents answer after MOCK_SUB_DELAY_MS (12 s)
+//   user text containing "AGENT_PAR"                 -> two Explore agents in a single response (grouped launch message)
 //   user text containing "PREGUNTA"                  -> AskUserQuestion (header Tienda, options Mercadona / Dia); its tool result is echoed as "MOCK recibio: ..."
 //   user text containing "ECO:"                      -> plain text "MOCK eco: <text after ECO:>"
 //   any tool result                                  -> plain text "ok"
@@ -31,7 +32,7 @@ function textOf(m: Msg | undefined): string {
   return ''
 }
 
-type Plan = { text?: string; tool?: { name: string; args: unknown } }
+type Plan = { text?: string; tool?: { name: string; args: unknown }; tools?: { name: string; args: unknown }[] }
 
 function plan(messages: Msg[]): Plan {
   const last = messages[messages.length - 1]
@@ -62,6 +63,14 @@ function plan(messages: Msg[]): Plan {
         },
       },
     }
+  }
+  // AGENT_PAR: two Explore agents in ONE response (one message id), so the UI groups them.
+  if (last?.role === 'user' && t.includes('AGENT_PAR')) {
+    const agent = (description: string) => ({
+      name: 'Agent',
+      args: { description, prompt: 'AGENT_SUB count files', subagent_type: 'Explore', run_in_background: true },
+    })
+    return { tools: [agent('count src'), agent('count utils')] }
   }
   const eco = last?.role === 'user' ? /ECO:\s*(.*)/s.exec(t) : null
   if (eco) return { text: `MOCK eco: ${eco[1]!.trim()}` }
@@ -161,7 +170,12 @@ Bun.serve({
     }
     const chunks: string[] = []
     chunks.push(sse({ ...base, choices: [{ index: 0, delta: { role: 'assistant' }, finish_reason: null }] }))
-    if (p.tool) {
+    if (p.tools) {
+      p.tools.forEach((tl, i) =>
+        chunks.push(sse({ ...base, choices: [{ index: 0, delta: { tool_calls: [{ index: i, id: `call_${Date.now()}_${i}`, type: 'function', function: { name: tl.name, arguments: JSON.stringify(tl.args) } }] }, finish_reason: null }] })),
+      )
+      chunks.push(sse({ ...base, choices: [{ index: 0, delta: {}, finish_reason: 'tool_calls' }], usage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 } }))
+    } else if (p.tool) {
       chunks.push(sse({ ...base, choices: [{ index: 0, delta: { tool_calls: [{ index: 0, id: `call_${Date.now()}`, type: 'function', function: { name: p.tool.name, arguments: JSON.stringify(p.tool.args) } }] }, finish_reason: null }] }))
       chunks.push(sse({ ...base, choices: [{ index: 0, delta: {}, finish_reason: 'tool_calls' }], usage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 } }))
     } else {
