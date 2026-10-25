@@ -675,6 +675,12 @@ export const SettingsSchema = lazySchema(() =>
         .describe(
           'Probability (0–1) that the session quality survey appears when eligible. 0.05 is a reasonable starting point.',
         ),
+      pushNotificationEnabled: z
+        .boolean()
+        .optional()
+        .describe(
+          'Whether the PushNotification tool is available (default true). It sends a silent desktop notification through notify-send, or a notice in the terminal UI when there is none.',
+        ),
       spinnerTipsEnabled: z
         .boolean()
         .optional()

@@ -44,6 +44,8 @@ export type HookEvent =
   | 'DirectoryAdded'
   | 'PreModelSwitch'
   | 'PostModelSwitch'
+  | 'UserPromptExpansion'
+  | 'MessageDisplay'
 
 export type ModelUsage = {
   costUSD?: number

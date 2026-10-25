@@ -28,6 +28,50 @@ import { getCurrentSessionTitle } from '../utils/sessionStorage.js';
 import { doesMostRecentAssistantMessageExceed200k, getCurrentUsage } from '../utils/tokens.js';
 import { getCurrentWorktreeSession } from '../utils/worktree.js';
 import { isVimModeEnabled } from './PromptInput/utils.js';
+import { getAutoCompactThreshold, isAutoCompactEnabled } from '../services/compact/autoCompact.js';
+import { findProvider } from '../services/api/openai-compat/catalog.js';
+import { loadCatalog } from '../services/api/openai-compat/catalogStore.js';
+import { getModelLimits, getMultimodelProfile } from '../services/api/openai-compat/profiles.js';
+import { getLastSpeedSummary } from '../services/api/openai-compat/speedStats.js';
+import { buildAccountStatus, contextSource, getServerInfo, refreshServerInfo } from '../services/api/openai-compat/statusInfo.js';
+import { getModelMaxOutputTokens } from '../utils/context.js';
+
+/** The `fnharness` block of the status bar input: account, real window, server and speed. */
+function buildFnharnessStatus(runtimeModel: string, contextWindowSize: number) {
+  const profile = getMultimodelProfile();
+  refreshServerInfo(profile?.baseUrl);
+  const server = getServerInfo(profile?.baseUrl);
+  const limits = profile ? getModelLimits(profile, runtimeModel) : {};
+  const priced = profile?.catalogProvider ? findProvider(loadCatalog(), profile.catalogProvider)?.models.find(m => m.id === runtimeModel) : undefined;
+  let maxOutput: number | null = null;
+  try {
+    maxOutput = getModelMaxOutputTokens(runtimeModel).default;
+  } catch {}
+  let autoCompactAt: number | null = null;
+  try {
+    autoCompactAt = isAutoCompactEnabled() ? getAutoCompactThreshold(runtimeModel) : null;
+  } catch {}
+  return buildAccountStatus({
+    accountId: process.env.FNHARNESS_ACCOUNT ?? 'claude',
+    accountLabel: profile?.label ?? 'Claude',
+    provider: profile?.provider ?? null,
+    baseUrl: profile?.baseUrl ?? null,
+    model: runtimeModel,
+    contextWindow: contextWindowSize,
+    contextSource: contextSource({
+      native: !profile,
+      serverNCtx: server?.nCtx ?? null,
+      presetWindow: profile?.contextWindow,
+      catalogWindow: limits.contextWindow
+    }),
+    autoCompactAt,
+    maxOutputTokens: maxOutput,
+    server,
+    speed: getLastSpeedSummary(),
+    pricePerMtok: priced?.costInput !== undefined && priced.costOutput !== undefined ? { input: priced.costInput, output: priced.costOutput } : null,
+    now: Date.now()
+  });
+}
 export function statusLineShouldDisplay(settings: ReadonlySettings): boolean {
   // Assistant mode: statusline fields (model, permission mode, cwd) reflect the
   // REPL/daemon process, not what the agent child is actually running. Hide it.
@@ -97,6 +141,7 @@ function buildStatusLineCommandInput(permissionMode: PermissionMode, exceeds200k
       remaining_percentage: getMocks().contextPct != null ? 100 - getMocks().contextPct! : contextPercentages.remaining
     },
     exceeds_200k_tokens: exceeds200kTokens,
+    fnharness: buildFnharnessStatus(runtimeModel, contextWindowSize),
     ...((rateLimits.five_hour || rateLimits.seven_day) && {
       rate_limits: rateLimits
     }),

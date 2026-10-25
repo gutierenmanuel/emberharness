@@ -20,6 +20,7 @@ import type { CommandResultDisplay } from '../../types/command.js';
 import { createAbortController } from '../abortController.js';
 import { getAgentContext } from '../agentContext.js';
 import { createAttachmentMessage, getAttachmentMessages } from '../attachments.js';
+import { executeUserPromptExpansionHooks } from '../hooks.js';
 import { logForDebugging } from '../debug.js';
 import { isEnvTruthy } from '../envUtils.js';
 import { AbortError, MalformedCommandError } from '../errors.js';
@@ -723,11 +724,43 @@ async function getMessagesForSlashCommand(commandName: string, args: string, set
       case 'prompt':
         {
           try {
+            // UserPromptExpansion hooks: can block the expansion or add context.
+            const expansion = await executeUserPromptExpansionHooks({
+              expansionType: command.isMcp ? 'mcp_prompt' : 'slash_command',
+              commandName: command.name,
+              commandArgs: args,
+              commandSource: command.source,
+              prompt: `/${command.name}${args ? ' ' + args : ''}`
+            }, context.getAppState().toolPermissionContext.mode, context.abortController.signal);
+            if (expansion.blocked) {
+              return {
+                messages: [createUserMessage({
+                  content: prepareUserContent({
+                    inputString: formatCommandInput(command, args),
+                    precedingInputBlocks
+                  })
+                }), createSystemMessage(expansion.reason ? `UserPromptExpansion hook blocked /${command.name}: ${expansion.reason}` : `UserPromptExpansion hook blocked /${command.name}`, 'warning')],
+                shouldQuery: false,
+                command
+              };
+            }
+            const withExpansionContext = <T extends {
+              messages: unknown[];
+            }>(r: T): T => expansion.additionalContexts.length === 0 ? r : {
+              ...r,
+              messages: [...r.messages, createAttachmentMessage({
+                type: 'hook_additional_context',
+                content: expansion.additionalContexts,
+                hookName: 'UserPromptExpansion',
+                toolUseID: `hook-${randomUUID()}`,
+                hookEvent: 'UserPromptExpansion'
+              })]
+            };
             // Check if command should run as forked sub-agent
             if (command.context === 'fork') {
-              return await executeForkedSlashCommand(command, args, context, precedingInputBlocks, setToolJSX, canUseTool ?? hasPermissionsToUseTool);
+              return withExpansionContext(await executeForkedSlashCommand(command, args, context, precedingInputBlocks, setToolJSX, canUseTool ?? hasPermissionsToUseTool));
             }
-            return await getMessagesForPromptSlashCommand(command, args, context, precedingInputBlocks, imageContentBlocks, uuid);
+            return withExpansionContext(await getMessagesForPromptSlashCommand(command, args, context, precedingInputBlocks, imageContentBlocks, uuid));
           } catch (e) {
             // Handle abort errors specially to show proper "Interrupted" message
             if (e instanceof AbortError) {

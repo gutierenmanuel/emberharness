@@ -44,11 +44,10 @@ const MonitorTool = feature('MONITOR_TOOL')
 const SendUserFileTool = feature('KAIROS')
   ? require('./tools/SendUserFileTool/SendUserFileTool.js').SendUserFileTool
   : null
+// Local version (notify-send / TUI notice); `pushNotificationEnabled: false` turns it off.
 const PushNotificationTool =
-  feature('KAIROS') || feature('KAIROS_PUSH_NOTIFICATION')
-    ? require('./tools/PushNotificationTool/PushNotificationTool.js')
-        .PushNotificationTool
-    : null
+  require('./tools/PushNotificationTool/PushNotificationTool.js')
+    .PushNotificationTool
 const SubscribePRTool = feature('KAIROS_GITHUB_WEBHOOKS')
   ? require('./tools/SubscribePRTool/SubscribePRTool.js').SubscribePRTool
   : null

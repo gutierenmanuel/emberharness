@@ -281,6 +281,8 @@ describe.skipIf(!hasCli)('matrix event channel e2e', () => {
       const first = await waitEvents(events, evs => count(evs, 'ready') >= 1, 'first ready')
       const pid = first.find(e => e.type === 'session_start')!.pid
       const pidFile = join(configDir, 'sessions', `${pid}.json`)
+      // The pid file is written asynchronously; under load it can land after `ready`.
+      for (const end = Date.now() + 5000; !existsSync(pidFile) && Date.now() < end; ) await Bun.sleep(100)
       expect(JSON.parse(readFileSync(pidFile, 'utf8')).sessionId).toBe(first[0]!.session_id)
       tui.line('/clear')
       const evs = await waitEvents(events, e => count(e, 'session_switch') >= 1, 'session_switch')

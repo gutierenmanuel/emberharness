@@ -34,7 +34,13 @@ export type StoredAccount = {
 }
 
 export type AccountStore = {
+  /** Last account used (written by every switch). */
   active?: string
+  /**
+   * Account fixed by the user for new sessions (`/account default <id>`).
+   * Wins over `active`; absent = "last used".
+   */
+  default?: string
   accounts: Record<string, StoredAccount>
 }
 
@@ -59,7 +65,7 @@ export function accountsFilePath(env: Env = process.env): string {
 export function loadStore(path = accountsFilePath()): AccountStore {
   try {
     const raw = JSON.parse(readFileSync(path, 'utf8'))
-    return { active: raw.active, accounts: raw.accounts ?? {} }
+    return { active: raw.active, default: raw.default, accounts: raw.accounts ?? {} }
   } catch {
     return { accounts: {} }
   }
@@ -177,9 +183,39 @@ export function isLocalUrl(baseUrl: string | null): boolean {
   }
 }
 
-/** Account id chosen at launch: explicit env first, then the persisted one. */
+/** Can `id` be resolved to an account right now (built-in, preset or saved)? */
+export function isKnownAccount(id: string, store: AccountStore): boolean {
+  return id === CLAUDE_ACCOUNT_ID || id in PROVIDER_PRESETS || id in store.accounts
+}
+
+/**
+ * Account id chosen at launch: `--account` (env) first, then the default the
+ * user fixed, then the last one used, then claude. A default that no longer
+ * exists is skipped rather than aborting the launch.
+ */
 export function startupAccountId(store: AccountStore, env: Env): string {
-  return env.CLAUDE_MULTIMODEL_ACCOUNT || store.active || CLAUDE_ACCOUNT_ID
+  if (env.CLAUDE_MULTIMODEL_ACCOUNT) return env.CLAUDE_MULTIMODEL_ACCOUNT
+  if (store.default && isKnownAccount(store.default, store)) return store.default
+  return store.active || CLAUDE_ACCOUNT_ID
+}
+
+/** Why `startupAccountId` picked what it did, for `--accounts` and `/account list`. */
+export function startupSource(store: AccountStore, env: Env): 'flag' | 'default' | 'last' | 'fallback' {
+  if (env.CLAUDE_MULTIMODEL_ACCOUNT) return 'flag'
+  if (store.default && isKnownAccount(store.default, store)) return 'default'
+  return store.active ? 'last' : 'fallback'
+}
+
+/** Pure: store with the default set (`null` clears it: back to "last used"). */
+export function withDefault(store: AccountStore, id: string | null): AccountStore {
+  if (id === null) {
+    const { default: _drop, ...rest } = store
+    return rest
+  }
+  if (!isKnownAccount(id, store)) {
+    throw new MultimodelConfigError(`Unknown account "${id}". Use /account list to see the available ones.`)
+  }
+  return { ...store, default: id }
 }
 
 export function storeExists(path = accountsFilePath()): boolean {
