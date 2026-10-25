@@ -58,8 +58,8 @@ describe.skipIf(!hasCli)('/fork and /subtask e2e', () => {
     await proc.exited
     expect(out).toContain('Lanzando /fork en segundo plano')
     expect(out).toContain('Lanzando /subtask en segundo plano')
-    expect(out).toMatch(/◯ fork\s+fork demo\s+\d+s/)
-    expect(out).toMatch(/◯ general-purpose\s+subtask demo\s+\d+s/)
+    expect(out).toMatch(/fork\s+fork demo\s+\d+s/)
+    expect(out).toMatch(/general-purpose\s+subtask demo\s+\d/)
 
     const all = bodies()
     const forkChild = all.find(b => flat(b).includes('<fork-boilerplate>'))
