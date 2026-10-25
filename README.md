@@ -69,6 +69,22 @@ La lógica pura (construcción y serialización de eventos, parseo de la entrada
 `src/utils/matrixEvents.ts`; los efectos (fichero, FIFO, enganches al REPL) en
 `src/utils/matrixEventsRuntime.ts`.
 
+## Velocidad del modelo local
+
+Con una cuenta local (`baseUrl` en `localhost`/`127.0.0.1`: llama.cpp, qwen36, ollama, LM Studio)
+aparece, tenue bajo la respuesta de cada turno, una línea como:
+
+```
+⚡ TTFT 0.42 s · lectura 1500 tok/s (300 tok, 2800 en caché) · generación 42.0 tok/s (210 tok) · especulación 75% (90/120)
+```
+
+Usa el objeto `timings` de llama-server (`prompt_n`, `prompt_ms`, `cache_n`, `predicted_n`,
+`predicted_ms`, `draft_n`, `draft_n_accepted`); si el servidor no lo da cae a lo medido en el cliente
+(TTFT y tokens de `usage`) y añade «medido en cliente». En un turno con varias peticiones (bucle de
+herramientas) se agregan; las consultas auxiliares sin herramientas se descartan. En
+`-p --output-format json` el resultado lleva el campo `local_speed`. `FNHARNESS_LOCAL_SPEED=0` lo
+desactiva. Código: `src/services/api/openai-compat/speedStats.ts`.
+
 ## Estructura
 
 | Ruta | Contenido |

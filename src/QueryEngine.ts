@@ -107,6 +107,12 @@ import {
   normalizeMessage,
 } from './utils/queryHelpers.js'
 
+import {
+  drainSpeedSamples,
+  drainSpeedSummary,
+  speedSummaryToJson,
+} from './services/api/openai-compat/speedStats.js'
+
 // Dead code elimination: conditional import for coordinator mode
 /* eslint-disable @typescript-eslint/no-require-imports */
 const getCoordinatorUserContext: (
@@ -210,6 +216,7 @@ export class QueryEngine {
     prompt: string | ContentBlockParam[],
     options?: { uuid?: string; isMeta?: boolean },
   ): AsyncGenerator<SDKMessage, void, unknown> {
+    drainSpeedSamples()
     const {
       cwd,
       commands,
@@ -1132,6 +1139,7 @@ export class QueryEngine {
       isApiError = Boolean(result.isApiErrorMessage)
     }
 
+    const localSpeed = drainSpeedSummary()
     yield {
       type: 'result',
       subtype: 'success',
@@ -1151,6 +1159,7 @@ export class QueryEngine {
         mainLoopModel,
         initialAppState.fastMode,
       ),
+      ...(localSpeed ? { local_speed: speedSummaryToJson(localSpeed) } : {}),
       uuid: randomUUID(),
     }
   }

@@ -42,6 +42,9 @@ export function SystemTextMessage(t0) {
     isTranscriptMode
   } = t0;
   const bg = useSelectedMessageBg();
+  if (message.subtype === "local_speed") {
+    return <Box flexDirection="row" marginTop={addMargin ? 1 : 0} backgroundColor={bg} width="100%"><Box minWidth={2}><Text dimColor={true}>⚡</Text></Box><Text dimColor={true} wrap="wrap">{message.content}</Text></Box>;
+  }
   if (message.subtype === "turn_duration") {
     let t1;
     if ($[0] !== addMargin || $[1] !== message) {
