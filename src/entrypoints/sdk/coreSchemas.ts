@@ -384,6 +384,8 @@ export const HOOK_EVENTS = [
   'DirectoryAdded',
   'PreModelSwitch',
   'PostModelSwitch',
+  'UserPromptExpansion',
+  'MessageDisplay',
 ] as const
 
 export const HookEventSchema = lazySchema(() => z.enum(HOOK_EVENTS))
@@ -782,6 +784,34 @@ export const PostModelSwitchHookInputSchema = lazySchema(() =>
   ),
 )
 
+export const USER_PROMPT_EXPANSION_TYPES = ['slash_command', 'mcp_prompt'] as const
+
+export const UserPromptExpansionHookInputSchema = lazySchema(() =>
+  BaseHookInputSchema().and(
+    z.object({
+      hook_event_name: z.literal('UserPromptExpansion'),
+      expansion_type: z.enum(USER_PROMPT_EXPANSION_TYPES),
+      command_name: z.string(),
+      command_args: z.string(),
+      command_source: z.string(),
+      prompt: z.string(),
+    }),
+  ),
+)
+
+export const MessageDisplayHookInputSchema = lazySchema(() =>
+  BaseHookInputSchema().and(
+    z.object({
+      hook_event_name: z.literal('MessageDisplay'),
+      turn_id: z.string(),
+      message_id: z.string(),
+      index: z.number(),
+      final: z.boolean(),
+      delta: z.string(),
+    }),
+  ),
+)
+
 export const WorktreeCreateHookInputSchema = lazySchema(() =>
   BaseHookInputSchema().and(
     z.object({
@@ -873,6 +903,8 @@ export const HookInputSchema = lazySchema(() =>
     DirectoryAddedHookInputSchema(),
     PreModelSwitchHookInputSchema(),
     PostModelSwitchHookInputSchema(),
+    UserPromptExpansionHookInputSchema(),
+    MessageDisplayHookInputSchema(),
   ]),
 )
 
@@ -1006,6 +1038,20 @@ export const PostModelSwitchHookSpecificOutputSchema = lazySchema(() =>
   }),
 )
 
+export const UserPromptExpansionHookSpecificOutputSchema = lazySchema(() =>
+  z.object({
+    hookEventName: z.literal('UserPromptExpansion'),
+    additionalContext: z.string().optional(),
+  }),
+)
+
+export const MessageDisplayHookSpecificOutputSchema = lazySchema(() =>
+  z.object({
+    hookEventName: z.literal('MessageDisplay'),
+    displayContent: z.string().optional(),
+  }),
+)
+
 export const SyncHookJSONOutputSchema = lazySchema(() =>
   z.object({
     continue: z.boolean().optional(),
@@ -1033,6 +1079,8 @@ export const SyncHookJSONOutputSchema = lazySchema(() =>
         PostToolBatchHookSpecificOutputSchema(),
         PreModelSwitchHookSpecificOutputSchema(),
         PostModelSwitchHookSpecificOutputSchema(),
+        UserPromptExpansionHookSpecificOutputSchema(),
+        MessageDisplayHookSpecificOutputSchema(),
         WorktreeCreateHookSpecificOutputSchema(),
       ])
       .optional(),
