@@ -51,7 +51,7 @@ describe.skipIf(!hasCli)('mcp hot reload (TUI)', () => {
     const mcpJson = join(cwd, '.mcp.json')
     const entry = (tools: string) => serverEntry({ FIX_TOOLS: tools })
     writeFileSync(mcpJson, JSON.stringify({ mcpServers: { keep: entry('k1'), edit: entry('e1'), gone: entry('g1') } }))
-    const tui = startTui(fakeEnv(fake.baseUrl, configDir, { FNHARNESS_MCP_WATCH: '0', ENABLE_TOOL_SEARCH: 'false', FNHARNESS_CONTEXT_PROFILE: 'full' }), cwd)
+    const tui = startTui(fakeEnv(fake.baseUrl, configDir, { FNHARNESS_MCP_WATCH: '0', ENABLE_TOOL_SEARCH: 'false', FNHARNESS_CONTEXT_PROFILE: 'full', FNHARNESS_LOCAL_LEAN: '0' }), cwd)
     const ask = async (q: string) => {
       const n = fake.requests.length
       tui.line(q)
@@ -91,7 +91,7 @@ describe.skipIf(!hasCli)('mcp hot reload (TUI)', () => {
     writeFileSync(join(configDir, 'settings.json'), JSON.stringify({ enableAllProjectMcpServers: true }))
     const mcpJson = join(cwd, '.mcp.json')
     const entry = (tools: string) => serverEntry({ FIX_TOOLS: tools })
-    const tui = startTui(fakeEnv(fake.baseUrl, configDir, { ENABLE_TOOL_SEARCH: 'false', FNHARNESS_CONTEXT_PROFILE: 'full' }), cwd)
+    const tui = startTui(fakeEnv(fake.baseUrl, configDir, { ENABLE_TOOL_SEARCH: 'false', FNHARNESS_CONTEXT_PROFILE: 'full', FNHARNESS_LOCAL_LEAN: '0' }), cwd)
     const ask = async (q: string) => {
       const n = fake.requests.length
       tui.line(q)
@@ -153,7 +153,7 @@ describe.skipIf(!hasCli)('mcp hot reload (TUI)', () => {
       join(cwd, '.mcp.json'),
       JSON.stringify({ mcpServers: { alpha: serverEntry({ FIX_TOOLS: 'echo', FIX_PID_FILE: pidFile, FIX_LOG_FILE: logFile }) } }),
     )
-    const tui = startTui(fakeEnv(fake.baseUrl, configDir, { ENABLE_TOOL_SEARCH: 'false', FNHARNESS_CONTEXT_PROFILE: 'full' }), cwd)
+    const tui = startTui(fakeEnv(fake.baseUrl, configDir, { ENABLE_TOOL_SEARCH: 'false', FNHARNESS_CONTEXT_PROFILE: 'full', FNHARNESS_LOCAL_LEAN: '0' }), cwd)
     const starts = () => (existsSync(logFile) ? readFileSync(logFile, 'utf8').split('\n').filter(l => l === 'start').length : 0)
     try {
       await waitUntil(() => starts() === 1 && existsSync(pidFile), 40_000, 'first start')
@@ -178,7 +178,7 @@ describe.skipIf(!hasCli)('mcp hot reload (TUI)', () => {
       join(cwd, '.mcp.json'),
       JSON.stringify({ mcpServers: { loop: serverEntry({ FIX_TOOLS: 'echo', FIX_LOG_FILE: logFile, FIX_DIE_AFTER_MS: '300' }) } }),
     )
-    const tui = startTui(fakeEnv(fake.baseUrl, configDir, { ENABLE_TOOL_SEARCH: 'false', FNHARNESS_CONTEXT_PROFILE: 'full' }), cwd)
+    const tui = startTui(fakeEnv(fake.baseUrl, configDir, { ENABLE_TOOL_SEARCH: 'false', FNHARNESS_CONTEXT_PROFILE: 'full', FNHARNESS_LOCAL_LEAN: '0' }), cwd)
     const starts = () => (existsSync(logFile) ? readFileSync(logFile, 'utf8').split('\n').filter(l => l === 'start').length : 0)
     try {
       // 1 launch + 4 restarts (backoff 1+2+4+8 s), then it must stop.
@@ -196,7 +196,7 @@ describe.skipIf(!hasCli)('mcp hot reload (TUI)', () => {
     const toolsFile = join(cwd, 'tools.txt')
     writeFileSync(toolsFile, 'one,two')
     writeFileSync(join(cwd, '.mcp.json'), JSON.stringify({ mcpServers: { dyn: serverEntry({ FIX_TOOLS_FILE: toolsFile }) } }))
-    const tui = startTui(fakeEnv(fake.baseUrl, configDir, { ENABLE_TOOL_SEARCH: 'false', FNHARNESS_CONTEXT_PROFILE: 'full' }), cwd)
+    const tui = startTui(fakeEnv(fake.baseUrl, configDir, { ENABLE_TOOL_SEARCH: 'false', FNHARNESS_CONTEXT_PROFILE: 'full', FNHARNESS_LOCAL_LEAN: '0' }), cwd)
     const PHRASE = 'tools of some MCP servers changed'
     const lastWithTools = (from: number): string => {
       const reqs = fake.requests.slice(from)

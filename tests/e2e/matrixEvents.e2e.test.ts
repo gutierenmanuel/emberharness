@@ -131,7 +131,7 @@ afterAll(() => fake.stop())
 
 const tuiEnv = (configDir: string, extra: Record<string, string>) =>
   // The "full" profile exposes AskUserQuestion; local accounts default to the 7 basic tools.
-  fakeEnv(fake.baseUrl, configDir, { FNHARNESS_CONTEXT_PROFILE: 'full', ...extra })
+  fakeEnv(fake.baseUrl, configDir, { FNHARNESS_CONTEXT_PROFILE: 'full', FNHARNESS_LOCAL_LEAN: '0', ...extra })
 
 describe.skipIf(!hasCli)('matrix event channel e2e', () => {
   test('typed prompt: session_start → ready → turn_start → turn_end → ready, with a contiguous seq', async () => {
