@@ -1,3 +1,4 @@
+import { isCompactToolSet } from '../../constants/compactPrompts.js'
 import { dirname, isAbsolute, sep } from 'path'
 import { logEvent } from 'src/services/analytics/index.js'
 import { getFeatureValue_CACHED_MAY_BE_STALE } from '../../services/analytics/growthbook.js'
@@ -272,6 +273,21 @@ export const FileEditTool = buildTool({
       }
     }
 
+    // Compact (local model) profile: a small model that is told "Read it first"
+    // often reads the file and then claims the edit was already applied. The exact
+    // old_string match below already protects against editing the wrong text, so an
+    // Edit on a file that was never read records the current content as read.
+    if (
+      !toolUseContext.readFileState.get(fullFilePath) &&
+      isCompactToolSet(toolUseContext.options.tools)
+    ) {
+      toolUseContext.readFileState.set(fullFilePath, {
+        content: fileContent,
+        timestamp: getFileModificationTime(fullFilePath),
+        offset: undefined,
+        limit: undefined,
+      })
+    }
     const readTimestamp = toolUseContext.readFileState.get(fullFilePath)
     if (!readTimestamp || readTimestamp.isPartialView) {
       return {
