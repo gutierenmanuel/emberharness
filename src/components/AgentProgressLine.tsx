@@ -39,7 +39,7 @@ export function AgentProgressLine(t0) {
   } = t0;
   const isAsync = t1 === undefined ? false : t1;
   const hideType = t2 === undefined ? false : t2;
-  const treeChar = isLast ? "\u2514\u2500" : "\u251C\u2500";
+  const treeChar = isLast ? "\u2514" : "\u251C";
   const isBackgrounded = isAsync && isResolved;
   let t3;
   if ($[0] !== isBackgrounded || $[1] !== isResolved || $[2] !== lastToolInfo || $[3] !== taskDescription) {

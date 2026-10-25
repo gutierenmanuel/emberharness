@@ -16,7 +16,8 @@ export function areExplorePlanAgentsEnabled(): boolean {
     // external behavior). A/B test treatment sets false to measure impact of removal.
     return getFeatureValue_CACHED_MAY_BE_STALE('tengu_amber_stoat', true)
   }
-  return false
+  // fnharness: Explore and Plan are read-only and always on (Claude Code 2.1.310 parity).
+  return true
 }
 
 export function getBuiltInAgents(): AgentDefinition[] {

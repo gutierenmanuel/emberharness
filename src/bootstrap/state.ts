@@ -1316,8 +1316,13 @@ export function getSessionCronTasks(): SessionCronTask[] {
   return STATE.sessionCronTasks
 }
 
+/** Emits whenever the session cron task list changes (add/remove). */
+const sessionCronTasksChanged = createSignal()
+export const subscribeSessionCronTasks = sessionCronTasksChanged.subscribe
+
 export function addSessionCronTask(task: SessionCronTask): void {
   STATE.sessionCronTasks.push(task)
+  sessionCronTasksChanged.emit()
 }
 
 /**
@@ -1332,6 +1337,7 @@ export function removeSessionCronTasks(ids: readonly string[]): number {
   const removed = STATE.sessionCronTasks.length - remaining.length
   if (removed === 0) return 0
   STATE.sessionCronTasks = remaining
+  sessionCronTasksChanged.emit()
   return removed
 }
 

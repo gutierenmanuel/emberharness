@@ -170,6 +170,14 @@ export const syncHookResponseSchema = lazySchema(() =>
           additionalContext: z.string().optional(),
         }),
         z.object({
+          hookEventName: z.literal('UserPromptExpansion'),
+          additionalContext: z.string().optional(),
+        }),
+        z.object({
+          hookEventName: z.literal('MessageDisplay'),
+          displayContent: z.string().optional(),
+        }),
+        z.object({
           hookEventName: z.literal('WorktreeCreate'),
           worktreePath: z.string(),
         }),

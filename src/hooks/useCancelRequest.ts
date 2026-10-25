@@ -4,7 +4,7 @@
  * Must be rendered inside KeybindingSetup to have access to the keybinding context.
  * This component renders nothing - it just registers the cancel keybinding handler.
  */
-import { useCallback, useRef } from 'react'
+import { useCallback, useRef, useSyncExternalStore } from 'react'
 import { logEvent } from 'src/services/analytics/index.js'
 import type { AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS } from 'src/services/analytics/metadata.js'
 import {
@@ -32,6 +32,11 @@ import {
   enqueuePendingNotification,
   hasCommandsInQueue,
 } from '../utils/messageQueueManager.js'
+import {
+  cancelPendingWakeup,
+  hasPendingWakeup,
+  subscribePendingWakeup,
+} from '../utils/loopWakeup.js'
 import { emitTaskTerminatedSdk } from '../utils/sdkEventQueue.js'
 
 /** Time window in ms during which a second press kills all background agents. */
@@ -83,6 +88,10 @@ export function CancelRequestHandler(props: CancelRequestHandlerProps): null {
   const { addNotification, removeNotification } = useNotifications()
   const lastKillAgentsPressRef = useRef<number>(0)
   const viewSelectionMode = useAppState(s => s.viewSelectionMode)
+  const wakeupPending = useSyncExternalStore(
+    subscribePendingWakeup,
+    hasPendingWakeup,
+  )
 
   const handleCancel = useCallback(() => {
     const cancelProps = {
@@ -98,6 +107,17 @@ export function CancelRequestHandler(props: CancelRequestHandlerProps): null {
       logEvent('tengu_cancel', cancelProps)
       setToolUseConfirmQueue(() => [])
       onCancel()
+      return
+    }
+
+    // Priority 1b: idle with a self-paced /loop wake-up pending: Esc cancels it.
+    if (!hasCommandsInQueue() && cancelPendingWakeup()) {
+      addNotification({
+        key: 'pending-wakeup-cancelled',
+        text: 'Pending wakeup cancelled',
+        priority: 'immediate',
+        timeoutMs: 3000,
+      })
       return
     }
 
@@ -119,6 +139,7 @@ export function CancelRequestHandler(props: CancelRequestHandlerProps): null {
     setToolUseConfirmQueue,
     onCancel,
     streamMode,
+    addNotification,
   ])
 
   // Determine if this handler should be active
@@ -147,9 +168,12 @@ export function CancelRequestHandler(props: CancelRequestHandlerProps): null {
 
   // Escape (chat:cancel) defers to mode-exit when in special mode with empty
   // input, and to useBackgroundTaskNavigation when viewing a teammate
+  // An idle prompt with a pending wake-up only claims Esc when the input is
+  // empty, so it never steals Esc from clearing text.
+  const canCancelWakeup = wakeupPending && !inputValue
   const isEscapeActive =
     isContextActive &&
-    (canCancelRunningTask || hasQueuedCommands) &&
+    (canCancelRunningTask || hasQueuedCommands || canCancelWakeup) &&
     !isInSpecialModeWithEmptyInput &&
     !isViewingTeammate
 

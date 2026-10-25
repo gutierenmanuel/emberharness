@@ -6,6 +6,7 @@
 //    key) in parallel — isRemoteManagedSettingsEligible() otherwise reads them
 //    sequentially via sync spawn inside applySafeConfigEnvironmentVariables()
 //    (~65ms on every macOS startup)
+import { setHookDynamicMcpConfig } from './utils/hooks/execMcpToolHook.js';
 import { profileCheckpoint, profileReport } from './utils/startupProfiler.js';
 
 // eslint-disable-next-line custom-rules/no-top-level-side-effects
@@ -1835,6 +1836,8 @@ async function run(): Promise<CommanderCommand> {
     if (isSafeMode()) {
       dynamicMcpConfig = {};
     }
+    // mcp_tool hooks resolve their server by name, also among --mcp-config ones.
+    setHookDynamicMcpConfig(dynamicMcpConfig);
     const mcpConfigPromise = (strictMcpConfig || isBareMode() || isSafeMode() ? Promise.resolve({
       servers: {} as Record<string, ScopedMcpServerConfig>
     }) : getClaudeCodeMcpConfigs(dynamicMcpConfig)).then(result => {

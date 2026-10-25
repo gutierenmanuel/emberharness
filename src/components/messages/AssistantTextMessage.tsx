@@ -13,6 +13,7 @@ import { isMacOsKeychainLocked } from '../../utils/secureStorage/macOsKeychainSt
 import { CtrlOToExpand } from '../CtrlOToExpand.js';
 import { InterruptedByUser } from '../InterruptedByUser.js';
 import { Markdown } from '../Markdown.js';
+import { HookedMarkdown } from './HookedMarkdown.js';
 import { MessageResponse } from '../MessageResponse.js';
 import { MessageActionsSelectedContext } from '../messageActions.js';
 import { RateLimitMessage } from './RateLimitMessage.js';
@@ -236,14 +237,8 @@ export function AssistantTextMessage(t0) {
         } else {
           t4 = $[24];
         }
-        let t5;
-        if ($[25] !== text) {
-          t5 = <Box flexDirection="column"><Markdown>{text}</Markdown></Box>;
-          $[25] = text;
-          $[26] = t5;
-        } else {
-          t5 = $[26];
-        }
+        // Not memoized: HookedMarkdown depends on `verbose` and MessageDisplay hooks.
+        const t5 = <Box flexDirection="column"><HookedMarkdown text={text} verbose={verbose} /></Box>;
         let t6;
         if ($[27] !== t4 || $[28] !== t5) {
           t6 = <Box flexDirection="row">{t4}{t5}</Box>;

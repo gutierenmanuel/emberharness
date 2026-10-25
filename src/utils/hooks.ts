@@ -102,6 +102,8 @@ import type {
   DirectoryAddedHookInput,
   PreModelSwitchHookInput,
   PostModelSwitchHookInput,
+  UserPromptExpansionHookInput,
+  MessageDisplayHookInput,
   UserPromptSubmitHookInput,
   PermissionRequestHookInput,
   ElicitationHookInput,
@@ -155,6 +157,7 @@ import { execPromptHook } from './hooks/execPromptHook.js'
 import type { Message, AssistantMessage } from '../types/message.js'
 import { execAgentHook } from './hooks/execAgentHook.js'
 import { execHttpHook } from './hooks/execHttpHook.js'
+import { execMcpToolHook } from './hooks/execMcpToolHook.js'
 import type { ShellCommand } from './ShellCommand.js'
 import {
   getSessionHooks,
@@ -492,6 +495,14 @@ function parseHttpHookOutput(body: string): {
   }
 }
 
+/** mcp_tool output: JSON object when it parses and validates, else plain text (undefined). */
+function parseMcpToolHookOutput(body: string): HookJSONOutput | undefined {
+  const trimmed = body.trim()
+  if (!trimmed.startsWith('{')) return undefined
+  const { json } = parseHttpHookOutput(trimmed)
+  return json
+}
+
 function processHookJSONOutput({
   json,
   command,
@@ -659,6 +670,7 @@ function processHookJSONOutput({
         break
       case 'PostToolBatch':
       case 'PostModelSwitch':
+      case 'UserPromptExpansion':
         result.additionalContext = json.hookSpecificOutput.additionalContext
         break
       case 'PreModelSwitch':
@@ -1693,6 +1705,9 @@ export async function getMatchingHooks(
       case 'FileChanged':
         matchQuery = basename(hookInput.file_path)
         break
+      case 'UserPromptExpansion':
+        matchQuery = hookInput.command_name
+        break
       case 'DirectoryAdded':
         matchQuery = hookInput.source
         break
@@ -1829,6 +1844,22 @@ export async function getMatchingHooks(
           ]),
       ).values(),
     )
+    const uniqueMcpToolHooks = Array.from(
+      new Map(
+        matchedHooks
+          .filter(m => m.hook.type === 'mcp_tool')
+          .map(m => {
+            const h = m.hook as { server: string; tool: string; input?: unknown }
+            return [
+              hookDedupKey(
+                m,
+                `${h.server}\0${h.tool}\0${jsonStringify(h.input ?? {})}\0${getIfCondition(m.hook as { if?: string })}`,
+              ),
+              m,
+            ] as const
+          }),
+      ).values(),
+    )
     const callbackHooks = matchedHooks.filter(m => m.hook.type === 'callback')
     // Function hooks don't need deduplication - each callback is unique
     const functionHooks = matchedHooks.filter(m => m.hook.type === 'function')
@@ -1837,6 +1868,7 @@ export async function getMatchingHooks(
       ...uniquePromptHooks,
       ...uniqueAgentHooks,
       ...uniqueHttpHooks,
+      ...uniqueMcpToolHooks,
       ...callbackHooks,
       ...functionHooks,
     ]
@@ -1849,7 +1881,8 @@ export async function getMatchingHooks(
         (h.hook.type === 'command' ||
           h.hook.type === 'prompt' ||
           h.hook.type === 'agent' ||
-          h.hook.type === 'http') &&
+          h.hook.type === 'http' ||
+          h.hook.type === 'mcp_tool') &&
         (h.hook as { if?: string }).if,
     )
     const ifMatcher = hasIfCondition
@@ -1860,7 +1893,8 @@ export async function getMatchingHooks(
         h.hook.type !== 'command' &&
         h.hook.type !== 'prompt' &&
         h.hook.type !== 'agent' &&
-        h.hook.type !== 'http'
+        h.hook.type !== 'http' &&
+        h.hook.type !== 'mcp_tool'
       ) {
         return true
       }
@@ -1892,6 +1926,13 @@ export async function getMatchingHooks(
             if (h.hook.type === 'http') {
               logForDebugging(
                 `Skipping HTTP hook ${(h.hook as { url: string }).url} — HTTP hooks are not supported for ${hookEvent}`,
+              )
+              return false
+            }
+            // MCP servers are not connected yet when these events fire.
+            if (h.hook.type === 'mcp_tool') {
+              logForDebugging(
+                `Skipping mcp_tool hook — MCP servers are not available for ${hookEvent}`,
               )
               return false
             }
@@ -2326,6 +2367,102 @@ async function* executeHooks({
         }
         yield agentResult
         cleanup?.()
+        return
+      }
+
+      if (hook.type === 'mcp_tool') {
+        emitHookStarted(hookId, hookName, hookEvent)
+        const label = `${hook.server}:${hook.tool}`
+        const mcpResult = await execMcpToolHook(hook, hookEvent, jsonInput, signal)
+        cleanup?.()
+        if (mcpResult.aborted) {
+          emitHookResponse({
+            hookId,
+            hookName,
+            hookEvent,
+            output: 'Hook cancelled',
+            stdout: '',
+            stderr: '',
+            exitCode: undefined,
+            outcome: 'cancelled',
+          })
+          yield {
+            message: createAttachmentMessage({
+              type: 'hook_cancelled',
+              hookName,
+              toolUseID,
+              hookEvent,
+            }),
+            outcome: 'cancelled' as const,
+            hook,
+          }
+          return
+        }
+        if (!mcpResult.ok) {
+          const stderr = mcpResult.error || `MCP tool ${label} failed`
+          emitHookResponse({
+            hookId,
+            hookName,
+            hookEvent,
+            output: stderr,
+            stdout: mcpResult.body,
+            stderr,
+            exitCode: 1,
+            outcome: 'error',
+          })
+          yield {
+            message: createAttachmentMessage({
+              type: 'hook_non_blocking_error',
+              hookName,
+              toolUseID,
+              hookEvent,
+              stderr,
+              stdout: mcpResult.body,
+              exitCode: 1,
+            }),
+            outcome: 'non_blocking_error' as const,
+            hook,
+          }
+          return
+        }
+        const mcpJson = parseMcpToolHookOutput(mcpResult.body)
+        if (mcpJson && !isAsyncHookJSONOutput(mcpJson)) {
+          const processed = processHookJSONOutput({
+            json: mcpJson,
+            command: label,
+            hookName,
+            toolUseID,
+            hookEvent,
+            expectedHookEvent: hookEvent,
+            stdout: mcpResult.body,
+            stderr: '',
+            exitCode: 0,
+          })
+          emitHookResponse({
+            hookId,
+            hookName,
+            hookEvent,
+            output: mcpResult.body,
+            stdout: mcpResult.body,
+            stderr: '',
+            exitCode: 0,
+            outcome: 'success',
+          })
+          yield { ...processed, outcome: 'success' as const, hook }
+          return
+        }
+        // Plain text (or an async marker): success; the text is not a decision.
+        emitHookResponse({
+          hookId,
+          hookName,
+          hookEvent,
+          output: mcpResult.body,
+          stdout: mcpResult.body,
+          stderr: '',
+          exitCode: 0,
+          outcome: 'success',
+        })
+        yield { outcome: 'success' as const, hook }
         return
       }
 
@@ -3020,6 +3157,8 @@ export type HookOutsideReplResult = {
   permissionDecision?: 'allow' | 'deny' | 'ask'
   /** Why the hook blocked or asked (permissionDecisionReason, JSON reason or stderr). */
   reason?: string
+  /** hookSpecificOutput.displayContent (MessageDisplay). */
+  displayContent?: string
 }
 
 export function hasBlockingResult(results: HookOutsideReplResult[]): boolean {
@@ -3318,6 +3457,62 @@ async function executeHooksOutsideREPL({
         }
       }
 
+      if (hook.type === 'mcp_tool') {
+        const label = `${hook.server}:${hook.tool}`
+        const mcpResult = await execMcpToolHook(hook, hookEvent, jsonInput, signal)
+        if (mcpResult.aborted) {
+          return {
+            command: label,
+            succeeded: false,
+            output: 'Hook cancelled',
+            blocked: false,
+          }
+        }
+        if (!mcpResult.ok) {
+          return {
+            command: label,
+            succeeded: false,
+            output: mcpResult.error || `MCP tool ${label} failed`,
+            blocked: false,
+          }
+        }
+        const mcpJson = parseMcpToolHookOutput(mcpResult.body)
+        const jsonBlocked =
+          mcpJson &&
+          !isAsyncHookJSONOutput(mcpJson) &&
+          isSyncHookJSONOutput(mcpJson) &&
+          mcpJson.decision === 'block'
+        const specificOut =
+          mcpJson && !isAsyncHookJSONOutput(mcpJson) && isSyncHookJSONOutput(mcpJson)
+            ? mcpJson.hookSpecificOutput
+            : undefined
+        return {
+          command: label,
+          succeeded: true,
+          output: mcpResult.body,
+          blocked: !!jsonBlocked,
+          systemMessage:
+            mcpJson && isSyncHookJSONOutput(mcpJson) ? mcpJson.systemMessage : undefined,
+          additionalContext:
+            specificOut && 'additionalContext' in specificOut
+              ? specificOut.additionalContext
+              : undefined,
+          permissionDecision:
+            specificOut && 'permissionDecision' in specificOut
+              ? specificOut.permissionDecision
+              : undefined,
+          displayContent:
+            specificOut && 'displayContent' in specificOut
+              ? specificOut.displayContent
+              : undefined,
+          reason:
+            (specificOut && 'permissionDecisionReason' in specificOut
+              ? specificOut.permissionDecisionReason
+              : undefined) ||
+            (mcpJson && isSyncHookJSONOutput(mcpJson) ? mcpJson.reason : undefined),
+        }
+      }
+
       // Handle command hooks
       const commandTimeoutMs = hook.timeout ? hook.timeout * 1000 : timeoutMs
       const { signal: abortSignal, cleanup } = createCombinedAbortSignal(
@@ -3417,6 +3612,10 @@ async function executeHooksOutsideREPL({
           additionalContext,
           permissionDecision,
           reason,
+          displayContent:
+            specific && 'displayContent' in specific
+              ? specific.displayContent
+              : undefined,
         }
       } catch (error) {
         // Clean up on error
@@ -4460,6 +4659,115 @@ export async function executeDirectoryAddedHooks(
     .filter((m): m is string => !!m)
 }
 
+export type UserPromptExpansionInfo = {
+  expansionType: 'slash_command' | 'mcp_prompt'
+  commandName: string
+  commandArgs: string
+  commandSource: string
+  prompt: string
+}
+
+export type UserPromptExpansionDecision = {
+  blocked: boolean
+  reason?: string
+  /** Extra context to deliver with the expanded prompt. */
+  additionalContexts: string[]
+  systemMessages: string[]
+}
+
+/** Pure: folds UserPromptExpansion hook results into one decision. */
+export function decideUserPromptExpansion(
+  results: HookOutsideReplResult[],
+): UserPromptExpansionDecision {
+  const systemMessages = results
+    .map(r => r.systemMessage)
+    .filter((m): m is string => !!m)
+  const blockedResult = results.find(r => r.blocked)
+  if (blockedResult) {
+    return {
+      blocked: true,
+      reason: blockedResult.reason || blockedResult.output.trim() || undefined,
+      additionalContexts: [],
+      systemMessages,
+    }
+  }
+  const additionalContexts = results.flatMap(r => {
+    if (r.additionalContext) return [r.additionalContext]
+    // Plain-text stdout on exit 0 is context too; JSON output is not.
+    const out = r.output.trim()
+    return r.succeeded && out && !out.startsWith('{') ? [out] : []
+  })
+  return { blocked: false, additionalContexts, systemMessages }
+}
+
+/**
+ * UserPromptExpansion: a typed /command is about to expand into a prompt.
+ * Can block the expansion or add context. The matcher is the command name.
+ */
+export async function executeUserPromptExpansionHooks(
+  info: UserPromptExpansionInfo,
+  permissionMode?: string,
+  signal?: AbortSignal,
+  timeoutMs: number = TOOL_HOOK_EXECUTION_TIMEOUT_MS,
+): Promise<UserPromptExpansionDecision> {
+  if (!hasHooksForEvent('UserPromptExpansion')) {
+    return { blocked: false, additionalContexts: [], systemMessages: [] }
+  }
+  const hookInput: UserPromptExpansionHookInput = {
+    ...createBaseHookInput(permissionMode),
+    hook_event_name: 'UserPromptExpansion',
+    expansion_type: info.expansionType,
+    command_name: info.commandName,
+    command_args: info.commandArgs,
+    command_source: info.commandSource,
+    prompt: info.prompt,
+  }
+  const results = await executeHooksOutsideREPL({
+    hookInput,
+    timeoutMs,
+    signal,
+  })
+  return decideUserPromptExpansion(results)
+}
+
+/**
+ * MessageDisplay: returns the text to show instead of `text`, or undefined to
+ * keep the original (no hooks, error, timeout, exit 2, or no displayContent).
+ * Display only; the transcript and the model keep the original text.
+ */
+export async function executeMessageDisplayHooks(
+  turnId: string,
+  messageId: string,
+  text: string,
+  timeoutMs: number = 10_000,
+): Promise<string | undefined> {
+  if (!hasHooksForEvent('MessageDisplay')) return undefined
+  const hookInput: MessageDisplayHookInput = {
+    ...createBaseHookInput(undefined),
+    hook_event_name: 'MessageDisplay',
+    turn_id: turnId,
+    message_id: messageId,
+    index: 0,
+    final: true,
+    delta: text,
+  }
+  const results = await executeHooksOutsideREPL({ hookInput, timeoutMs })
+  return pickDisplayContent(results)
+}
+
+/** Pure: last successful displayContent among the hook results. */
+export function pickDisplayContent(
+  results: HookOutsideReplResult[],
+): string | undefined {
+  let chosen: string | undefined
+  for (const r of results) {
+    if (r.succeeded && !r.blocked && typeof r.displayContent === 'string') {
+      chosen = r.displayContent
+    }
+  }
+  return chosen
+}
+
 export type { ToolBatchCall } from './hooks/toolBatch.js'
 import type { ToolBatchCall } from './hooks/toolBatch.js'
 
@@ -5244,6 +5552,8 @@ function getHookDefinitionsForTelemetry(
       return { type: 'prompt', prompt: hook.prompt }
     } else if (hook.type === 'http') {
       return { type: 'http', command: hook.url }
+    } else if (hook.type === 'mcp_tool') {
+      return { type: 'mcp_tool', command: `${hook.server}:${hook.tool}` }
     } else if (hook.type === 'function') {
       return { type: 'function', name: 'function' }
     } else if (hook.type === 'callback') {

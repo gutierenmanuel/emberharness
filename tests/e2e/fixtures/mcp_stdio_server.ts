@@ -9,6 +9,8 @@
  *                   whenever its content changes
  *   FIX_PID_FILE    if set, the pid of this process is written there
  *   FIX_LOG_FILE    if set, a line "start" is appended there on startup
+ *   FIX_CALL_LOG    if set, every tools/call appends a JSON line {name, arguments} there
+ *   FIX_CALL_REPLY  if set, text returned by tools/call instead of "called <name>"
  *   FIX_DIE_AFTER_MS if set, the process exits this many ms after initialize (crash loop)
  */
 import { appendFileSync, existsSync, readFileSync, watchFile, writeFileSync } from 'fs'
@@ -63,7 +65,11 @@ function handle(msg: { id?: number | string; method?: string; params?: any }) {
     })
   }
   if (method === 'tools/call') {
-    return send({ jsonrpc: '2.0', id, result: { content: [{ type: 'text', text: `called ${msg.params?.name}` }] } })
+    if (process.env.FIX_CALL_LOG) {
+      appendFileSync(process.env.FIX_CALL_LOG, JSON.stringify({ name: msg.params?.name, arguments: msg.params?.arguments }) + '\n')
+    }
+    const text = process.env.FIX_CALL_REPLY ?? `called ${msg.params?.name}`
+    return send({ jsonrpc: '2.0', id, result: { content: [{ type: 'text', text }] } })
   }
   if (id !== undefined && method) {
     return send({ jsonrpc: '2.0', id, result: {} })

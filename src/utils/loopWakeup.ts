@@ -8,6 +8,7 @@ import {
   getSessionCronTasks,
   removeSessionCronTasks,
   setScheduledTasksEnabled,
+  subscribeSessionCronTasks,
 } from '../bootstrap/state.js'
 import {
   buildWakeupFirePrompt,
@@ -108,4 +109,24 @@ export function handleLoopTurnEnd(): 'none' | 'fallback' | 'end' {
     )
   }
   return r.action
+}
+
+/** Whether a self-paced /loop wake-up is waiting to fire. */
+export function hasPendingWakeup(): boolean {
+  return pendingWakeupIds().length > 0
+}
+
+/** For useSyncExternalStore: re-renders when a wake-up is added or removed. */
+export function subscribePendingWakeup(listener: () => void): () => void {
+  return subscribeSessionCronTasks(listener)
+}
+
+/**
+ * Esc while idle: cancel the pending wake-up and end the loop, like Claude
+ * Code. Returns true when there was one to cancel.
+ */
+export function cancelPendingWakeup(): boolean {
+  if (!hasPendingWakeup()) return false
+  stopWakeups()
+  return true
 }

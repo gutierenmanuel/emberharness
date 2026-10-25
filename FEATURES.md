@@ -21,8 +21,16 @@ always built in and off at runtime: without those environment variables nothing 
 FnHarness note (24/10/2026, fallback-hooks): the `fallbackModel` setting / `--fallback-model a,b,c`
 chain works across accounts (`qwen36`, `claude:haiku`, `openrouter:x/y`) and the hook events
 `PostToolBatch`, `DirectoryAdded`, `PreModelSwitch` and `PostModelSwitch` exist. None of it is behind a
-feature flag. Still missing from the official event list: `UserPromptExpansion`, `MessageDisplay`
-and the `mcp_tool` hook type (see `docs/plans/claude_code_gap.md`).
+feature flag. The remaining official events and the `mcp_tool` hook type came with the next note.
+
+FnHarness note (25/10/2026, small-pack): the hook events `UserPromptExpansion` (a typed /command is
+about to expand; can block it or add context; the matcher is `command_name`) and `MessageDisplay`
+(replaces the text shown for a finished assistant message, display only), plus the `mcp_tool` hook
+type (calls a tool of a configured MCP server, `${path}` substitution over the hook input), exist
+with no feature flag. `Esc` on an idle prompt cancels a pending autopaced `/loop` wake-up ("Pending
+wakeup cancelled"). The `PushNotification` tool is local: a silent desktop notification through
+`notify-send` when present, else a notice in the TUI; `pushNotificationEnabled: false` removes it.
+Limits and details: `docs/plans/claude_code_gap.md`.
 
 FnHarness note (24/10/2026, account-routing): a model written as `cuenta:modelo` is served by that
 account for that request only (`Agent` tool `model`, agent frontmatter, `/model cuenta:modelo`), so a
@@ -79,6 +87,14 @@ externalized `@ant/*` packages.
   3 tool-less turns or a turn cap (`--turns`, default 30). The evaluator defaults
   to the active account; `--judge <account>`, `FNHARNESS_GOAL_JUDGE` or the
   `goalJudge` setting pick another one (small local models judge poorly).
+- `/fork` and `/subtask` (always on, no flag)
+  `/fork [--model m] <instruction>` starts a background subagent that inherits the
+  whole current conversation (Agent tool with `subagent_type: "fork"`, which now
+  takes the fork path even with `FORK_SUBAGENT` off); `/subtask` starts one with a
+  clean context (`general-purpose`, only its prompt). Both show in the agents
+  panel and notify on completion. `--model` takes `sonnet|opus|haiku` or
+  `account:model`. The command asks the model to make the Agent call, so a weak
+  model may need a retry. `/branch` no longer has the `fork` alias.
 - `MONITOR_TOOL`
   The `Monitor` tool: runs a shell command in the background and delivers each
   stdout line to the model as a `<task-notification>` event (batched, filtered,
@@ -279,17 +295,19 @@ entire subsystem.
   Fails on missing `src/utils/attributionHooks.js`. Setup and cache-clear code
   already call into that hook module.
 - `FORK_SUBAGENT`
-  Fails on missing `src/commands/fork/index.js`. Command slot and message
-  rendering support are already present.
+  The commands now exist (`/fork`, `/subtask`, always on). Enabling the flag itself
+  is still not advised: it forces every Agent spawn into the background and its
+  message renderer (`UserForkBoilerplateMessage`) is missing.
 - `HISTORY_SNIP`
   Fails on missing `src/commands/force-snip.js`. The surrounding SnipTool and
   query/message comments are already there.
 - `KAIROS_GITHUB_WEBHOOKS`
   Fails on missing `src/tools/SubscribePRTool/SubscribePRTool.js`. The command
   slot and some message handling already exist.
-- `KAIROS_PUSH_NOTIFICATION`
-  Fails on missing `src/tools/PushNotificationTool/PushNotificationTool.js`.
-  The tool slot already exists in `src/tools.ts`.
+- `KAIROS_PUSH_NOTIFICATION` (no longer needed)
+  Replaced on 25/10/2026 by a local `PushNotification` tool that is always built in (`notify-send`
+  or a TUI notice, silent; `pushNotificationEnabled: false` disables it). The mobile push that
+  depends on Remote Control is not implemented.
 - `MCP_SKILLS`
   Fails on missing `src/skills/mcpSkills.js`. `mcpSkillBuilders.ts` already
   exists specifically to support that missing registry layer.
