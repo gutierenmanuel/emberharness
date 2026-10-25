@@ -39,13 +39,13 @@ Orden = prioridad sugerida para uso diario como agente de terminal con modelos l
 | 1 | `/loop` autopaced + `ScheduleWakeup` (y Cron*) | Cron* + `/loop` fijo: flag-ok `AGENT_TRIGGERS`; `ScheduleWakeup` y modo autopaced: ausente | S (activar) + M (wakeup) | ninguna | Alta |
 | 2 | Tool `Monitor` | flag-roto `MONITOR_TOOL` (falta `MonitorTool.js` y `MonitorMcpTask`) | M | ninguna | Alta |
 | 3 | `/goal` | **hecho** (rama `quick/goal`, 24/10/2026) | M | modelo (evaluador) | Alta |
-| 4 | `fallbackModel` (ajuste) + hooks nuevos | **hecho** (24/10/2026, rama quick/fallback-hooks): cadena de fallback entre cuentas, `PostToolBatch`, `DirectoryAdded`, `PreModelSwitch`, `PostModelSwitch`; pendientes `UserPromptExpansion`, `MessageDisplay` y tipo `mcp_tool` | S | ninguna | Alta |
+| 4 | `fallbackModel` (ajuste) + hooks nuevos | **hecho** (24/10/2026, ramas quick/fallback-hooks y quick/small-pack): cadena de fallback entre cuentas y los 33 eventos de hook, más el tipo `mcp_tool` | S | ninguna | Alta |
 | 5 | Sesiones en segundo plano y agent view (`--bg`, `claude agents`, `attach`, `logs`, `stop`, `/background`) | flag-roto `BG_SESSIONS` (falta `src/cli/bg.js`); vista ausente | L | ninguna | Media-alta |
 | 6 | `/fork`, `/subtask` (subagente bifurcado) | flag-roto `FORK_SUBAGENT` (falta `commands/fork`); `/subtask` ausente | M | ninguna | Media |
 | 7 | Auto mode (clasificador de permisos) | flag-roto `TRANSCRIPT_CLASSIFIER` (falta el prompt `.txt`); `BASH_CLASSIFIER` flag-ok | L | modelo (clasificador) | Media |
 | 8 | Workflows dinámicos (`Workflow`, `/workflows`) | flag-roto `WORKFLOW_SCRIPTS` (solo `constants.ts`) | L | modelo | Media-baja |
 | 9 | Pack de comodidad: `/recap`, `/cd`, `/autocompact`, `/focus`, `/tui fullscreen`, `/reload-skills`, `/skill-doctor`, `skillOverrides`, `--safe-mode`, `--restricted` | `/recap` ≈ flag-ok `AWAY_SUMMARY`; el resto ausente | S cada uno, M el conjunto | ninguna | Media |
-| 10 | Mensajería entre sesiones (`ListAgents`, `SendMessage` entre sesiones) y `PushNotification` | flag-roto `UDS_INBOX` (falta `udsMessaging.js`) y `KAIROS_PUSH_NOTIFICATION` (falta la tool) | M-L | ninguna (en local) | Media-baja |
+| 10 | Mensajería entre sesiones (`ListAgents`, `SendMessage` entre sesiones) y `PushNotification` | `PushNotification` local **hecha** (quick/small-pack, 25/10/2026); mensajería: flag-roto `UDS_INBOX` (falta `udsMessaging.js`) | M-L | ninguna (en local) | Media-baja |
 | 11 | Mods (plugins que modifican la UI/comportamiento) | ausente | L | ninguna | Baja |
 | 12 | `claude import` / `/import` (Codex, Gemini, Cursor) | ausente | S-M | ninguna | Baja |
 | 13 | Channels (eventos empujados desde MCP) | flag-ok `KAIROS_CHANNELS` parcial | M | Anthropic (login claude.ai) | Baja |
@@ -58,7 +58,7 @@ Ya presentes y sin brecha relevante (verificadas): `EnterWorktree`/`ExitWorktree
 (oculto: se maneja desde `/config`), `/context`, `/stats`, `/cost`, `/tasks`, `/btw`, `/branch`,
 `/compact`, `/memory` con memdir y `EXTRACT_MEMORIES`, skills y `/skills`, `/agents`, `LSP`,
 `ToolSearch`, `TaskCreate/Get/List/Update/Stop`, `NotebookEdit`, `/sandbox`, `/add-dir`, `/effort`,
-`/mcp`, `/hooks` con 31 eventos y tipos `command`, `prompt`, `agent`, `http`, skills empaquetadas
+`/mcp`, `/hooks` con 33 eventos y tipos `command`, `prompt`, `agent`, `http`, `mcp_tool`, skills empaquetadas
 `batch`, `simplify`, `loop` (apagada), `debug`, `verify`, `claude-api`, `update-config`.
 
 ## Estado de las tandas 1 y 2 (rama quick/loop, 24/10/2026)
@@ -77,8 +77,8 @@ servidor OpenAI simulado (`scripts/mock_openai.ts`):
 
 Pendiente de esas tandas:
 
-- Esc no cancela una espera de `/loop` autopaced (en Claude Code sí, con el aviso «Pending wakeup
-  cancelled»); hoy se cancela con `CronDelete` o pidiendo al modelo `stop`.
+- ~~Esc no cancela una espera de `/loop` autopaced~~: hecho en quick/small-pack (ver «Estado del
+  paquete pequeño»).
 - Los wake-ups no se restauran con `--resume` (Claude Code tampoco restaura los autopaced); las
   tareas cron de sesión tampoco: solo existe el modo `durable: true` en `.claude/scheduled_tasks.json`.
 - No se probó el aviso de respaldo de 20 min de extremo a extremo (cubierto por tests de la máquina
@@ -87,7 +87,7 @@ Pendiente de esas tandas:
   `killShellTasksForAgent`; el límite de memoria `CLAUDE_CODE_TOOL_MEMORY_LIMIT` no se aplica.
 - Con `fixed` + prompt de mantenimiento, el texto de `loop.md` se copia al crear la tarea cron, así
   que editarlo no afecta a un bucle ya creado (en modo dinámico sí, porque cada vuelta reentra en la skill).
-- `PushNotification` y `SleepTool` siguen sin existir.
+- `PushNotification` ya existe en local (quick/small-pack); `SleepTool` sigue sin existir.
 
 ## Estado del panel de subagentes (rama quick/agents-panel, 24/10/2026)
 
@@ -146,8 +146,56 @@ Pendiente de este punto:
   siguiente turno principal) ni se salta modelos con ventana menor al compactar.
 - `DirectoryAdded` con `source: register_repo_root` (SDK) no tiene aún disparador; `--add-dir` de
   arranque no lo dispara (igual que la doc).
-- Siguen ausentes `UserPromptExpansion`, `MessageDisplay` y el tipo de hook `mcp_tool`.
+- ~~Siguen ausentes `UserPromptExpansion`, `MessageDisplay` y `mcp_tool`~~: hechos en quick/small-pack
+  (ver «Estado del paquete pequeño»).
 - El aviso del cambio sale solo como mensaje de sistema en el hilo; `/status` no muestra la cadena.
+
+## Estado del paquete pequeño (rama quick/small-pack, 25/10/2026)
+
+Hecho, con tests unitarios y e2e (`tests/e2e/smallPack.e2e.test.ts`, backend falso):
+
+- **Esc cancela la espera de `/loop` autopaced.** Con el prompt vacío, sin turno en marcha y un
+  wake-up pendiente, `Esc` lo borra, termina el bucle y avisa «Pending wakeup cancelled». Durante un
+  turno `Esc` sigue interrumpiéndolo como siempre. Código: `utils/loopWakeup.ts`
+  (`cancelPendingWakeup`), señal en `bootstrap/state.ts`, `hooks/useCancelRequest.ts`.
+- **`UserPromptExpansion`.** Se lanza al expandir un `/comando` tecleado de tipo prompt (skill,
+  comando propio; `mcp_prompt` para prompts MCP). Entrada `expansion_type`, `command_name`,
+  `command_args`, `command_source`, `prompt`; matcher sobre `command_name`. Bloquea con exit 2 o
+  `decision: block` (+ `reason`); `additionalContext` o stdout en texto plano llegan al modelo como
+  contexto. No se dispara cuando el modelo invoca la skill con la tool `Skill` (como en la doc).
+  Código: `executeUserPromptExpansionHooks` en `utils/hooks.ts`, enganchado en `processSlashCommand.tsx`.
+- **`MessageDisplay`.** Sustituye el texto mostrado de un mensaje del asistente con
+  `hookSpecificOutput.displayContent`; solo pantalla (transcript, modelo y modo verbose conservan el
+  original). Sin matcher; si el hook falla, agota el tiempo (10 s) o sale con 2, se ve el original.
+  Código: `utils/hooks/messageDisplay.ts`, `components/messages/HookedMarkdown.tsx`.
+- **Hook `mcp_tool`.** `{type: "mcp_tool", server, tool, input, timeout}`; los strings de `input`
+  admiten `${ruta}` sobre el JSON de entrada del hook (ruta inexistente = cadena vacía). La salida se
+  trata como la de un hook `command`: un objeto JSON puede traer decisiones; `isError: true` o un
+  servidor no configurado/no conectado es un error no bloqueante. Resuelve el servidor por nombre
+  entre los ajustes y `--mcp-config`. Tiempos por defecto de la doc (600 s; 30 s en
+  `UserPromptSubmit`/`PreModelSwitch`/`PostModelSwitch`; 10 s en `MessageDisplay`). En
+  `SessionStart` y `Setup` se omite (los servidores aún no están conectados). Código:
+  `utils/hooks/execMcpToolHook.ts`.
+- **`PushNotification` local.** Tool `PushNotification {message, title?}`: notificación de escritorio
+  con `notify-send` (hint `suppress-sound`, nunca sonido ni campana); si no existe o falla, aviso en
+  la TUI; sin interfaz (`-p`) lo indica en el resultado. Se desactiva con el ajuste
+  `pushNotificationEnabled: false` (la tool deja de ofrecerse). Código:
+  `tools/PushNotificationTool/`.
+
+Pendiente de este paquete:
+
+- `MessageDisplay` se ejecuta una vez por mensaje terminado (`index` 0, `final` true, `delta` = todo el
+  texto), como la doc describe para ejecuciones no interactivas; no por lotes de líneas mientras
+  llega el stream. Mientras el hook responde (hasta su timeout) el texto del mensaje no se muestra.
+  Solo actúa en la TUI interactiva, no en `-p` ni en el modo SDK. Un `displayContent` vacío oculta el
+  texto (la doc no lo define). El `turn_id` es uno por proceso y el `message_id` sale del hash del texto.
+- `UserPromptExpansion` no cubre los comandos locales (`/model`, `/hooks`…), solo los de tipo prompt.
+- `mcp_tool`: la salida en texto plano no se inyecta como contexto (solo JSON cuenta); las
+  herramientas MCP no pasan por el sistema de permisos al ser llamadas desde un hook; no admite
+  servidores de plugins con nombre `plugin:<p>:<s>` si no están en la configuración de MCP activa.
+- `PushNotification`: sin parte móvil (depende de Remote Control, de Anthropic) y sin ajuste en el
+  menú `/config` (solo `settings.json`). Sin pruebas con un escritorio real: el binario se simuló
+  por `PATH`.
 
 ## Detalle por funcionalidad
 
