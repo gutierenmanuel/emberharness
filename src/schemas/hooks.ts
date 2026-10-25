@@ -162,11 +162,38 @@ function buildHookSchemas() {
       .describe('If true, hook runs once and is removed after execution'),
   })
 
+  const McpToolHookSchema = z.object({
+    type: z.literal('mcp_tool').describe('MCP tool hook type'),
+    server: z.string().describe('Name of a configured MCP server'),
+    tool: z.string().describe('Name of the tool to call on that server'),
+    input: z
+      .record(z.string(), z.unknown())
+      .optional()
+      .describe(
+        'Arguments passed to the tool. String values support ${path} substitution from the hook input JSON (e.g. "${tool_input.file_path}").',
+      ),
+    if: IfConditionSchema(),
+    timeout: z
+      .number()
+      .positive()
+      .optional()
+      .describe('Timeout in seconds (default 600; 30 on UserPromptSubmit and the model switch events, 10 on MessageDisplay)'),
+    statusMessage: z
+      .string()
+      .optional()
+      .describe('Custom status message to display in spinner while hook runs'),
+    once: z
+      .boolean()
+      .optional()
+      .describe('If true, hook runs once and is removed after execution'),
+  })
+
   return {
     BashCommandHookSchema,
     PromptHookSchema,
     HttpHookSchema,
     AgentHookSchema,
+    McpToolHookSchema,
   }
 }
 
@@ -179,12 +206,14 @@ export const HookCommandSchema = lazySchema(() => {
     PromptHookSchema,
     AgentHookSchema,
     HttpHookSchema,
+    McpToolHookSchema,
   } = buildHookSchemas()
   return z.discriminatedUnion('type', [
     BashCommandHookSchema,
     PromptHookSchema,
     AgentHookSchema,
     HttpHookSchema,
+    McpToolHookSchema,
   ])
 })
 
@@ -218,5 +247,6 @@ export type BashCommandHook = Extract<HookCommand, { type: 'command' }>
 export type PromptHook = Extract<HookCommand, { type: 'prompt' }>
 export type AgentHook = Extract<HookCommand, { type: 'agent' }>
 export type HttpHook = Extract<HookCommand, { type: 'http' }>
+export type McpToolHook = Extract<HookCommand, { type: 'mcp_tool' }>
 export type HookMatcher = z.infer<ReturnType<typeof HookMatcherSchema>>
 export type HooksSettings = Partial<Record<HookEvent, HookMatcher[]>>

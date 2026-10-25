@@ -280,6 +280,20 @@ export const getHookEventMetadata = memoize(
         description:
           'Input to command is JSON with the same fields as PreModelSwitch; source also takes auto and resume.\nPlain stdout on exit 0, or hookSpecificOutput.additionalContext, is added to the context with the next request.\nThe matcher is compared with the canonical name of to_model.\nExit code 0 - command completes successfully\nOther exit codes - show stderr to user only',
       },
+      UserPromptExpansion: {
+        summary: 'When a typed /command expands into a prompt, before it reaches the model',
+        description:
+          'Input to command is JSON with expansion_type (slash_command, mcp_prompt), command_name, command_args, command_source and prompt.\nThe matcher is compared with command_name; leave it empty to fire on every prompt-type command.\nExit code 0 - stdout is added as context\nExit code 2 - block the expansion, show stderr to the user\nJSON decision "block" with reason also blocks; hookSpecificOutput.additionalContext is added to the context.',
+        matcherMetadata: {
+          fieldToMatch: 'command_name',
+          values: [],
+        },
+      },
+      MessageDisplay: {
+        summary: 'When assistant message text is shown on screen',
+        description:
+          'Input to command is JSON with turn_id, message_id, index, final and delta (the text to display).\nfnharness runs it once per finished message (index 0, final true, delta is the whole text).\nNo matcher. JSON hookSpecificOutput.displayContent replaces the displayed text; omit it to keep the original. Display only: the transcript and the model keep the original.\nOn error, timeout or exit code 2 the original text is shown.',
+      },
       FileChanged: {
         summary: 'When a watched file changes',
         description:
@@ -327,6 +341,8 @@ export function groupHooksByEventAndMatcher(
     DirectoryAdded: {},
     PreModelSwitch: {},
     PostModelSwitch: {},
+    UserPromptExpansion: {},
+    MessageDisplay: {},
   }
 
   const metadata = getHookEventMetadata(toolNames)

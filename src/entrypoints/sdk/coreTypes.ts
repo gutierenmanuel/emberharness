@@ -54,6 +54,8 @@ export const HOOK_EVENTS = [
   'DirectoryAdded',
   'PreModelSwitch',
   'PostModelSwitch',
+  'UserPromptExpansion',
+  'MessageDisplay',
 ] as const
 
 export const EXIT_REASONS = [
