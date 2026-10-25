@@ -4453,6 +4453,18 @@ export function createTurnDurationMessage(
   }
 }
 
+/** Dim one-liner with local-model speed (TTFT, prefill, generation). */
+export function createLocalSpeedMessage(content: string): Record<string, any> {
+  return {
+    type: 'system',
+    subtype: 'local_speed',
+    content,
+    timestamp: new Date().toISOString(),
+    uuid: randomUUID(),
+    isMeta: false,
+  }
+}
+
 export function createAwaySummaryMessage(
   content: string,
 ): SystemAwaySummaryMessage {

@@ -133,7 +133,8 @@ import { getGlobalConfig, saveGlobalConfig, getGlobalConfigWriteCount } from '..
 import { hasConsoleBillingAccess } from '../utils/billing.js';
 import { logEvent, type AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS } from 'src/services/analytics/index.js';
 import { getFeatureValue_CACHED_MAY_BE_STALE } from 'src/services/analytics/growthbook.js';
-import { textForResubmit, handleMessageFromStream, type StreamingToolUse, type StreamingThinking, isCompactBoundaryMessage, getMessagesAfterCompactBoundary, getContentText, createUserMessage, createAssistantMessage, createTurnDurationMessage, createAgentsKilledMessage, createApiMetricsMessage, createSystemMessage, createCommandInputMessage, formatCommandInputTags, createAssistantAPIErrorMessage } from '../utils/messages.js';
+import { drainSpeedSamples, drainSpeedSummary, formatSpeedLine } from '../services/api/openai-compat/speedStats.js';
+import { textForResubmit, handleMessageFromStream, type StreamingToolUse, type StreamingThinking, isCompactBoundaryMessage, getMessagesAfterCompactBoundary, getContentText, createUserMessage, createAssistantMessage, createTurnDurationMessage, createAgentsKilledMessage, createApiMetricsMessage, createLocalSpeedMessage, createSystemMessage, createCommandInputMessage, formatCommandInputTags, createAssistantAPIErrorMessage } from '../utils/messages.js';
 import { generateSessionTitle } from '../utils/sessionTitle.js';
 import { BASH_INPUT_TAG, COMMAND_MESSAGE_TAG, COMMAND_NAME_TAG, LOCAL_COMMAND_STDOUT_TAG } from '../constants/xml.js';
 import { escapeXml } from '../utils/xml.js';
@@ -2680,6 +2681,7 @@ export function REPL({
     }, onStreamingText);
   }, [setMessages, setResponseLength, setStreamMode, setStreamingToolUses, setStreamingThinking, onStreamingText]);
   const onQueryImpl = useCallback(async (messagesIncludingNewMessages: MessageType[], newMessages: MessageType[], abortController: AbortController, shouldQuery: boolean, additionalAllowedTools: string[], mainLoopModelParam: string, effort?: EffortValue) => {
+    drainSpeedSamples(); // drop samples from side queries between turns
     // Prepare IDE integration for new prompt. Read mcpClients fresh from
     // store — useManageMCPConnections may have populated it since the
     // render that captured this closure (same pattern as computeTools).
@@ -2864,6 +2866,11 @@ export function REPL({
         classifierCount: classifierCount > 0 ? classifierCount : undefined,
         configWriteCount: getGlobalConfigWriteCount()
       })]);
+    }
+    // Local models (llama.cpp, qwen36, ollama...): one dim speed line per turn.
+    {
+      const speed = drainSpeedSummary();
+      if (speed) setMessages(prev => [...prev, createLocalSpeedMessage(formatSpeedLine(speed))]);
     }
     resetLoadingState();
 

@@ -25,6 +25,16 @@ type Chunk = {
     finish_reason?: string | null
   }>
   usage?: { prompt_tokens?: number; completion_tokens?: number } | null
+  /** llama-server extension: prompt/predicted timings, cache_n, draft_n... */
+  timings?: Record<string, unknown> | null
+}
+
+/** Raw facts about one finished request, for the local speed line. */
+export type StreamStats = {
+  timings: Record<string, unknown> | null
+  usage: { prompt_tokens?: number; completion_tokens?: number } | null
+  ttftMs: number | null
+  totalMs: number
 }
 
 const STOP_REASONS: Record<string, string> = {
@@ -66,7 +76,13 @@ export async function* toAnthropicEvents(
   chunks: AsyncIterable<Chunk>,
   model: string,
   messageId: string,
+  onStats?: (stats: StreamStats) => void,
+  /** When the HTTP request was sent; defaults to now. TTFT counts from here. */
+  startedAt: number = Date.now(),
 ): AsyncGenerator<AnthropicEvent> {
+  let firstTokenAt: number | null = null
+  let timings: Record<string, unknown> | null = null
+  let usageSeen: StreamStats['usage'] = null
   yield {
     type: 'message_start',
     message: {
@@ -111,6 +127,8 @@ export async function* toAnthropicEvents(
   }
 
   for await (const chunk of chunks) {
+    if (chunk.timings) timings = chunk.timings
+    if (chunk.usage) usageSeen = chunk.usage
     if (chunk.usage) {
       inputTokens = chunk.usage.prompt_tokens ?? inputTokens
       outputTokens = chunk.usage.completion_tokens ?? outputTokens
@@ -118,6 +136,12 @@ export async function* toAnthropicEvents(
     const choice = chunk.choices?.[0]
     if (!choice) continue
     const delta = choice.delta ?? {}
+    if (
+      firstTokenAt === null &&
+      (delta.content || delta.reasoning_content || delta.reasoning || delta.tool_calls?.length)
+    ) {
+      firstTokenAt = Date.now()
+    }
 
     const thinking = delta.reasoning_content ?? delta.reasoning
     if (thinking) {
@@ -150,6 +174,18 @@ export async function* toAnthropicEvents(
   }
 
   yield* closeOpen()
+
+  const endedAt = Date.now()
+  try {
+    onStats?.({
+      timings,
+      usage: usageSeen,
+      ttftMs: firstTokenAt === null ? null : firstTokenAt - startedAt,
+      totalMs: endedAt - startedAt,
+    })
+  } catch {
+    // Metrics must never break a turn.
+  }
 
   // Tool calls are emitted whole once the model is done. Backends interleave
   // and re-index them inconsistently, and the harness only acts on complete

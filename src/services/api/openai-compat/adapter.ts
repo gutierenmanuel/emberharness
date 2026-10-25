@@ -13,6 +13,12 @@ import {
   parseSSE,
   toAnthropicEvents,
 } from './stream.js'
+import {
+  buildSpeedSample,
+  isLocalBaseUrl,
+  localSpeedEnabled,
+  recordSpeedSample,
+} from './speedStats.js'
 import { resolveModel, translateRequest, type AnthropicRequest } from './translate.js'
 
 function errorResponse(status: number, message: string): Response {
@@ -62,6 +68,7 @@ export function createOpenAICompatFetch(
     })
     const model = resolveModel(body.model, profile.model)
 
+    const requestSentAt = Date.now()
     let upstream: Response
     try {
       upstream = await globalThis.fetch(endpoint, {
@@ -90,7 +97,19 @@ export function createOpenAICompatFetch(
     }
 
     const messageId = `msg_mm_${Date.now().toString(36)}`
-    const events = toAnthropicEvents(parseSSE(upstream.body), model, messageId)
+    const trackSpeed = isLocalBaseUrl(profile.baseUrl) && localSpeedEnabled()
+    const events = toAnthropicEvents(
+      parseSSE(upstream.body),
+      model,
+      messageId,
+      trackSpeed
+        ? stats => {
+            const sample = buildSpeedSample({ ...stats, withTools: !!chatBody.tools?.length })
+            if (sample) recordSpeedSample(sample)
+          }
+        : undefined,
+      requestSentAt,
+    )
 
     if (!body.stream) {
       return new Response(JSON.stringify(await collectMessage(events)), {
