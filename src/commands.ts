@@ -179,6 +179,7 @@ import exportCommand from './commands/export/index.js'
 import account from './commands/account/index.js'
 import scope from './commands/scope/index.js'
 import goal from './commands/goal/index.js'
+import background from './commands/background/index.js'
 import model from './commands/model/index.js'
 import tag from './commands/tag/index.js'
 import outputStyle from './commands/output-style/index.js'
@@ -298,6 +299,7 @@ const COMMANDS = memoize((): Command[] => [
   account,
   scope,
   goal,
+  background,
   model,
   outputStyle,
   remoteEnv,

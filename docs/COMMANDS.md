@@ -192,6 +192,22 @@ Reglas de parada: condición cumplida; evaluador dice imposible; 3 turnos seguid
 
 Evaluador: por defecto la cuenta y el modelo pequeño activos. Los modelos locales pequeños juzgan mal, así que se puede fijar otra cuenta con `--judge claude` (modelo rápido de Anthropic), con la variable `FNHARNESS_GOAL_JUDGE` o con el ajuste `goalJudge` de `settings.json`; el orden de prioridad es ese. Para llamar al evaluador se cambia de cuenta un instante y se restaura al terminar. El objetivo vive en memoria: no sobrevive a un reinicio. Código: `src/utils/goal/` (lógica pura en `goalLogic.ts`, estado y juez en `goalState.ts`), `src/commands/goal/` y el gancho en `src/query/stopHooks.ts`.
 
+### 2.12b Sesiones en segundo plano (`/background` y `fnharness ps|logs|stop|attach|rm`)
+
+Una sesión en segundo plano es una ejecución headless (`-p --output-format stream-json`) de este mismo binario, en su propio grupo de procesos, sin tmux ni demonio. El estado vive en `<CLAUDE_CONFIG_DIR>/bg/<id>/` (`meta.json`, `events.jsonl`, `stderr.log`, `exit`).
+
+| Entrada | Qué pasa |
+|---|---|
+| `fnharness --bg "<prompt>" [flags]` | Lanza la sesión y escribe su id de 8 caracteres. Los flags (`--model`, `--permission-mode`...) se reenvían; `--account` lo gestiona el lanzador. |
+| `fnharness ps` | Tabla con id, cuenta, estado (`running`, `done`, `failed`, `stopped`, `lost`), inicio y prompt corto. |
+| `fnharness logs <id> [-f]` | Salida legible de la sesión; con `-f` la sigue hasta que termina. El id admite prefijo. |
+| `fnharness stop <id>` (también `kill`) | SIGTERM al grupo y SIGKILL si no cae. |
+| `fnharness attach <id>` | Terminada: la reanuda en la TUI con `--resume` (mismo directorio y cuenta). Viva: sigue sus logs, no hay toma en vivo (límite v1). |
+| `fnharness rm <id>` | Borra el registro de una sesión parada (el transcript se conserva). |
+| `/background <prompt>` (`/bg`) | Desde la TUI, lanza una sesión que bifurca la conversación actual (`--resume --fork-session`) y trabaja en el prompt. No desvincula la TUI. |
+
+Una sesión headless no puede contestar permisos: usa el modo de permisos de quien la lanza (el lanzador `fnharness` arranca en bypass). Código: `src/cli/bgCore.ts` (lógica pura, tests en `bgCore.test.ts`), `src/cli/bg.ts` y `src/commands/background/`.
+
 ### 2.13 `/scope` (perfil de contexto)
 
 Comando integrado (tipo `local-jsx`). Decide qué entra al modelo en cada petición; pensado para modelos locales con poca ventana. Se aplica desde el siguiente turno y se recuerda por cuenta (`contextProfile` en `accounts.json`; para `claude`, en `.claude.json`). Por defecto: `claude` y cuentas remotas → Full; backends locales (qwen36, llamacpp, ollama, ...) → Simple. Al cambiar de cuenta con `/account` se carga el perfil de esa cuenta.
