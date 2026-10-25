@@ -41,7 +41,7 @@ Orden = prioridad sugerida para uso diario como agente de terminal con modelos l
 | 3 | `/goal` | **hecho** (rama `quick/goal`, 24/10/2026) | M | modelo (evaluador) | Alta |
 | 4 | `fallbackModel` (ajuste) + hooks nuevos | **hecho** (24/10/2026, rama quick/fallback-hooks): cadena de fallback entre cuentas, `PostToolBatch`, `DirectoryAdded`, `PreModelSwitch`, `PostModelSwitch`; pendientes `UserPromptExpansion`, `MessageDisplay` y tipo `mcp_tool` | S | ninguna | Alta |
 | 5 | Sesiones en segundo plano y agent view (`--bg`, `claude agents`, `attach`, `logs`, `stop`, `/background`) | flag-roto `BG_SESSIONS` (falta `src/cli/bg.js`); vista ausente | L | ninguna | Media-alta |
-| 6 | `/fork`, `/subtask` (subagente bifurcado) | flag-roto `FORK_SUBAGENT` (falta `commands/fork`); `/subtask` ausente | M | ninguna | Media |
+| 6 | `/fork`, `/subtask` (subagente bifurcado) | **hecho** (25/10/2026, rama `quick/fork-subtask`): `/fork` y `/subtask` siempre activos, sin flag; la bandera global `FORK_SUBAGENT` sigue sin activarse (fuerza todos los agentes a segundo plano) | M | ninguna | Media |
 | 7 | Auto mode (clasificador de permisos) | flag-roto `TRANSCRIPT_CLASSIFIER` (falta el prompt `.txt`); `BASH_CLASSIFIER` flag-ok | L | modelo (clasificador) | Media |
 | 8 | Workflows dinámicos (`Workflow`, `/workflows`) | flag-roto `WORKFLOW_SCRIPTS` (solo `constants.ts`) | L | modelo | Media-baja |
 | 9 | Pack de comodidad: `/recap`, `/cd`, `/autocompact`, `/focus`, `/tui fullscreen`, `/reload-skills`, `/skill-doctor`, `skillOverrides`, `--safe-mode`, `--restricted` | `/recap` ≈ flag-ok `AWAY_SUMMARY`; el resto ausente | S cada uno, M el conjunto | ninguna | Media |

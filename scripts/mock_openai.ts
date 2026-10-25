@@ -10,6 +10,7 @@
 //   user text containing "MONITOR_STOP_DEMO"        -> Monitor(endless ticker), then TaskStop on its id
 //   user text containing "<event>"                   -> plain text acknowledging the event
 //   user text containing "AGENT_DEMO"                -> two Agent calls (run_in_background) whose sub-agents answer after MOCK_SUB_DELAY_MS (12 s)
+//   user text containing "FORK_DEMO" / "SUBTASK_DEMO" (via /fork, /subtask) -> one Agent call (fork / general-purpose, background); the sub-agent answers "fork child done" / "subtask child done"
 //   user text containing "PREGUNTA"                  -> AskUserQuestion (header Tienda, options Mercadona / Dia); its tool result is echoed as "MOCK recibio: ..."
 //   user text containing "ECO:"                      -> plain text "MOCK eco: <text after ECO:>"
 //   any tool result                                  -> plain text "ok"
@@ -38,6 +39,15 @@ function plan(messages: Msg[]): Plan {
   const t = textOf(last)
   // A sub-agent started by AGENT_DEMO: sleep (so the panel stays visible), then answer.
   const userText = messages.filter(m => m.role === 'user').map(textOf).join('\n')
+  // Children of /fork (inherit the whole history, boilerplate marker) and /subtask (clean context).
+  if (userText.includes('<fork-boilerplate>')) return { text: 'fork child done' }
+  if (last?.role === 'user' && t.includes('SUBTASK_SUB')) return { text: 'subtask child done' }
+  if (last?.role === 'user' && t.includes('The user ran /fork') && t.includes('FORK_DEMO')) {
+    return { tool: { name: 'Agent', args: { description: 'fork demo', prompt: 'FORK_DEMO work', subagent_type: 'fork', run_in_background: true } } }
+  }
+  if (last?.role === 'user' && t.includes('The user ran /subtask') && t.includes('SUBTASK_DEMO')) {
+    return { tool: { name: 'Agent', args: { description: 'subtask demo', prompt: 'SUBTASK_SUB work', subagent_type: 'general-purpose', run_in_background: true } } }
+  }
   if (userText.includes('AGENT_SUB') && !userText.includes('AGENT_DEMO')) {
     // The delay in fetch() keeps the sub-agent alive long enough to see it in the panel.
     return { text: 'sub-agent done' }
@@ -139,11 +149,12 @@ Bun.serve({
     const body = (await req.json()) as { messages: Msg[]; tools?: { function: { name: string } }[]; stream?: boolean }
     appendFileSync(
       logPath,
-      JSON.stringify({ at: new Date().toISOString(), tools: body.tools?.map(t => t.function.name), last: textOf(body.messages.at(-1)).slice(0, 400), role: body.messages.at(-1)?.role, nMessages: body.messages.length, events: body.messages.map(textOf).join('\n').split('<event>').length - 1 }) + '\n',
+      JSON.stringify({ at: new Date().toISOString(), tools: body.tools?.map(t => t.function.name), last: textOf(body.messages.at(-1)).slice(0, 400), role: body.messages.at(-1)?.role, nMessages: body.messages.length, all: body.messages.map(textOf).join('\n'), events: body.messages.map(textOf).join('\n').split('<event>').length - 1 }) + '\n',
     )
     const p = plan(body.messages)
     const joined = body.messages.filter(m => m.role === 'user').map(textOf).join('\n')
-    if (joined.includes('AGENT_SUB') && !joined.includes('AGENT_DEMO')) await Bun.sleep(Number(process.env.MOCK_SUB_DELAY_MS ?? 12000))
+    const isChild = joined.includes('<fork-boilerplate>') || p.text === 'subtask child done'
+    if ((joined.includes('AGENT_SUB') && !joined.includes('AGENT_DEMO')) || isChild) await Bun.sleep(Number(process.env.MOCK_SUB_DELAY_MS ?? 12000))
     const base = { id: 'chatcmpl-mock', object: 'chat.completion.chunk', created: 0, model: 'mock-model' }
     if (body.stream === false) {
       return Response.json({

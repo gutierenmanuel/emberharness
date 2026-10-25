@@ -79,6 +79,14 @@ externalized `@ant/*` packages.
   3 tool-less turns or a turn cap (`--turns`, default 30). The evaluator defaults
   to the active account; `--judge <account>`, `FNHARNESS_GOAL_JUDGE` or the
   `goalJudge` setting pick another one (small local models judge poorly).
+- `/fork` and `/subtask` (always on, no flag)
+  `/fork [--model m] <instruction>` starts a background subagent that inherits the
+  whole current conversation (Agent tool with `subagent_type: "fork"`, which now
+  takes the fork path even with `FORK_SUBAGENT` off); `/subtask` starts one with a
+  clean context (`general-purpose`, only its prompt). Both show in the agents
+  panel and notify on completion. `--model` takes `sonnet|opus|haiku` or
+  `account:model`. The command asks the model to make the Agent call, so a weak
+  model may need a retry. `/branch` no longer has the `fork` alias.
 - `MONITOR_TOOL`
   The `Monitor` tool: runs a shell command in the background and delivers each
   stdout line to the model as a `<task-notification>` event (batched, filtered,
@@ -270,8 +278,9 @@ entire subsystem.
   Fails on missing `src/utils/attributionHooks.js`. Setup and cache-clear code
   already call into that hook module.
 - `FORK_SUBAGENT`
-  Fails on missing `src/commands/fork/index.js`. Command slot and message
-  rendering support are already present.
+  The commands now exist (`/fork`, `/subtask`, always on). Enabling the flag itself
+  is still not advised: it forces every Agent spawn into the background and its
+  message renderer (`UserForkBoilerplateMessage`) is missing.
 - `HISTORY_SNIP`
   Fails on missing `src/commands/force-snip.js`. The surrounding SnipTool and
   query/message comments are already there.
