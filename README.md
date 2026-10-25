@@ -47,6 +47,7 @@ Dentro de la sesión:
 | `/model` | Modelos de todas las cuentas conectadas; `cuenta:modelo` fuerza una cuenta para esa petición |
 | `/scope` | Qué llega al modelo: servidores MCP, skills y herramientas (perfil de contexto por cuenta) |
 | `/goal`, `/loop` | Mantener al agente trabajando hasta cumplir una condición, y tareas recurrentes |
+| `/background <prompt>` (`/bg`) | Lanza una sesión en segundo plano que continúa esta conversación; se gestiona con `fnharness ps\|logs\|stop\|attach\|rm` |
 
 El catálogo completo está en [docs/COMMANDS.md](docs/COMMANDS.md). La cuenta `claude` usa la API
 nativa de Anthropic; su login (`/login`) es propio de fnharness.

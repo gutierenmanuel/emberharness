@@ -202,10 +202,10 @@ async function main(): Promise<void> {
     return;
   }
 
-  // Fast-path for `claude ps|logs|attach|kill` and `--bg`/`--background`.
-  // Session management against the ~/.claude/sessions/ registry. Flag
+  // Fast-path for `fnharness ps|logs|attach|kill|stop|rm` and `--bg`/`--background`.
+  // Session management against the <config dir>/bg/ registry. Flag
   // literals are inlined so bg.js only loads when actually dispatching.
-  if (feature('BG_SESSIONS') && (args[0] === 'ps' || args[0] === 'logs' || args[0] === 'attach' || args[0] === 'kill' || args.includes('--bg') || args.includes('--background'))) {
+  if (feature('BG_SESSIONS') && (args[0] === 'ps' || args[0] === 'logs' || args[0] === 'attach' || args[0] === 'kill' || args[0] === 'stop' || args[0] === 'rm' || args.includes('--bg') || args.includes('--background') || args.some(a => a.startsWith('--bg=') || a.startsWith('--background=')))) {
     profileCheckpoint('cli_bg_path');
     const {
       enableConfigs
@@ -217,13 +217,17 @@ async function main(): Promise<void> {
         await bg.psHandler(args.slice(1));
         break;
       case 'logs':
-        await bg.logsHandler(args[1]);
+        await bg.logsHandler(args.slice(1));
         break;
       case 'attach':
         await bg.attachHandler(args[1]);
         break;
       case 'kill':
+      case 'stop':
         await bg.killHandler(args[1]);
+        break;
+      case 'rm':
+        await bg.rmHandler(args[1]);
         break;
       default:
         await bg.handleBgFlag(args);

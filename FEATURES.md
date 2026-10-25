@@ -103,6 +103,18 @@ externalized `@ant/*` packages.
   `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC`, which multimodel mode always sets.
   The WebSocket source of Claude Code's Monitor is not implemented.
 
+- `BG_SESSIONS`
+  Background sessions without tmux or a daemon. `fnharness --bg "<prompt>"`
+  launches a detached headless run (`-p --output-format stream-json`, own process
+  group) and prints its id; `fnharness ps`, `logs <id> [-f]`, `stop <id>`
+  (alias `kill`), `attach <id>` and `rm <id>` manage it, and `/background <prompt>`
+  (alias `/bg`) starts one from the TUI forking the current conversation.
+  State lives in `<CLAUDE_CONFIG_DIR>/bg/<id>/` (`meta.json`, `events.jsonl`,
+  `stderr.log`, `exit`). Limits: `attach` on a running session only follows its
+  log (no live takeover); a headless run cannot answer permission prompts, so it
+  needs a permission mode that pre-approves its tools; no `respawn` or agent
+  view yet. Code: `src/cli/bgCore.ts` (pure) and `src/cli/bg.ts` (effects).
+
 ## Working Experimental Features
 
 These are the user-facing or behavior-changing flags that currently bundle
@@ -273,9 +285,6 @@ entire subsystem.
   Fails on missing `src/utils/systemThemeWatcher.js`. `systemTheme.ts` and the
   theme provider already contain the cache/parsing logic, so the missing piece
   looks like the OSC 11 watcher only.
-- `BG_SESSIONS`
-  Fails on missing `src/cli/bg.js`. The CLI fast-path dispatch in
-  `src/entrypoints/cli.tsx` is already wired.
 - `BUDDY`
   Fails on missing `src/commands/buddy/index.js`. The buddy UI components and
   prompt-input hooks already exist.

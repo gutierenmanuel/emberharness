@@ -40,7 +40,7 @@ Orden = prioridad sugerida para uso diario como agente de terminal con modelos l
 | 2 | Tool `Monitor` | flag-roto `MONITOR_TOOL` (falta `MonitorTool.js` y `MonitorMcpTask`) | M | ninguna | Alta |
 | 3 | `/goal` | **hecho** (rama `quick/goal`, 24/10/2026) | M | modelo (evaluador) | Alta |
 | 4 | `fallbackModel` (ajuste) + hooks nuevos | **hecho** (24/10/2026, ramas quick/fallback-hooks y quick/small-pack): cadena de fallback entre cuentas y los 33 eventos de hook, más el tipo `mcp_tool` | S | ninguna | Alta |
-| 5 | Sesiones en segundo plano y agent view (`--bg`, `claude agents`, `attach`, `logs`, `stop`, `/background`) | flag-roto `BG_SESSIONS` (falta `src/cli/bg.js`); vista ausente | L | ninguna | Media-alta |
+| 5 | Sesiones en segundo plano y agent view (`--bg`, `claude agents`, `attach`, `logs`, `stop`, `/background`) | hecho el MVP (`--bg`, `ps`, `logs`, `stop`, `attach`, `rm`, `/background`); falta vista TUI y `respawn` | M | ninguna | Media-alta |
 | 6 | `/fork`, `/subtask` (subagente bifurcado) | **hecho** (25/10/2026, rama `quick/fork-subtask`): `/fork` y `/subtask` siempre activos, sin flag; la bandera global `FORK_SUBAGENT` sigue sin activarse (fuerza todos los agentes a segundo plano) | M | ninguna | Media |
 | 7 | Auto mode (clasificador de permisos) | flag-roto `TRANSCRIPT_CLASSIFIER` (falta el prompt `.txt`); `BASH_CLASSIFIER` flag-ok | L | modelo (clasificador) | Media |
 | 8 | Workflows dinámicos (`Workflow`, `/workflows`) | flag-roto `WORKFLOW_SCRIPTS` (solo `constants.ts`) | L | modelo | Media-baja |
@@ -289,12 +289,23 @@ Pendiente de este paquete:
   `claude attach|logs|stop|rm|respawn <id>`, `/background` desvincula la sesión actual, `/stop`,
   `/resume` las lista marcadas `bg`, `/tasks`. Research preview desde 2.1.139. Cada sesión es una
   conversación completa con su worktree opcional.
-- **Estado.** `feature('BG_SESSIONS')` aparece en `main.tsx`, `query.ts`, `REPL.tsx`,
-  `concurrentSessions.ts` y `conversationRecovery.ts`, pero `src/cli/bg.js` (despacho rápido de
-  `claude --bg`/`ps`/`logs`/`attach`/`kill`) falta, por eso el flag no compila (`FEATURES.md`: «easy
-  reconstruction»). El subcomando `agents` de `main.tsx` es el de definiciones de subagentes, no la
-  vista de sesiones. No hay `attach`, `logs`, `stop`, `respawn`.
-- **Esfuerzo.** L. Reconstruir `bg.js` (demonio mínimo o `nohup` + registro en
+- **Estado (quick/bg-sessions, 25/10/2026).** MVP hecho con `BG_SESSIONS` ya en el build por
+  defecto. `fnharness --bg "<prompt>"` lanza una ejecución desacoplada (`-p --output-format
+  stream-json` en su propio grupo de procesos, sin tmux ni demonio) y devuelve un id de 8 caracteres.
+  El registro vive en `<CLAUDE_CONFIG_DIR>/bg/<id>/` (`meta.json`, `events.jsonl`, `stderr.log`,
+  `exit`), así que respeta el directorio de cada instalación. Comandos: `ps` (id, cuenta, estado
+  running/done/failed/stopped/lost, inicio DD/MM HH:mm, prompt corto), `logs <id> [-f]` (eventos
+  legibles), `stop <id>` (alias `kill`), `attach <id>`, `rm <id>` y `/background <prompt>` (alias
+  `/bg`) en la TUI, que lanza una sesión bifurcando la conversación actual (`--resume --fork-session`).
+  Se rellenaron `src/cli/bg.ts`, `src/utils/taskSummary.ts` (no-op: `ps` muestra el prompt) y
+  `src/utils/udsClient.ts` (`--continue` salta las sesiones bg vivas). Lógica pura y tests en
+  `src/cli/bgCore.ts` / `bgCore.test.ts`; extremo a extremo en `tests/e2e/bgSessions.e2e.test.ts`.
+  **Límites v1:** `attach` sobre una sesión viva solo sigue sus logs (no hay toma en vivo de la TUI;
+  al terminar, `attach` la reanuda con `--resume`); una sesión headless no puede responder a
+  permisos, necesita un modo que preapruebe sus tools (el wrapper ya arranca en bypass); `/background`
+  no desvincula la TUI actual, bifurca; falta la vista TUI de agentes, `respawn` y marcar `bg` en
+  `/resume`. El subcomando `agents` sigue siendo el de definiciones de subagentes.
+- **Esfuerzo (original).** L. Reconstruir `bg.js` (demonio mínimo o `nohup` + registro en
   `~/.fnharness/sessions/`), más una vista TUI de agentes. Se puede arrancar con un MVP de
   `--bg`/`logs`/`attach` sin vista (M). Sin dependencia de Anthropic.
 - **Prioridad.** Media-alta: sustituye lanzar varios terminales a mano. Ojo: la política de este
