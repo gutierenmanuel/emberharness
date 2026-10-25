@@ -67,6 +67,11 @@ import {
 import { generateToolUseSummary } from './services/toolUseSummary/toolUseSummaryGenerator.js'
 import { prependUserContext, appendSystemContext } from './utils/api.js'
 import {
+  COMPACT_CLAUDE_MD_MAX_FILE_CHARS,
+  isCompactToolSet,
+  trimClaudeMdForCompact,
+} from './constants/compactPrompts.js'
+import {
   createAttachmentMessage,
   filterDuplicateMemoryAttachments,
   getAttachmentMessages,
@@ -231,6 +236,22 @@ type State = {
 /** Model id on the native Claude account for a chain entry (`claude:haiku`). */
 function resolveClaudeFallbackModel(alias: string | undefined): string {
   return alias ? parseUserSpecifiedModel(alias) : getDefaultMainLoopModel()
+}
+
+// Compact profile: long CLAUDE.md files are left out (FNHARNESS_LOCAL_MD_MAX_CHARS
+// overrides the 4000-char cap per file, 0 keeps everything; the total cap is 6000).
+function leanUserContext(
+  userContext: { [k: string]: string },
+  tools: ReadonlyArray<{ name: string }>,
+): { [k: string]: string } {
+  if (!userContext.claudeMd || !isCompactToolSet(tools)) return userContext
+  const max = Number(
+    process.env.FNHARNESS_LOCAL_MD_MAX_CHARS ?? COMPACT_CLAUDE_MD_MAX_FILE_CHARS,
+  )
+  return {
+    ...userContext,
+    claudeMd: trimClaudeMdForCompact(userContext.claudeMd, max),
+  }
 }
 
 export async function* query(
@@ -467,8 +488,17 @@ async function* queryLoop(
       messagesForQuery = collapseResult.messages
     }
 
+    // Compact (local, Simple profile) prompts already say "Git repository: yes".
+    // The git status snapshot costs ~1k tokens and changes between sessions,
+    // which invalidates the prefix cache of everything rendered after it.
+    const { gitStatus: _gitStatus, ...systemContextNoGit } = systemContext
     const fullSystemPrompt = asSystemPrompt(
-      appendSystemContext(systemPrompt, systemContext),
+      appendSystemContext(
+        systemPrompt,
+        isCompactToolSet(toolUseContext.options.tools)
+          ? systemContextNoGit
+          : systemContext,
+      ),
     )
 
     queryCheckpoint('query_autocompact_start')
@@ -678,7 +708,10 @@ async function* queryLoop(
           let streamingFallbackOccured = false
           queryCheckpoint('query_api_streaming_start')
           for await (const message of deps.callModel({
-            messages: prependUserContext(messagesForQuery, userContext),
+            messages: prependUserContext(
+              messagesForQuery,
+              leanUserContext(userContext, toolUseContext.options.tools),
+            ),
             systemPrompt: fullSystemPrompt,
             thinkingConfig: toolUseContext.options.thinkingConfig,
             tools: toolUseContext.options.tools,

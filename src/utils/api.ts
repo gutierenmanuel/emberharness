@@ -35,7 +35,12 @@ import type { AgentDefinition } from '../tools/AgentTool/loadAgentsDir.js'
 import { EXIT_PLAN_MODE_V2_TOOL_NAME } from '../tools/ExitPlanModeTool/constants.js'
 import { TASK_OUTPUT_TOOL_NAME } from '../tools/TaskOutputTool/constants.js'
 import type { Message } from '../types/message.js'
-import { compactToolDescription, isCompactToolSet } from '../constants/compactPrompts.js'
+import {
+  COMPACT_SCHEMA_DESC_MAX_CHARS,
+  compactToolDescription,
+  isCompactToolSet,
+  slimSchemaDescriptions,
+} from '../constants/compactPrompts.js'
 import { shouldInjectAgentListInMessages } from '../tools/AgentTool/prompt.js'
 import { isAgentSwarmsEnabled } from './agentSwarmsEnabled.js'
 import {
@@ -177,6 +182,16 @@ export async function toolToAPISchema(
     // This ensures external non-EAP users don't see swarm features in the schema
     if (!isAgentSwarmsEnabled()) {
       input_schema = filterSwarmFieldsFromSchema(tool.name, input_schema)
+    }
+
+    if (compactDescription !== undefined) {
+      input_schema = slimSchemaDescriptions(
+        input_schema,
+        Number(
+          process.env.FNHARNESS_LOCAL_SCHEMA_DESC_MAX ??
+            COMPACT_SCHEMA_DESC_MAX_CHARS,
+        ),
+      )
     }
 
     base = {

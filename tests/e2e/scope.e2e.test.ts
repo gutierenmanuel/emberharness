@@ -58,8 +58,10 @@ describe.skipIf(!hasCli)('context profile e2e', () => {
     // Whole fixed cost (system + tool definitions) stays under ~4k tokens (chars / 4).
     expect((system(simple!).length + toolsJson(simple!).length) / 4).toBeLessThan(4000)
     expect(system(simple!).length).toBeLessThan(system(full!).length / 4)
-    // Input schemas are untouched: the same parameters as in Full for every shared tool.
-    const params = (b: ChatBody, n: string) => JSON.stringify((b.tools as any[]).find(t => t.function.name === n).function.parameters)
+    // Input schemas keep names, types, enums and required lists as in Full; only the
+    // per-parameter description text is shortened (FNHARNESS_LOCAL_SCHEMA_DESC_MAX).
+    const params = (b: ChatBody, n: string) =>
+      JSON.stringify((b.tools as any[]).find(t => t.function.name === n).function.parameters, (k, v) => (k === 'description' && typeof v === 'string' ? undefined : v))
     for (const n of SIMPLE) expect(params(simple!, n)).toBe(params(full!, n))
   }, 140_000)
 
