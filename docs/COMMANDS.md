@@ -6,6 +6,8 @@ Nota sobre `--help` anidado: en este build, `./cli mcp add --help` sí funciona,
 
 ## 1. Cómo leer la columna "Backend no-Anthropic"
 
+Cuenta de arranque: `--account` > `default` (`/account default <id> [modelo]`, `fnharness --set-default`) > última usada > `claude`.
+
 Con `fnharness --account ...` (o `CLAUDE_MULTIMODEL_PROVIDER`) el harness habla con un servidor compatible con OpenAI. En ese modo `applyMultimodelEnv()` inyecta una `ANTHROPIC_API_KEY` de relleno, por lo que la sesión **no** es de suscriptor de claude.ai ni usa OAuth. Las consecuencias, deducidas del código (no se probaron contra un backend real):
 
 - **Sí**: el comando es local o es un prompt que se envía al modelo activo; funciona con cualquier backend.

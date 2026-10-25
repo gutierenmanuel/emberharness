@@ -19,6 +19,7 @@
 import { AsyncLocalStorage } from 'async_hooks'
 import { catalogIdFor, findProvider, modelLimits, type Catalog } from './catalog.js'
 import { loadCatalog } from './catalogStore.js'
+import { getServerInfo, refreshServerInfo } from './statusInfo.js'
 import {
   accountsFilePath,
   loadStore,
@@ -245,11 +246,20 @@ export function getModelLimits(
   const fromCatalog = profile.catalogProvider
     ? modelLimits(catalog ?? loadCatalog(), profile.catalogProvider, model)
     : undefined
-  return {
-    contextWindow: profile.contextWindow ?? fromCatalog?.contextWindow,
-    maxOutputTokens: profile.maxOutputTokens ?? fromCatalog?.maxOutputTokens,
+  // A local server that reported its real n_ctx (GET /props) is the truth.
+  const serverCtx = getServerInfo(profile.baseUrl)?.nCtx ?? undefined
+  const contextWindow = serverCtx ?? profile.contextWindow ?? fromCatalog?.contextWindow
+  let maxOutputTokens = profile.maxOutputTokens ?? fromCatalog?.maxOutputTokens
+  // A short window with no output cap would reserve the Claude default (32k)
+  // for the answer and push auto-compact below zero: a quarter of it instead.
+  if (maxOutputTokens === undefined && contextWindow !== undefined && contextWindow <= SMALL_WINDOW) {
+    maxOutputTokens = Math.floor(contextWindow / 4)
   }
+  return { contextWindow, maxOutputTokens }
 }
+
+/** Windows up to this size count as "short" (local models) for the default output cap. */
+const SMALL_WINDOW = 65_536
 
 let cachedProfile: MultimodelProfile | null | undefined
 
@@ -390,6 +400,8 @@ export function setActiveProfile(
     env.CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC ||= '1'
     env.DISABLE_TELEMETRY ||= '1'
   }
+  // Learn the real window of a local server in the background (cached, TTL).
+  refreshServerInfo(profile?.baseUrl, env)
 }
 
 /**
