@@ -19,6 +19,7 @@
 import { AsyncLocalStorage } from 'async_hooks'
 import { catalogIdFor, findProvider, modelLimits, type Catalog } from './catalog.js'
 import { loadCatalog } from './catalogStore.js'
+import { isLocalBaseUrl } from './speedStats.js'
 import { getServerInfo, refreshServerInfo } from './statusInfo.js'
 import {
   accountsFilePath,
@@ -333,6 +334,15 @@ export function getMultimodelProfile(): MultimodelProfile | null {
     cachedProfile = resolveProfile(process.env)
   }
   return cachedProfile
+}
+
+/**
+ * True when the live account talks to a server on this machine (localhost,
+ * 127.0.0.1 or [::1]). Same test as the speed line and the status bar, so
+ * "local" means one thing everywhere. `claude` and remote accounts are false.
+ */
+export function isLocalAccountActive(): boolean {
+  return isLocalBaseUrl(getMultimodelProfile()?.baseUrl)
 }
 
 export function isMultimodelActive(): boolean {
