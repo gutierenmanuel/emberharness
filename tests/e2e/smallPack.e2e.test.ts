@@ -3,7 +3,7 @@
  * and Esc on a pending /loop wake-up. Fake OpenAI backend; no real provider.
  */
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'fs'
+import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'fs'
 import { join } from 'path'
 import { CLI, fakeEnv, hasCli, makeSandbox, startFakeOpenAI } from './harness.js'
 import { startTui } from './tui.js'
@@ -149,6 +149,80 @@ describe.skipIf(!hasCli)('small pack e2e', () => {
       await tui.stop()
     }
   }, 90_000)
+
+  /** Backend that calls PushNotification once, then says "listo". Records the tools it was offered. */
+  function pushBackend() {
+    const chunk = (delta: object, finish: string | null = null) =>
+      `data: ${JSON.stringify({ id: 'c', object: 'chat.completion.chunk', created: 0, model: 'fake-model', choices: [{ index: 0, delta, finish_reason: finish }] })}\n\n`
+    const toolNames: string[][] = []
+    const results: string[] = []
+    const server = Bun.serve({
+      port: 0,
+      hostname: '127.0.0.1',
+      async fetch(req) {
+        if (!new URL(req.url).pathname.endsWith('/chat/completions')) return Response.json({ data: [] })
+        const body = (await req.json()) as { messages: Array<{ role: string; content: unknown }>; tools?: Array<{ function?: { name?: string } }> }
+        const names = (body.tools ?? []).map(t => t.function?.name ?? '')
+        if (names.length > 0) toolNames.push(names)
+        const tool = body.messages.find(m => m.role === 'tool')
+        if (tool) results.push(JSON.stringify(tool.content))
+        const wants = !tool && names.includes('PushNotification')
+        const sse = wants
+          ? chunk({ role: 'assistant', tool_calls: [{ index: 0, id: 'call_p', type: 'function', function: { name: 'PushNotification', arguments: JSON.stringify({ message: 'Build terminado', title: 'CI' }) } }] }) + chunk({}, 'tool_calls') + 'data: [DONE]\n\n'
+          : chunk({ role: 'assistant', content: 'listo' }) + chunk({}, 'stop') + 'data: [DONE]\n\n'
+        return new Response(sse, { headers: { 'content-type': 'text/event-stream' } })
+      },
+    })
+    return { baseUrl: `http://127.0.0.1:${server.port}/v1`, toolNames, results, stop: () => server.stop(true) }
+  }
+
+  test('PushNotification calls notify-send silently (mocked binary on PATH)', async () => {
+    const { configDir, cwd } = makeSandbox()
+    const bin = join(cwd, 'bin')
+    mkdirSync(bin)
+    const argsFile = join(cwd, 'notify-args.txt')
+    writeFileSync(join(bin, 'notify-send'), `#!/bin/sh\nfor a in "$@"; do printf '%s\\n' "$a"; done > ${argsFile}\n`)
+    chmodSync(join(bin, 'notify-send'), 0o755)
+    const backend = pushBackend()
+    try {
+      const out = await runP(['di que terminaste'], cwd, fakeEnv(backend.baseUrl, configDir, { FNHARNESS_CONTEXT_PROFILE: 'full', PATH: `${bin}:${process.env.PATH}` }))
+      expect(out).toContain('listo')
+      const args = readFileSync(argsFile, 'utf8').split('\n')
+      expect(args).toContain('boolean:suppress-sound:true')
+      expect(args).toContain('CI')
+      expect(args).toContain('Build terminado')
+      expect(backend.results.join('')).toContain('Notification sent to the desktop')
+    } finally {
+      backend.stop()
+    }
+  }, 70_000)
+
+  test('PushNotification is not offered when pushNotificationEnabled is false', async () => {
+    const { configDir, cwd } = makeSandbox()
+    const backend = pushBackend()
+    try {
+      const settings = JSON.stringify({ pushNotificationEnabled: false })
+      const out = await runP(['--settings', settings, 'hola'], cwd, fakeEnv(backend.baseUrl, configDir, { FNHARNESS_CONTEXT_PROFILE: 'full' }))
+      expect(out).toContain('listo')
+      expect(backend.toolNames.length).toBeGreaterThan(0)
+      expect(backend.toolNames.every(n => !n.includes('PushNotification'))).toBe(true)
+    } finally {
+      backend.stop()
+    }
+  }, 70_000)
+
+  test('PushNotification without notify-send reports it in headless mode', async () => {
+    const { configDir, cwd } = makeSandbox()
+    const backend = pushBackend()
+    try {
+      // PATH without notify-send: only the dir of the bun binary and basics.
+      const out = await runP(['di que terminaste'], cwd, fakeEnv(backend.baseUrl, configDir, { FNHARNESS_CONTEXT_PROFILE: 'full', PATH: '/nonexistent' }))
+      expect(out).toContain('listo')
+      expect(backend.results.join('')).toContain('not delivered')
+    } finally {
+      backend.stop()
+    }
+  }, 70_000)
 
   test('Esc cancels a pending autopaced /loop wake-up', async () => {
     const { configDir, cwd } = makeSandbox()
