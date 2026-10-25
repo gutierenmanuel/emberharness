@@ -4,6 +4,7 @@ import * as React from 'react';
 import { BLACK_CIRCLE } from '../../constants/figures.js';
 import { Box, Text, type TextProps } from '../../ink.js';
 import { extractTag } from '../../utils/messages.js';
+import { displayAgentSummary } from './agentNotificationSummary.js';
 type Props = {
   addMargin: boolean;
   param: TextBlockParam;
@@ -37,7 +38,8 @@ export function UserAgentNotificationMessage(t0) {
   } else {
     t2 = $[1];
   }
-  const summary = t2;
+  const rawDuration = extractTag(text, "duration_ms");
+  const summary = t2 ? displayAgentSummary(t2, rawDuration ? Number(rawDuration) : null) : t2;
   if (!summary) {
     return null;
   }

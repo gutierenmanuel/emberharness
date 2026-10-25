@@ -846,10 +846,15 @@ function PromptInput({
     setCursorOffset,
     setPastedContents
   });
+  // Local (Agent tool) subagents have no teammate identity: label the steering hint with the agent type.
+  const viewedLocalAgentType = useAppState(s => {
+    const t = s.viewingAgentTaskId ? s.tasks[s.viewingAgentTaskId] : undefined;
+    return t && t.type === 'local_agent' ? t.agentType : undefined;
+  });
   const defaultPlaceholder = usePromptInputPlaceholder({
     input,
     submitCount,
-    viewingAgentName
+    viewingAgentName: viewingAgentName ?? viewedLocalAgentType
   });
   const onChange = useCallback((value: string) => {
     if (value === '?') {
