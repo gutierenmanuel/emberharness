@@ -28,11 +28,13 @@ cd fnharness
 ## Uso
 
 ```bash
-fnharness                          # sesión interactiva con la última cuenta usada
+fnharness                          # sesión interactiva con la cuenta predeterminada (o, si no hay, la última usada)
 fnharness --resume <session_id>    # retomar una sesión
 fnharness --account llamacpp       # arrancar con una cuenta concreta (no se guarda)
 fnharness --account ollama --model qwen3:8b -p "resume este repo"
-fnharness --accounts               # cuentas disponibles
+fnharness --accounts               # cuentas, la predeterminada, la última usada y con cuál abrirá
+fnharness --set-default qwen36     # fija la cuenta con la que abre (opcional: modelo detrás)
+fnharness --set-default last       # sin predeterminada: vuelve a «la última usada»
 ```
 
 Dentro de la sesión:
@@ -41,12 +43,47 @@ Dentro de la sesión:
 |---|---|
 | `/account` | Selector de cuentas con su estado (listo, falta clave, servidor local apagado) |
 | `/account <id> [modelo]` | Cambia de cuenta y, opcionalmente, de modelo |
+| `/account default <id\|last> [modelo]` | Fija la cuenta (y modelo) con la que abre fnharness; `last` la quita |
 | `/model` | Modelos de todas las cuentas conectadas; `cuenta:modelo` fuerza una cuenta para esa petición |
 | `/scope` | Qué llega al modelo: servidores MCP, skills y herramientas (perfil de contexto por cuenta) |
 | `/goal`, `/loop` | Mantener al agente trabajando hasta cumplir una condición, y tareas recurrentes |
 
 El catálogo completo está en [docs/COMMANDS.md](docs/COMMANDS.md). La cuenta `claude` usa la API
 nativa de Anthropic; su login (`/login`) es propio de fnharness.
+
+## Cuenta con la que abre
+
+Orden de decisión al arrancar: `--account` > **predeterminada** (`default` en `accounts.json`) >
+**última usada** (`active`, la escribe cada cambio de cuenta) > `claude`. La predeterminada es opt-in:
+sin ella todo sigue como antes (se abre con la última usada). Se fija con `/account default <id>
+[modelo]` o `fnharness --set-default <id> [modelo]` (el modelo queda guardado como el de esa cuenta);
+`last` o `none` la borran. Cambiar de cuenta dentro de una sesión no mueve la predeterminada, solo la
+«última usada». Si la predeterminada deja de existir (se borra la cuenta) se salta y se usa la última.
+`fnharness --accounts` y `/account list` marcan cuál es y con cuál abrirá.
+
+## Barra de estado
+
+`statusline.sh` recibe por stdin el JSON de siempre más un bloque `fnharness` que se calcula con la
+cuenta activa (nada de supuestos de Claude): `account` (id, etiqueta, proveedor, URL, modelo, nombre
+que da el servidor), `context` (ventana real, de dónde sale: `server`, `preset`, `catalog` o `claude`,
+umbral de autocompactación y tope de salida), `server` (si responde y su `n_ctx`), `speed` (último
+turno medido, mismo formato que `local_speed`) y `cost` (`subscription`, `free`, `priced`,
+`unpriced`). Ejemplo con la cuenta `qwen36`:
+
+```
+qwen36-35b-heretic-q4km [qwen36] │ CTX: █░░░░░░░░░ 10% (3k/32k) ⟳25.8k │ IN:3k OUT:5 │ ⎇ master │ 15:55
+local · sin coste │ +0/-0 │ Total: ↓3k/↑21 │ ⏱ 13s │ ~/proyecto
+qwen36 Qwen3.6 35B heretic (local) @ localhost:8090 ● en línea │ ventana 32k (servidor) · salida máx 4k · autocompacta a 25.8k │ ⚡ TTFT 9.47 s · gen 29.3 tok/s · lectura 172 tok/s · espec. 50%
+```
+
+Con `claude` la tercera línea es `claude Anthropic │ ventana 200k · salida máx 32k · autocompacta a
+167k` y se mantienen coste y límites 5h/7d (que no se muestran en el resto de cuentas). La ventana de
+un servidor local sale de `GET /props` (`n_ctx` por slot, llama.cpp) y **gana** al preset, además de
+alimentar el autocompactado; si no hay tope de salida y la ventana es corta (≤ 64k) se usa un cuarto
+de ella. La consulta es una sola petición en segundo plano con TTL (15 s en línea, 4 s caído), no
+bloquea el refresco; `FNHARNESS_SERVER_PROBE=0` la desactiva. Para que la barra se actualice sola
+cada 2 s, el `settings.json` necesita `"refreshInterval": 2` en `statusLine` (el lanzador lo escribe
+solo en instalaciones nuevas).
 
 ## Canal de eventos para Matrix
 

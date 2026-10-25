@@ -3,6 +3,10 @@ import { createOpenAICompatFetch } from './adapter.js'
 import {
   buildSpeedSample,
   drainSpeedSamples,
+  drainSpeedSummary,
+  getLastSpeedSummary,
+  recordSpeedSample,
+  resetLastSpeedSummaryForTesting,
   formatSpeedLine,
   isLocalBaseUrl,
   localSpeedEnabled,
@@ -131,5 +135,17 @@ describe('adapter records only for local profiles', () => {
   })
   test('remote -> none', async () => {
     expect((await run('https://api.openai.com/v1')).length).toBe(0)
+  })
+})
+
+describe('last speed summary (status bar)', () => {
+  test('survives the drain and is not wiped by an empty turn', () => {
+    resetLastSpeedSummaryForTesting()
+    drainSpeedSamples()
+    expect(getLastSpeedSummary()).toBeNull()
+    recordSpeedSample(buildSpeedSample({ timings: llamaTimings, ttftMs: 400, totalMs: 6000 })!)
+    expect(drainSpeedSummary()?.predictedTps).toBeCloseTo(42)
+    expect(drainSpeedSummary()).toBeNull()
+    expect(getLastSpeedSummary()?.predictedTps).toBeCloseTo(42)
   })
 })

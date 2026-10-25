@@ -12,6 +12,8 @@ import {
   probeBackend,
   profileForAccount,
   saveStore,
+  startupSource,
+  withDefault,
   type Account,
 } from '../../services/api/openai-compat/accounts.js'
 import { findProvider, usableProviders, type Catalog } from '../../services/api/openai-compat/catalog.js'
@@ -50,10 +52,46 @@ export async function accountsWithStatus(
 export function formatAccountLine(
   a: Account & { online?: boolean },
   activeId: string,
+  defaultId?: string,
 ): string {
   const mark = a.id === activeId ? '●' : ' '
   const state = !a.ready ? '✗' : a.online === false ? '○ apagado' : '✓'
-  return `${mark} ${a.id.padEnd(11)} ${state.padEnd(9)} ${a.label} — ${a.detail}`
+  const def = a.id === defaultId ? ' [predeterminada]' : ''
+  return `${mark} ${a.id.padEnd(11)} ${state.padEnd(9)} ${a.label} — ${a.detail}${def}`
+}
+
+/**
+ * `/account default <id|last> [modelo]`: fixes the account new sessions open
+ * with (and, optionally, its model); `last` (or `none`) goes back to "last used".
+ */
+export function setDefaultAccount(
+  id: string,
+  model: string | undefined,
+  env = process.env,
+): ActionResult {
+  const path = accountsFilePath(env)
+  let store = loadStore(path)
+  if (id === 'last' || id === 'none') {
+    saveStore(withDefault(store, null), path)
+    return { message: 'Sin cuenta predeterminada: fnharness abrirá con la última cuenta usada.' }
+  }
+  store = withDefault(store, id)
+  if (model && id !== CLAUDE_ACCOUNT_ID) store.accounts[id] = { ...store.accounts[id], model }
+  // Fail now (missing key, ...) instead of at the next launch.
+  const profile = profileForAccount(id, store, env)
+  saveStore(store, path)
+  const modelPart = profile ? ` · modelo ${profile.model}` : ''
+  return {
+    message: `Cuenta predeterminada: ${profile?.label ?? 'Claude (Anthropic)'} (${id})${modelPart}. Se usa al abrir fnharness salvo --account.`,
+  }
+}
+
+/** Where the next launch will get its account from, one line for `/account list`. */
+export function startupSummary(env = process.env): string {
+  const store = loadStore(accountsFilePath(env))
+  const src = startupSource(store, { ...env, CLAUDE_MULTIMODEL_ACCOUNT: undefined })
+  if (src === 'default') return `Al abrir: ${store.default} (predeterminada; /account default last para usar la última)`
+  return `Al abrir: ${store.active ?? CLAUDE_ACCOUNT_ID} (última usada; /account default <id> para fijar una)`
 }
 
 export function switchAccount(
@@ -215,6 +253,7 @@ export function removeAccount(id: string, env = process.env): ActionResult {
   }
   delete store.accounts[id]
   if (store.active === id) store.active = CLAUDE_ACCOUNT_ID
+  if (store.default === id) delete store.default
   saveStore(store, path)
   return { message: `Datos de ${id} eliminados.` }
 }

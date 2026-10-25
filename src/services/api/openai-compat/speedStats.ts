@@ -211,8 +211,22 @@ export function drainSpeedSamples(): SpeedSample[] {
   return out
 }
 
+let lastSummary: SpeedSummary | null = null
+
+/** Summary of the last turn that produced one (the status bar keeps showing it while idle). */
+export function getLastSpeedSummary(): SpeedSummary | null {
+  return lastSummary
+}
+
+/** Tests only. */
+export function resetLastSpeedSummaryForTesting(): void {
+  lastSummary = null
+}
+
 /** Drains the buffer and returns its summary (null when empty or disabled). */
 export function drainSpeedSummary(): SpeedSummary | null {
   const samples = drainSpeedSamples()
-  return localSpeedEnabled() ? summarizeSamples(samples) : null
+  const summary = localSpeedEnabled() ? summarizeSamples(samples) : null
+  if (summary) lastSummary = summary
+  return summary
 }
