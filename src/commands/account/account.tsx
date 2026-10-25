@@ -17,6 +17,8 @@ import {
   activeAccountId,
   addAccount,
   buildPickerSections,
+  setDefaultAccount,
+  startupSummary,
   presetKeyHint,
   type PickerEntry,
   formatAccountLine,
@@ -30,6 +32,7 @@ const HELP = [
   '/account                      selector interactivo',
   '/account list                 cuentas y su estado',
   '/account <id> [modelo]        cambiar de cuenta (y modelo)',
+  '/account default <id|last> [modelo]   cuenta (y modelo) con la que abre fnharness; last = la última usada',
   '/account key <id> <apikey>    guardar la clave de una cuenta',
   '/account add <id> <baseUrl> [modelo]   cuenta OpenAI-compatible propia',
   '/account add <proveedor> [id] [modelo] cuenta de un proveedor del catálogo (sin URL)',
@@ -203,14 +206,16 @@ export const call: LocalJSXCommandCall = async (onDone, context, args) => {
   }
   if (cmd === 'list') {
     const active = activeAccountId()
-    const lines = (await accountsWithStatus()).map(a => formatAccountLine(a, active))
-    onDone(lines.join('\n'), { display: 'system' })
+    const defaultId = loadStore(accountsFilePath()).default
+    const lines = (await accountsWithStatus()).map(a => formatAccountLine(a, active, defaultId))
+    onDone([...lines, '', startupSummary()].join('\n'), { display: 'system' })
     return null
   }
   if (cmd === 'catalog') {
     onDone(catalogLines(loadCatalog(), rest.join(' ')).join('\n'), { display: 'system' })
     return null
   }
+  if (cmd === 'default' && rest.length >= 1) return apply(() => setDefaultAccount(rest[0]!, rest[1]))
   if (cmd === 'key' && rest.length >= 2) return apply(() => setKey(rest[0]!, rest[1]!))
   if (cmd === 'add' && rest.length >= 1) return apply(() => addAccount(rest[0]!, rest[1], rest[2]))
   if (cmd === 'remove' && rest.length >= 1) return apply(() => removeAccount(rest[0]!))
