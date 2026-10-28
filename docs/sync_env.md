@@ -22,7 +22,7 @@ scripts/sync_env.sh             # aplica, con backup previo en ~/.fnharness/back
 - `.claude.json`: solo `mcpServers` del nivel usuario. Gana el origen salvo que el servidor de
   fnharness lleve `"fnharnessOwn": true`; los servidores propios que no existen en el origen se
   conservan. El fichero se escribe con permisos 0600 y el informe solo muestra nombres de servidor.
-- Enlaces: `hooks/`, `commands/`, `agents/` y `CLAUDE.md` hacia la ruta real (`readlink -f`) de
+- Enlaces: `hooks/`, `commands/`, `agents/`, `skills/` y `CLAUDE.md` hacia la ruta real (`readlink -f`) de
   `~/.claude`, solo si faltan. `.credentials.json` no se toca.
 
 ## Tests
