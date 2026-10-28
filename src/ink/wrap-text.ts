@@ -67,7 +67,14 @@ export default function wrapText(
       position = 'start'
     }
 
-    return truncate(text, maxWidth, position)
+    // Cada línea se trunca por separado. Truncar la cadena entera descartaba
+    // todo lo posterior a la primera línea cuando el nodo era más estrecho que
+    // la línea más ancha, y una statusline multilínea quedaba en una sola línea.
+    if (!text.includes('\n')) return truncate(text, maxWidth, position)
+    return text
+      .split('\n')
+      .map(line => truncate(line, maxWidth, position))
+      .join('\n')
   }
 
   return text
