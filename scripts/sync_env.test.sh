@@ -12,7 +12,7 @@ assert() { if eval "$2"; then ok "$1"; else fail "$1  [$2]"; fi; }
 
 setup() {
   ROOT="$(mktemp -d)"; H="$ROOT/home"; F="$H/.fnharness"
-  mkdir -p "$ROOT/registry/hooks" "$H/.claude/commands" "$F"
+  mkdir -p "$ROOT/registry/hooks" "$H/.claude/commands" "$H/.claude/skills" "$F"
   ln -s "$ROOT/registry/hooks" "$H/.claude/hooks"
   echo '# x' >"$ROOT/registry/CLAUDE.md"; ln -s "$ROOT/registry/CLAUDE.md" "$H/.claude/CLAUDE.md"
   cat >"$H/.claude/settings.json" <<JSON
@@ -77,6 +77,7 @@ assert "backups con 0600" '[ -z "$(find "$F/backups" -type f ! -perm 600)" ]'
 assert "sin secretos en stdout" '! grep -q "$SECRET" <<<"$CHECK_OUT$DRY_OUT$APPLY_OUT$APPLY2_OUT"'
 assert "enlace hooks a la ruta real" '[ "$(readlink "$F/hooks")" = "$ROOT/registry/hooks" ]'
 assert "enlace CLAUDE.md a la ruta real" '[ "$(readlink "$F/CLAUDE.md")" = "$ROOT/registry/CLAUDE.md" ]'
+assert "enlace skills a la ruta real" '[ "$(readlink "$F/skills")" = "$H/.claude/skills" ]'
 
 # enlace existente no se pisa
 rm "$F/commands" 2>/dev/null; ln -s /tmp "$F/commands"; run

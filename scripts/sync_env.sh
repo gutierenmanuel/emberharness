@@ -5,7 +5,7 @@
 #   - settings.json: fusiona hooks, permissions, env, enabledPlugins y language desde el de Claude Code.
 #     Conserva todo lo propio de fnharness (statusLine, model, skipDangerousModePermissionPrompt...).
 #   - .claude.json: solo mcpServers del nivel usuario; gana el origen salvo marca "fnharnessOwn": true.
-#   - Enlaces simbólicos hooks/, commands/, agents/ y CLAUDE.md hacia su ruta real (readlink -f).
+#   - Enlaces simbólicos hooks/, commands/, agents/, skills/ y CLAUDE.md hacia su ruta real (readlink -f).
 #
 # Uso: sync_env.sh [--check | --dry-run] [--help]
 #   --check    no escribe; imprime diferencias (solo nombres) y sale con 1 si las hay, 0 si no.
@@ -20,7 +20,7 @@ set -euo pipefail
 FNH_HOME="${FNHARNESS_HOME:-$HOME/.fnharness}"
 SRC_DIR="${CLAUDE_SRC:-$HOME/.claude}"
 SRC_JSON="${CLAUDE_JSON_SRC:-$HOME/.claude.json}"
-LINKS=(hooks commands agents CLAUDE.md)
+LINKS=(hooks commands agents skills CLAUDE.md)
 
 # ---------------------------------------------------------------- lógica pura (jq)
 
