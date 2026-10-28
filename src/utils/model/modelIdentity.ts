@@ -24,6 +24,8 @@ export type ModelIdentity = {
   tier?: ClaudeTier
   /** El modo rápido de Claude Code usa este modelo. */
   supportsFastMode: boolean
+  /** Ventana de contexto nativa, si el modelo la trae sin opt-in `[1m]`. */
+  contextWindow?: number
   /** Nombre para el trailer `Co-Authored-By`. */
   coAuthorName: string
   /** Correo para el trailer `Co-Authored-By`. */
@@ -38,13 +40,24 @@ type ClaudeModelEntry = {
   version: string
   knowledgeCutoff?: string
   supportsFastMode?: boolean
+  /** Ventana nativa en tokens; undefined = la estándar de 200k. */
+  contextWindow?: number
   /** ID completo que se muestra al modelo como referencia de API. */
   apiId: string
 }
 
+const ONE_MILLION = 1_000_000
+
 // @[MODEL LAUNCH]: añadir aquí cada modelo Claude nuevo (una línea). El orden
 // no importa: "el más reciente" de cada tier es el de mayor versión.
 const CLAUDE_MODELS: readonly ClaudeModelEntry[] = [
+  {
+    id: 'claude-opus-5-5',
+    tier: 'opus',
+    version: '5.5',
+    contextWindow: ONE_MILLION,
+    apiId: 'claude-opus-5-5',
+  },
   {
     id: 'claude-opus-4-6',
     tier: 'opus',
@@ -64,6 +77,7 @@ const CLAUDE_MODELS: readonly ClaudeModelEntry[] = [
     id: 'claude-sonnet-5-5',
     tier: 'sonnet',
     version: '5.5',
+    contextWindow: ONE_MILLION,
     apiId: 'claude-sonnet-5-5',
   },
   {
@@ -140,6 +154,7 @@ export function getModelIdentity(modelId: string): ModelIdentity {
         knowledgeCutoff: known?.knowledgeCutoff,
         tier,
         supportsFastMode: known?.supportsFastMode ?? false,
+        contextWindow: known?.contextWindow,
         coAuthorName: `Claude ${marketingName}`,
         coAuthorEmail: CLAUDE_EMAIL,
       }

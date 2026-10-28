@@ -48,11 +48,22 @@ describe('getModelIdentity', () => {
   })
 })
 
+describe('ventana de contexto nativa', () => {
+  test('Sonnet 5.5 y Opus 5.5 traen 1M; el resto no declara ventana propia', () => {
+    for (const m of ['claude-sonnet-5-5', 'claude-opus-5-5', 'claude-opus-5-5[1m]']) {
+      expect(getModelIdentity(m).contextWindow).toBe(1_000_000)
+    }
+    for (const m of ['claude-opus-4-6', 'claude-sonnet-4-6', 'claude-haiku-4-5', 'qwen36-35b-heretic-q4km']) {
+      expect(getModelIdentity(m).contextWindow).toBeUndefined()
+    }
+  })
+})
+
 describe('modelos Claude más recientes', () => {
   test('cada tier usa su versión más alta conocida', () => {
     const latest = getLatestClaudeModels()
     expect(latest.sonnet.marketingName).toBe('Sonnet 5.5')
-    expect(latest.opus.marketingName).toBe('Opus 4.6')
+    expect(latest.opus.marketingName).toBe('Opus 5.5')
     expect(latest.haiku.apiId).toBe('claude-haiku-4-5-20251001')
     const text = describeLatestClaudeModels()
     expect(text).toContain("Sonnet 5.5: 'claude-sonnet-5-5'")

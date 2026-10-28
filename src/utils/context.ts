@@ -6,6 +6,7 @@ import { getGlobalConfig } from './config.js'
 import { isEnvTruthy } from './envUtils.js'
 import { getCanonicalName } from './model/model.js'
 import { getModelCapability } from './model/modelCapabilities.js'
+import { getModelIdentity } from './model/modelIdentity.js'
 
 // Model context window size (200k tokens for all models right now)
 export const MODEL_CONTEXT_WINDOW_DEFAULT = 200_000
@@ -46,8 +47,22 @@ export function modelSupports1M(model: string): boolean {
   if (is1mContextDisabled()) {
     return false
   }
+  if (hasNative1MContext(model)) {
+    return true
+  }
   const canonical = getCanonicalName(model)
   return canonical.includes('claude-sonnet-4') || canonical.includes('opus-4-6')
+}
+
+/**
+ * Models that ship a 1M window natively (Sonnet 5.5, Opus 5.5): no `[1m]`
+ * suffix or beta header needed. Declared in modelIdentity.ts.
+ */
+export function hasNative1MContext(model: string): boolean {
+  if (is1mContextDisabled()) {
+    return false
+  }
+  return (getModelIdentity(model).contextWindow ?? 0) >= 1_000_000
 }
 
 export function getContextWindowForModel(
@@ -81,6 +96,11 @@ export function getContextWindowForModel(
 
   // [1m] suffix — explicit client-side opt-in, respected over all detection
   if (has1mContext(model)) {
+    return 1_000_000
+  }
+
+  // Native 1M models: the identity table wins over the generic 200k default.
+  if (hasNative1MContext(model)) {
     return 1_000_000
   }
 
