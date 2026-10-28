@@ -328,7 +328,7 @@ function applyStylesToWrappedText(
  * source). wrapAnsi already processes each input line independently, so
  * wrapping per-input-line here gives identical output to a single
  * whole-string wrap while letting us mark per-piece provenance.
- * Truncate modes never add newlines (cli-truncate is whole-string) so
+ * Truncate modes never add newlines (each line is truncated on its own) so
  * they fall through with softWrap undefined — no tracking, no behavior
  * change from the pre-softWrap path.
  */
