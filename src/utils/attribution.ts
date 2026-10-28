@@ -22,6 +22,7 @@ import {
   sanitizeModelName,
 } from './commitAttribution.js'
 import { logForDebugging } from './debug.js'
+import { getModelIdentity } from './model/modelIdentity.js'
 import { parseJSONL } from './json.js'
 import { logError } from './log.js'
 import {
@@ -67,17 +68,21 @@ export function getAttributionTexts(): AttributionTexts {
     return { commit: '', pr: '' }
   }
 
-  // @[MODEL LAUNCH]: Update the hardcoded fallback model name below (guards against codename leaks).
-  // For internal repos, use the real model name. For external repos,
-  // fall back to "Claude Opus 4.6" for unrecognized models to avoid leaking codenames.
+  // Identity comes from modelIdentity.ts so a new model needs no edit here.
+  // For internal repos use the real model name; for external repos only names
+  // the identity table recognizes (public patterns) or the plain model ID of a
+  // non-Claude model, never an unknown Claude codename.
   const model = getMainLoopModel()
+  const identity = getModelIdentity(model)
   const isKnownPublicModel = getPublicModelDisplayName(model) !== null
   const modelName =
     isInternalModelRepoCached() || isKnownPublicModel
       ? getPublicModelName(model)
-      : 'Claude Opus 4.6'
+      : identity.family === 'claude'
+        ? 'Claude'
+        : identity.coAuthorName
   const defaultAttribution = `🤖 Generated with [Claude Code](${PRODUCT_URL})`
-  const defaultCommit = `Co-Authored-By: ${modelName} <noreply@anthropic.com>`
+  const defaultCommit = `Co-Authored-By: ${modelName} <${identity.coAuthorEmail}>`
 
   const settings = getInitialSettings()
 

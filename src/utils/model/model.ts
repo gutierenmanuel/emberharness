@@ -31,6 +31,7 @@ import { LIGHTNING_BOLT } from '../../constants/figures.js'
 import { isModelAllowed } from './modelAllowlist.js'
 import { isMultimodelActive } from '../../services/api/openai-compat/profiles.js'
 import { type ModelAlias, isModelAlias } from './aliases.js'
+import { getModelIdentity } from './modelIdentity.js'
 import { capitalize } from '../stringUtils.js'
 
 export type ModelShortName = string
@@ -423,7 +424,8 @@ export function getPublicModelDisplayName(model: ModelName): string | null {
     case getModelStrings().gpt54mini:
       return 'GPT-5.4 Mini'
     default:
-      return null
+      // Claude nuevos (p. ej. claude-sonnet-5-5) sin entrada en la tabla anterior.
+      return getModelIdentity(model).marketingName ?? null
   }
 }
 
@@ -474,7 +476,7 @@ export function getPublicModelName(model: ModelName): string {
     }
     return `Claude ${publicName}`
   }
-  return `Claude (${model})`
+  return getModelIdentity(model).family === 'claude' ? `Claude (${model})` : model
 }
 
 /**
@@ -667,6 +669,12 @@ export function getMarketingNameForModel(modelId: string): string | undefined {
     return 'GPT-5.3 Codex'
   }
 
+  const identity = getModelIdentity(modelId)
+  if (identity.marketingName) {
+    return has1m
+      ? `${identity.marketingName} (with 1M context)`
+      : identity.marketingName
+  }
   return undefined
 }
 
