@@ -29,6 +29,7 @@ import type { PermissionMode } from '../permissions/PermissionMode.js'
 import { getAPIProvider } from './providers.js'
 import { LIGHTNING_BOLT } from '../../constants/figures.js'
 import { isModelAllowed } from './modelAllowlist.js'
+import { isMultimodelActive } from '../../services/api/openai-compat/profiles.js'
 import { type ModelAlias, isModelAlias } from './aliases.js'
 import { capitalize } from '../stringUtils.js'
 
@@ -70,6 +71,13 @@ export function getUserSpecifiedModelSetting(): ModelSetting | undefined {
   } else {
     const settings = getSettings_DEPRECATED() || {}
     specifiedModel = process.env.ANTHROPIC_MODEL || settings.model || undefined
+  }
+
+  // "default" is the placeholder model of local OpenAI-compatible accounts
+  // (llamacpp, lmstudio, custom). A settings.json that kept it after switching
+  // back to the native claude account would send it to Anthropic and get a 404.
+  if (specifiedModel === 'default' && !isMultimodelActive()) {
+    return undefined
   }
 
   // Ignore the user-specified model if it's not in the availableModels allowlist.
