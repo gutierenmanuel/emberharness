@@ -21,11 +21,11 @@ afterEach(() => {
 })
 
 describe('defaults', () => {
-  test('los alias apuntan a 5.5 y Haiku 4.5', () => {
+  test('los alias apuntan a los modelos 5.5', () => {
     process.env.CLAUDE_CONFIG_DIR = mkdtempSync(join(tmpdir(), 'fnh-cm-'))
     expect(claudeAliasApiId('sonnet')).toBe('claude-sonnet-5-5')
     expect(claudeAliasApiId('opus')).toBe('claude-opus-5-5')
-    expect(claudeAliasApiId('haiku')).toBe('claude-haiku-4-5-20251001')
+    expect(claudeAliasApiId('haiku')).toBe('claude-haiku-5-5')
     expect(claudeAliasName('opus')).toBe('Opus 5.5')
   })
 
@@ -60,7 +60,7 @@ describe('mergeClaudeModels', () => {
     process.env.CLAUDE_CONFIG_DIR = mkdtempSync(join(tmpdir(), 'fnh-cm-'))
     const merged = mergeClaudeModels(base(), { models: { 'claude-opus-5-5': { pricing: { output: 30 } } } })
     const p = merged.models['claude-opus-5-5']!.pricing!
-    expect([p.inputTokens, p.outputTokens]).toEqual([5, 30])
+    expect([p.inputTokens, p.outputTokens]).toEqual([4, 30])
     expect(merged.models['claude-opus-5-5']!.contextWindow).toBe(1_000_000)
   })
 
