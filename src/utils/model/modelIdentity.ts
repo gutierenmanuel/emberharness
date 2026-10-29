@@ -3,8 +3,10 @@
  * el trailer de commit afirman sobre el modelo en uso (nombre comercial, corte
  * de conocimiento, familia, modelos Claude más recientes, modo rápido).
  *
- * Es una función pura sin imports para poder testearla sin arrancar el
- * harness. Para añadir un modelo nuevo basta una línea en `CLAUDE_MODELS`; los
+ * Los modelos conocidos salen de `claude-models.json` (defaults del repo más el
+ * del usuario, con hot reload; ver services/config/claudeModels.ts), sin
+ * dependencias del harness para poder testearla. Para añadir un modelo nuevo
+ * basta una entrada ahí, sin recompilar; los
  * Claude con formato `claude-<tier>-<major>-<minor>` se reconocen solos aunque
  * no estén en la tabla, y cualquier modelo desconocido recibe una identidad
  * conservadora (solo su ID, sin versión ni corte inventados).
@@ -32,76 +34,7 @@ export type ModelIdentity = {
   coAuthorEmail: string
 }
 
-type ClaudeModelEntry = {
-  /** Prefijo canónico sin fecha ni sufijos, p. ej. `claude-sonnet-5-5`. */
-  id: string
-  tier: ClaudeTier
-  /** Versión legible, p. ej. `5.5`. */
-  version: string
-  knowledgeCutoff?: string
-  supportsFastMode?: boolean
-  /** Ventana nativa en tokens; undefined = la estándar de 200k. */
-  contextWindow?: number
-  /** ID completo que se muestra al modelo como referencia de API. */
-  apiId: string
-}
-
-const ONE_MILLION = 1_000_000
-
-// @[MODEL LAUNCH]: añadir aquí cada modelo Claude nuevo (una línea). El orden
-// no importa: "el más reciente" de cada tier es el de mayor versión.
-const CLAUDE_MODELS: readonly ClaudeModelEntry[] = [
-  {
-    id: 'claude-opus-5-5',
-    tier: 'opus',
-    version: '5.5',
-    contextWindow: ONE_MILLION,
-    apiId: 'claude-opus-5-5',
-  },
-  {
-    id: 'claude-opus-4-6',
-    tier: 'opus',
-    version: '4.6',
-    knowledgeCutoff: 'May 2025',
-    supportsFastMode: true,
-    apiId: 'claude-opus-4-6',
-  },
-  {
-    id: 'claude-opus-4-5',
-    tier: 'opus',
-    version: '4.5',
-    knowledgeCutoff: 'May 2025',
-    apiId: 'claude-opus-4-5',
-  },
-  {
-    id: 'claude-sonnet-5-5',
-    tier: 'sonnet',
-    version: '5.5',
-    contextWindow: ONE_MILLION,
-    apiId: 'claude-sonnet-5-5',
-  },
-  {
-    id: 'claude-sonnet-4-6',
-    tier: 'sonnet',
-    version: '4.6',
-    knowledgeCutoff: 'August 2025',
-    apiId: 'claude-sonnet-4-6',
-  },
-  {
-    id: 'claude-sonnet-4-5',
-    tier: 'sonnet',
-    version: '4.5',
-    knowledgeCutoff: 'January 2025',
-    apiId: 'claude-sonnet-4-5',
-  },
-  {
-    id: 'claude-haiku-4-5',
-    tier: 'haiku',
-    version: '4.5',
-    knowledgeCutoff: 'February 2025',
-    apiId: 'claude-haiku-4-5-20251001',
-  },
-]
+import { claudeIdentityModels } from '../../services/config/claudeModels.js'
 
 const CLAUDE_ID_RE = /claude-(opus|sonnet|haiku)-(\d{1,2})(?:-(\d{1,2}))?(?!\d)/
 
@@ -146,7 +79,7 @@ export function getModelIdentity(modelId: string): ModelIdentity {
       const tier = match[1] as ClaudeTier
       const version = match[3] ? `${match[2]}.${match[3]}` : `${match[2]}`
       const canonical = `claude-${tier}-${match[2]}${match[3] ? `-${match[3]}` : ''}`
-      const known = CLAUDE_MODELS.find(entry => entry.id === canonical)
+      const known = claudeIdentityModels().find(entry => entry.id === canonical)
       const marketingName = `${capitalize(tier)} ${version}`
       return {
         family,
@@ -184,13 +117,15 @@ export function getLatestClaudeModels(): Record<
     ClaudeTier,
     { marketingName: string; apiId: string; version: string }
   >
-  for (const entry of CLAUDE_MODELS) {
-    const current = result[entry.tier]
-    if (!current || compareVersions(entry.version, current.version) > 0) {
-      result[entry.tier] = {
-        marketingName: `${capitalize(entry.tier)} ${entry.version}`,
-        apiId: entry.apiId,
-        version: entry.version,
+  for (const entry of claudeIdentityModels()) {
+    const tier = entry.tier!
+    const version = entry.version!
+    const current = result[tier]
+    if (!current || compareVersions(version, current.version) > 0) {
+      result[tier] = {
+        marketingName: `${capitalize(tier)} ${version}`,
+        apiId: entry.apiId!,
+        version,
       }
     }
   }

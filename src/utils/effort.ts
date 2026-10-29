@@ -36,7 +36,12 @@ export function modelSupportsEffort(model: string): boolean {
     return supported3P
   }
   // Supported by a subset of Claude 4 models
-  if (m.includes('opus-4-6') || m.includes('sonnet-4-6')) {
+  if (
+    m.includes('opus-4-6') ||
+    m.includes('sonnet-4-6') ||
+    m.includes('opus-5-5') ||
+    m.includes('sonnet-5-5')
+  ) {
     return true
   }
   // Exclude any other known legacy models (haiku, older opus/sonnet variants)

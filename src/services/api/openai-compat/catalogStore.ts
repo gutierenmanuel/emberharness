@@ -42,11 +42,15 @@ export function isCacheStale(cache: CacheFile | null, now = Date.now(), ttl = CA
 
 let memo: Catalog | undefined
 
-/** Sync, disk-only: cache if present, else the embedded snapshot. Memoized. */
+/**
+ * Sync, disk-only: the cache, completed with the embedded snapshot for any
+ * provider the cache lacks (models.dev drops providers over time, e.g. Venice,
+ * and without limits the window falls back to Claude's 200k). Memoized.
+ */
 export function loadCatalog(env: Env = process.env): Catalog {
   if (memo) return memo
   const cache = readCatalogCache(catalogCachePath(env))
-  memo = parseCatalog(cache?.catalog ?? snapshot)
+  memo = parseCatalog(cache ? { ...snapshot, ...cache.catalog } : snapshot)
   return memo
 }
 

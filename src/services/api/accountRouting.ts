@@ -20,6 +20,7 @@
 
 import { statSync } from 'fs'
 import { getModelStrings } from '../../utils/model/modelStrings.js'
+import { claudeAliasApiId } from '../config/claudeModels.js'
 import {
   CLAUDE_ACCOUNT_ID,
   accountsFilePath,
@@ -195,7 +196,11 @@ export function sessionAccountId(env: Env = process.env): string {
 
 function claudeDefaults(): ClaudeDefaults {
   const ms = getModelStrings()
-  return { opus: ms.opus46, sonnet: ms.sonnet46, haiku: ms.haiku45 }
+  return {
+    opus: claudeAliasApiId('opus') ?? ms.opus46,
+    sonnet: claudeAliasApiId('sonnet') ?? ms.sonnet46,
+    haiku: claudeAliasApiId('haiku') ?? ms.haiku45,
+  }
 }
 
 let storeCache: { path: string; mtimeMs: number; store: AccountStore } | undefined

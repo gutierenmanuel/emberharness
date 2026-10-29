@@ -18,6 +18,12 @@ import {
 import { connectedAccountIds } from '../../services/api/openai-compat/connected.js'
 import { routeForModel, sessionAccountId } from '../../services/api/accountRouting.js'
 import { displayModelId } from './multimodelOptions.js'
+import {
+  claudeAliasModel,
+  claudeAliasName,
+  claudePrices,
+  getClaudeModels,
+} from '../../services/config/claudeModels.js'
 
 type Env = Record<string, string | undefined>
 
@@ -38,13 +44,29 @@ export type PickerOption = {
   disabled?: boolean
 }
 
-/** Claude models offered on the native account (aliases resolve per plan). */
-export const CLAUDE_MODEL_ENTRIES: ModelEntry[] = [
-  { value: 'default', label: 'Default', description: 'El modelo recomendado para tu plan' },
-  { value: 'sonnet', label: 'Sonnet', description: '200k-1M ctx · razonamiento · imagen — equilibrado, el de diario' },
-  { value: 'opus', label: 'Opus', description: '200k-1M ctx · razonamiento · imagen — el más capaz para razonamiento complejo' },
-  { value: 'haiku', label: 'Haiku', description: '200k ctx · razonamiento · imagen — rápido y barato para tareas simples' },
-]
+/**
+ * Claude models offered on the native account (aliases resolve per plan): one
+ * entry per `picker` row of claude-models.json, so the names, windows and
+ * prices follow the model each alias points at. Read on every call so edits to
+ * the JSON show up without a restart.
+ */
+export function claudeModelEntries(): ModelEntry[] {
+  const entries: ModelEntry[] = [
+    { value: 'default', label: 'Default', description: 'El modelo recomendado para tu plan' },
+  ]
+  for (const { alias, description } of getClaudeModels().picker) {
+    const model = claudeAliasModel(alias)
+    const ctx = (model?.contextWindow ?? 0) >= 1_000_000 ? '1M ctx' : '200k ctx'
+    const prices = model && claudePrices(model.id)
+    const price = prices ? ` · $${prices.inputTokens}/$${prices.outputTokens} por Mtok` : ''
+    entries.push({
+      value: alias,
+      label: claudeAliasName(alias),
+      description: `${ctx} · razonamiento · imagen — ${description}${price}`,
+    })
+  }
+  return entries
+}
 
 export const AGENT_MODEL_ALIASES = ['sonnet', 'opus', 'haiku', 'inherit'] as const
 
@@ -181,7 +203,7 @@ export async function gatherAccountModelGroups(opts: GatherOptions = {}): Promis
       const active = id === session
       const label = labels.get(id) ?? id
       if (id === CLAUDE_ACCOUNT_ID) {
-        return { accountId: id, label, active, models: active && opts.claudeOptions?.length ? opts.claudeOptions : CLAUDE_MODEL_ENTRIES }
+        return { accountId: id, label, active, models: active && opts.claudeOptions?.length ? opts.claudeOptions : claudeModelEntries() }
       }
       try {
         const target = targetForAccount(id, store, env)
