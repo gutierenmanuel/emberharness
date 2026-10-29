@@ -73,7 +73,15 @@ export function getUserSpecifiedModelSetting(): ModelSetting | undefined {
     specifiedModel = modelOverride
   } else {
     const settings = getSettings_DEPRECATED() || {}
-    specifiedModel = process.env.ANTHROPIC_MODEL || settings.model || undefined
+    // settings.model also stores the model of the last OpenAI-compatible
+    // account used (switching account persists it there). Back on the native
+    // claude account a non-Claude id such as "qwen3:1.7b" would be sent to
+    // Anthropic, so it only counts when it names a Claude model.
+    const saved =
+      settings.model && (isMultimodelActive() || isClaudeModelSetting(settings.model))
+        ? settings.model
+        : undefined
+    specifiedModel = process.env.ANTHROPIC_MODEL || saved || undefined
   }
 
   // "default" is the placeholder model of local OpenAI-compatible accounts
@@ -89,6 +97,12 @@ export function getUserSpecifiedModelSetting(): ModelSetting | undefined {
   }
 
   return specifiedModel
+}
+
+/** Pure: a model setting the native claude account can serve (an alias or a Claude model id). */
+export function isClaudeModelSetting(model: string): boolean {
+  const base = model.replace(/\[1m\]$/i, '')
+  return isModelAlias(model) || isModelAlias(base) || base === 'default' || /claude/i.test(base)
 }
 
 /**

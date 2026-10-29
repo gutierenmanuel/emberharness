@@ -246,8 +246,8 @@ export async function countModels(
   return counts.reduce((a, b) => a + b, 0)
 }
 
-/** "128k ctx · 16k out · $1.2/$4.8 · reasoning · image", only what is known. */
-export function describeModel(m: CatalogModel): string {
+/** "128k ctx · 16k out · $1.2/$4.8 por M · razonamiento · imagen", only what is known ('' when nothing is). */
+export function modelStats(m: CatalogModel): string {
   const k = (n: number) => (n >= 1_000_000 ? `${+(n / 1_000_000).toFixed(1)}M` : `${Math.round(n / 1000)}k`)
   const price = (n: number) => `$${+n.toFixed(2)}`
   const parts: string[] = []
@@ -257,7 +257,12 @@ export function describeModel(m: CatalogModel): string {
   else if (m.costInput === 0 && m.costOutput === 0) parts.push('gratis')
   if (m.reasoning) parts.push('razonamiento')
   if (m.image) parts.push('imagen')
-  const stats = parts.join(' · ')
+  return parts.join(' · ')
+}
+
+/** The stats plus the first sentence of the catalog description. */
+export function describeModel(m: CatalogModel): string {
+  const stats = modelStats(m)
   const flat = m.description ? m.description.replace(/\s+/g, ' ').trim() : ''
   const first = flat.split(/(?<=\.)\s/)[0] ?? ''
   const note = first.length > 110 ? `${first.slice(0, 107)}...` : first

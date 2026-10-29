@@ -55,6 +55,30 @@ describe('buildModelPickerOptions', () => {
     expect(o[1]!.value).toBe('qwen36:qwen36-35b-heretic-q4km')
   })
 
+  test('stats go on the same line, names padded per account; no description', () => {
+    const g: AccountModelGroup[] = [{
+      accountId: 'venice', label: 'Venice', active: false,
+      models: [
+        { value: 'a', label: 'A', description: 'larga prosa', info: '1M ctx · $2/$10 por M' },
+        { value: 'bbb', label: 'BBB', description: 'otra', info: '128k ctx' },
+        { value: 'c', label: 'C', description: 'sin stats' },
+      ],
+    }]
+    const o = buildModelPickerOptions(g, '', { account: 'claude', model: null })
+    expect(o.slice(1).map(x => [x.label, x.info])).toEqual([
+      ['  A  ', '1M ctx · $2/$10 por M'],
+      ['  BBB', '128k ctx'],
+      ['  C', undefined],
+    ])
+    expect(o.some(x => 'description' in x)).toBe(false)
+    expect(buildModelPickerOptions(g, 'prosa', { account: 'claude', model: null }).map(x => x.value)).toEqual(['h:venice', 'venice:a'])
+  })
+
+  test('mergeClaudeEntries keeps the generic stats on a stock entry', () => {
+    const out = mergeClaudeEntries([{ value: 'opus', label: 'Opus', description: 'x', info: '1M ctx' }], [{ value: 'opus', label: 'Opus 5.5', description: 'plan' }])
+    expect(out[0]).toEqual({ value: 'opus', label: 'Opus 5.5', description: 'plan', info: '1M ctx' })
+  })
+
   test('typing filters by model and by account; empty result says so', () => {
     const byModel = buildModelPickerOptions(groups, 'deep', { account: 'claude', model: null })
     expect(byModel.map(x => x.value)).toEqual(['h:openrouter', 'openrouter:deepseek/deepseek-chat'])
