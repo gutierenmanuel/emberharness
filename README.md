@@ -4,7 +4,7 @@ Arnés de agente de terminal (fork de Claude Code sobre Bun e Ink) que funciona 
 proveedor de LLM, no solo Anthropic. Un adaptador traduce la API Messages de Anthropic a OpenAI Chat
 Completions (streaming, tool calls, imágenes y razonamiento), de modo que herramientas, subagentes,
 MCP, hooks y skills corren igual sobre llama.cpp, Ollama, LM Studio, OpenAI, OpenRouter, Groq,
-DeepSeek, Gemini, Mistral, Together o cualquier endpoint compatible.
+DeepSeek, Gemini, Mistral, Together, Venice o cualquier endpoint compatible.
 
 Es el arnés que se prepara como alternativa a `claude` para las salas de Matrix del ecosistema
 fn_registry (ver [plan de arnés por defecto en Matrix](docs/plans/matrix_default_harness.md)).

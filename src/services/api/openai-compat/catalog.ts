@@ -79,6 +79,7 @@ export const KNOWN_BASE_URLS: Record<string, string> = {
   xai: 'https://api.x.ai/v1',
   cohere: 'https://api.cohere.ai/compatibility/v1',
   perplexity: 'https://api.perplexity.ai',
+  venice: 'https://api.venice.ai/api/v1',
   google: 'https://generativelanguage.googleapis.com/v1beta/openai',
 }
 

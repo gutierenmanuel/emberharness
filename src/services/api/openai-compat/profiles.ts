@@ -4,7 +4,7 @@
  * Resolves which non-Anthropic backend (if any) the harness talks to. Every
  * backend here speaks the OpenAI Chat Completions wire format, which covers
  * local servers (Ollama, llama.cpp, LM Studio) and most hosted APIs (OpenAI,
- * OpenRouter, Groq, DeepSeek, Gemini, Mistral, Together).
+ * OpenRouter, Groq, DeepSeek, Gemini, Mistral, Together, Venice).
  *
  * Selection is purely environment-driven so it composes with the existing
  * Claude Code flags and settings:
@@ -135,6 +135,14 @@ export const PROVIDER_PRESETS: Record<string, ProviderPreset> = {
     apiKeyEnv: 'TOGETHER_API_KEY',
     keyOptional: false,
     defaultModel: 'meta-llama/Llama-3.3-70B-Instruct-Turbo',
+    maxTokensParam: 'max_tokens',
+  },
+  venice: {
+    label: 'Venice AI',
+    baseUrl: 'https://api.venice.ai/api/v1',
+    apiKeyEnv: 'VENICE_API_KEY',
+    keyOptional: false,
+    defaultModel: 'deepseek-v4-1-flash-1017-uncensored',
     maxTokensParam: 'max_tokens',
   },
   custom: {
