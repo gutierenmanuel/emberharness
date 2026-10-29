@@ -45,6 +45,8 @@ export type CatalogModel = {
   reasoning: boolean
   image: boolean
   releaseDate?: string
+  /** Free-text comment about the model (hosted servers that describe it). */
+  description?: string
 }
 
 /** How fnharness can talk to a provider. */

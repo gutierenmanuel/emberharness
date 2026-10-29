@@ -41,9 +41,9 @@ export type PickerOption = {
 /** Claude models offered on the native account (aliases resolve per plan). */
 export const CLAUDE_MODEL_ENTRIES: ModelEntry[] = [
   { value: 'default', label: 'Default', description: 'El modelo recomendado para tu plan' },
-  { value: 'sonnet', label: 'Sonnet', description: 'Equilibrado, el de diario' },
-  { value: 'opus', label: 'Opus', description: 'El más capaz para razonamiento complejo' },
-  { value: 'haiku', label: 'Haiku', description: 'Rápido y barato para tareas simples' },
+  { value: 'sonnet', label: 'Sonnet', description: '200k-1M ctx · razonamiento · imagen — equilibrado, el de diario' },
+  { value: 'opus', label: 'Opus', description: '200k-1M ctx · razonamiento · imagen — el más capaz para razonamiento complejo' },
+  { value: 'haiku', label: 'Haiku', description: '200k ctx · razonamiento · imagen — rápido y barato para tareas simples' },
 ]
 
 export const AGENT_MODEL_ALIASES = ['sonnet', 'opus', 'haiku', 'inherit'] as const
@@ -191,7 +191,7 @@ export async function gatherAccountModelGroups(opts: GatherOptions = {}): Promis
           return {
             value: m.id,
             label: m.name && m.name !== m.id ? `${m.name} (${shown})` : shown,
-            description: shown !== m.id ? `fichero local: ${m.id}` : describeModel(m),
+            description: shown !== m.id ? `${describeModel(m)} · fichero ${m.id}` : describeModel(m),
           }
         })
         const own = active && opts.sessionModel ? opts.sessionModel : store.accounts[id]?.model

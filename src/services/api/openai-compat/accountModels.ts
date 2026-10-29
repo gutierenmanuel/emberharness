@@ -45,9 +45,16 @@ const LOCAL_TIMEOUT_MS = 800
 const REMOTE_TIMEOUT_MS = 3000
 const CACHE_TTL_MS = 5 * 60 * 1000
 
-type CacheEntry = { at: number; ids: string[]; withRemote: boolean }
+/** What a server's /models says about one model (everything but the id optional). */
+export type ServerModel = Partial<Omit<CatalogModel, 'id' | 'reasoning' | 'image'>> & {
+  id: string
+  reasoning?: boolean
+  image?: boolean
+}
+
+type CacheEntry = { at: number; ids: ServerModel[]; withRemote: boolean }
 const serverCache = new Map<string, CacheEntry>()
-const inflight = new Map<string, Promise<string[]>>()
+const inflight = new Map<string, Promise<ServerModel[]>>()
 
 export function clearAccountModelsCache(): void {
   serverCache.clear()
@@ -64,29 +71,74 @@ export function targetForAccount(id: string, store: AccountStore, env: Env): Mod
   return p ? targetFromProfile(id, p) : null
 }
 
-/** Pure: ids out of a `/models` response (OpenAI `data[]`, llama.cpp `models[]`). */
-export function parseServerModelIds(body: unknown): string[] {
+const num = (x: unknown): number | undefined => (typeof x === 'number' && x > 0 ? x : undefined)
+
+/**
+ * Pure: models out of a `/models` response (OpenAI `data[]`, llama.cpp `models[]`),
+ * keeping whatever metadata the server volunteers: Venice (`context_length`,
+ * `model_spec`), llama.cpp (`meta.n_ctx`), OpenRouter (`context_length`, `pricing`).
+ */
+export function parseServerModels(body: unknown): ServerModel[] {
   const b = body as { data?: unknown; models?: unknown } | null
   const list = Array.isArray(b?.data) ? b!.data : Array.isArray(b?.models) ? b!.models : []
-  const ids = (list as unknown[])
-    .map(x => (typeof x === 'string' ? x : ((x as { id?: string; model?: string; name?: string })?.id ?? (x as { model?: string })?.model ?? (x as { name?: string })?.name)))
-    .filter((x): x is string => typeof x === 'string' && x.length > 0)
-  return [...new Set(ids)]
+  const out = new Map<string, ServerModel>()
+  for (const x of list as unknown[]) {
+    if (typeof x === 'string') {
+      if (x) out.set(x, { id: x })
+      continue
+    }
+    const r = (x ?? {}) as Record<string, any>
+    const id = r.id ?? r.model ?? r.name
+    if (typeof id !== 'string' || !id) continue
+    const spec = r.model_spec ?? {}
+    const caps = spec.capabilities ?? {}
+    const per = (v: unknown) => (typeof v === 'number' ? v : undefined)
+    const orPrice = (v: unknown) => (v !== undefined && !isNaN(Number(v)) ? Number(v) * 1_000_000 : undefined)
+    const m: ServerModel = {
+      id,
+      name: typeof spec.name === 'string' ? spec.name : typeof r.name === 'string' && r.name !== id ? r.name : undefined,
+      contextWindow: num(spec.availableContextTokens) ?? num(r.context_length) ?? num(r.meta?.n_ctx) ?? num(r.top_provider?.context_length),
+      maxOutputTokens: num(spec.maxCompletionTokens) ?? num(r.top_provider?.max_completion_tokens),
+      costInput: per(spec.pricing?.input?.usd) ?? orPrice(r.pricing?.prompt),
+      costOutput: per(spec.pricing?.output?.usd) ?? orPrice(r.pricing?.completion),
+      reasoning: caps.supportsReasoning ?? (Array.isArray(r.capabilities) ? r.capabilities.includes('thinking') : undefined),
+      image: caps.supportsVision ?? (Array.isArray(r.capabilities) ? r.capabilities.includes('vision') : undefined),
+      description: typeof spec.description === 'string' ? spec.description : undefined,
+    }
+    out.set(id, Object.fromEntries(Object.entries(m).filter(([, v]) => v !== undefined)) as ServerModel)
+  }
+  return [...out.values()]
 }
 
-/** Pure: catalog ∪ server ids for a target. Local servers: server ids only (enriched). */
-export function mergeModels(target: ModelTarget, serverIds: string[], catalog: Catalog): AccountModel[] {
+/** Pure: ids out of a `/models` response. */
+export function parseServerModelIds(body: unknown): string[] {
+  return parseServerModels(body).map(m => m.id)
+}
+
+/** Pure: catalog ∪ server models for a target. Local servers: server only (enriched). Server data wins over the catalog. */
+export function mergeModels(target: ModelTarget, serverModels: Array<string | ServerModel>, catalog: Catalog): AccountModel[] {
   const cat = target.catalogProvider ? findProvider(catalog, target.catalogProvider)?.models ?? [] : []
   const byId = new Map(cat.map(m => [m.id, m]))
   const local = isLocalUrl(target.baseUrl)
   const out: AccountModel[] = []
   if (!local) for (const m of cat) out.push({ ...m, source: 'catalog' })
-  const seen = new Set(out.map(m => m.id))
-  for (const id of serverIds) {
-    if (seen.has(id)) continue
-    seen.add(id)
-    const known = byId.get(id)
-    out.push(known ? { ...known, source: 'server' } : { id, name: id, reasoning: false, image: false, source: 'server' })
+  const seen = new Map(out.map((m, i) => [m.id, i]))
+  for (const sm of serverModels) {
+    const s: ServerModel = typeof sm === 'string' ? { id: sm } : sm
+    const known = byId.get(s.id)
+    const merged: AccountModel = {
+      ...(known ?? { id: s.id, name: s.id, reasoning: false, image: false }),
+      ...Object.fromEntries(Object.entries(s).filter(([, v]) => v !== undefined)),
+      source: 'server',
+    } as AccountModel
+    if (!merged.name) merged.name = s.id
+    const i = seen.get(s.id)
+    if (i !== undefined) {
+      out[i] = { ...merged, source: out[i]!.source }
+    } else {
+      seen.set(s.id, out.length)
+      out.push(merged)
+    }
   }
   return out
 }
@@ -105,13 +157,45 @@ export function accountModelsSync(target: ModelTarget, catalog: Catalog = loadCa
   return mergeModels(target, serverCache.get(cacheKey(target))?.ids ?? [], catalog)
 }
 
-async function fetchServerIds(t: ModelTarget, fetchImpl: typeof fetch): Promise<string[]> {
+async function fetchServerIds(t: ModelTarget, fetchImpl: typeof fetch): Promise<ServerModel[]> {
+  const local = isLocalUrl(t.baseUrl)
   const res = await fetchImpl(`${t.baseUrl}/models`, {
     headers: t.apiKey ? { authorization: `Bearer ${t.apiKey}` } : undefined,
-    signal: AbortSignal.timeout(isLocalUrl(t.baseUrl) ? LOCAL_TIMEOUT_MS : REMOTE_TIMEOUT_MS),
+    signal: AbortSignal.timeout(local ? LOCAL_TIMEOUT_MS : REMOTE_TIMEOUT_MS),
   })
   if (!res.ok) throw new Error(`HTTP ${res.status}`)
-  return parseServerModelIds(await res.json())
+  const models = parseServerModels(await res.json())
+  return local ? enrichOllama(t, models, fetchImpl) : models
+}
+
+/** Ollama's /v1/models has no limits; its native /api/show does. Best effort, local only. */
+async function enrichOllama(t: ModelTarget, models: ServerModel[], fetchImpl: typeof fetch): Promise<ServerModel[]> {
+  if (!/:11434\//.test(t.baseUrl + '/') || models.every(m => m.contextWindow)) return models
+  const root = t.baseUrl.replace(/\/v1\/?$/, '')
+  return Promise.all(
+    models.map(async m => {
+      if (m.contextWindow) return m
+      try {
+        const r = await fetchImpl(`${root}/api/show`, {
+          method: 'POST',
+          body: JSON.stringify({ model: m.id }),
+          signal: AbortSignal.timeout(LOCAL_TIMEOUT_MS),
+        })
+        if (!r.ok) return m
+        const d = (await r.json()) as { model_info?: Record<string, unknown>; capabilities?: string[] }
+        const key = Object.keys(d.model_info ?? {}).find(k => k.endsWith('.context_length'))
+        const caps = d.capabilities ?? []
+        return {
+          ...m,
+          contextWindow: key ? num(d.model_info![key]) : undefined,
+          reasoning: caps.includes('thinking') || undefined,
+          image: caps.includes('vision') || undefined,
+        } as ServerModel
+      } catch {
+        return m
+      }
+    }),
+  )
 }
 
 /**
@@ -173,7 +257,12 @@ export function describeModel(m: CatalogModel): string {
   else if (m.costInput === 0 && m.costOutput === 0) parts.push('gratis')
   if (m.reasoning) parts.push('razonamiento')
   if (m.image) parts.push('imagen')
-  return parts.join(' · ') || 'sin datos del catálogo'
+  const stats = parts.join(' · ')
+  const flat = m.description ? m.description.replace(/\s+/g, ' ').trim() : ''
+  const first = flat.split(/(?<=\.)\s/)[0] ?? ''
+  const note = first.length > 110 ? `${first.slice(0, 107)}...` : first
+  if (stats && note) return `${stats} — ${note}`
+  return stats || note || 'sin datos del catálogo'
 }
 
 /** Active account target for the current process, or null on the Claude account. */

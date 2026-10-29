@@ -47,6 +47,9 @@ type PickerProps = {
   stored: Record<string, unknown>
   onSwitch: (id: string) => void
   onAdd: (provider: string) => string | null
+  onAddCustom: (spec: string) => void
+  onRemove: (id: string) => void
+  removable: string[]
   onSaveKey: (id: string, key: string, prefix?: string) => void
   onCancel: (message?: string) => void
 }
@@ -75,7 +78,11 @@ function entryOption(e: PickerEntry, active: string) {
 }
 
 function AccountPicker(props: PickerProps): React.ReactNode {
-  const { active, accounts, catalog, stored, onSwitch, onAdd, onSaveKey, onCancel } = props
+  const { active, accounts, catalog, stored, onSwitch, onAdd, onAddCustom, onRemove, removable, onSaveKey, onCancel } = props
+  // 'remove' lists the accounts that can be deleted; 'custom' asks `id url [modelo]`.
+  const [mode, setMode] = React.useState<'main' | 'remove' | 'custom'>('main')
+  const [customValue, setCustomValue] = React.useState('')
+  const [customCursor, setCustomCursor] = React.useState(0)
   const [query, setQuery] = React.useState('')
   // Entry whose API key is being typed, once an account to add has been chosen.
   const [keyFor, setKeyFor] = React.useState<{ id: string; hint: string; done?: string } | null>(null)
@@ -90,7 +97,7 @@ function AccountPicker(props: PickerProps): React.ReactNode {
         setQuery(q => q + input)
       }
     },
-    { isActive: keyFor === null },
+    { isActive: keyFor === null && mode === 'main' },
   )
 
   const sections = React.useMemo(() => buildPickerSections(accounts, catalog, query, stored), [accounts, catalog, query, stored])
@@ -119,7 +126,51 @@ function AccountPicker(props: PickerProps): React.ReactNode {
     )
   }
 
+  if (mode === 'custom') {
+    return (
+      <Dialog title="Añadir cuenta propia" subtitle="Escribe: <id> <baseUrl> [modelo] y pulsa Enter" onCancel={() => setMode('main')} color="permission">
+        <Box flexDirection="column" gap={1}>
+          <Text dimColor>Servidor OpenAI-compatible, p. ej.: miserver http://localhost:9000/v1 llama3</Text>
+          <Box flexDirection="row" gap={1}>
+            <Text>Cuenta:</Text>
+            <TextInput
+              value={customValue}
+              onChange={setCustomValue}
+              onSubmit={v => (v.trim() ? onAddCustom(v.trim()) : setMode('main'))}
+              focus={true}
+              showCursor={true}
+              columns={Math.max(20, columns - 20)}
+              cursorOffset={customCursor}
+              onChangeCursorOffset={setCustomCursor}
+            />
+          </Box>
+        </Box>
+      </Dialog>
+    )
+  }
+
+  if (mode === 'remove') {
+    const opts = removable.length
+      ? removable.map(id => ({ value: `r:${id}`, label: `  ${id}`, description: `Borrar los datos guardados de ${id}` }))
+      : [{ value: 'h:none', label: '  (no hay cuentas guardadas que quitar)', disabled: true }]
+    return (
+      <Dialog title="Quitar cuenta" subtitle="Enter borra los datos guardados (clave incluida); Esc vuelve" onCancel={() => setMode('main')} color="permission">
+        <Select
+          options={opts}
+          onChange={v => v.startsWith('r:') && onRemove(v.slice(2))}
+          onCancel={() => setMode('main')}
+          visibleOptionCount={14}
+          hideIndexes
+          disableSelection="numeric"
+        />
+      </Dialog>
+    )
+  }
+
   const options = [
+    { value: 'h:manage', label: '── Gestionar ──', disabled: true },
+    { value: 'm:custom', label: '  + Añadir cuenta con URL propia', description: 'Servidor OpenAI-compatible fuera del catálogo' },
+    { value: 'm:remove', label: `  − Quitar cuenta (${removable.length})`, description: 'Borra los datos guardados de una cuenta' },
     { value: 'h:active', label: '── Cuentas activas ──', disabled: true },
     ...sections.active.map(e => entryOption(e, active)),
     { value: 'h:add', label: `── Añadir cuenta (${sections.add.length}) ──`, disabled: true },
@@ -131,6 +182,8 @@ function AccountPicker(props: PickerProps): React.ReactNode {
 
   const onChange = (value: string) => {
     const id = value.slice(2)
+    if (value === 'm:custom') return setMode('custom')
+    if (value === 'm:remove') return setMode('remove')
     if (value.startsWith('a:')) return onSwitch(id)
     if (value.startsWith('p:')) {
       setKeyValue('')
@@ -162,7 +215,7 @@ function AccountPicker(props: PickerProps): React.ReactNode {
           key={query}
           options={options}
           defaultValue={query ? undefined : `a:${active}`}
-          defaultFocusValue={query ? options.find(o => !o.disabled && !o.value.startsWith('a:'))?.value : `a:${active}`}
+          defaultFocusValue={query ? options.find(o => !o.disabled && !o.value.startsWith('a:') && !o.value.startsWith('m:'))?.value : `a:${active}`}
           onChange={onChange}
           onCancel={query ? () => setQuery('') : () => onCancel()}
           visibleOptionCount={14}
@@ -242,6 +295,15 @@ export const call: LocalJSXCommandCall = async (onDone, context, args) => {
           })
           return null
         }
+      }}
+      removable={Object.keys(stored).filter(id => id !== active)}
+      onRemove={id => void apply(() => removeAccount(id))}
+      onAddCustom={spec => {
+        const [id, url, model] = spec.split(/\s+/)
+        void apply(() => {
+          if (!id || !url) throw new MultimodelConfigError('Formato: <id> <baseUrl> [modelo]')
+          return addAccount(id, url, model)
+        })
       }}
       onSaveKey={(id, key, prefix) =>
         void apply(() => {
