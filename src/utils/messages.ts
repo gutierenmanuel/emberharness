@@ -2003,12 +2003,19 @@ function relocateToolReferenceSiblings(
   return result
 }
 
-const REFUSAL_ERROR_MARKER = 'which appears to violate our Usage Policy'
+/** Todo texto de safeguard empieza por esto (ver formatRefusalMessage en errors.ts). */
+export const REFUSAL_ERROR_MARKER = 'Safeguard de la API activado'
+// Transcripts anteriores usaban el texto genérico de Claude Code.
+const LEGACY_REFUSAL_MARKER = 'which appears to violate our Usage Policy'
 
 function isRefusalErrorMessage(message: Message): boolean {
   if (!isSyntheticApiErrorMessage(message)) return false
   const block = message.message.content[0]
-  return block?.type === 'text' && block.text.includes(REFUSAL_ERROR_MARKER)
+  return (
+    block?.type === 'text' &&
+    (block.text.includes(REFUSAL_ERROR_MARKER) ||
+      block.text.includes(LEGACY_REFUSAL_MARKER))
+  )
 }
 
 function isToolResultOnlyUserMessage(message: Message): boolean {

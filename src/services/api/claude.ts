@@ -240,6 +240,7 @@ import {
   CUSTOM_OFF_SWITCH_MESSAGE,
   getAssistantMessageFromError,
   getErrorMessageIfRefusal,
+  type RefusalStopDetails,
 } from './errors.js'
 import {
   EMPTY_USAGE,
@@ -2305,6 +2306,8 @@ async function* queryModel(
             const refusalMessage = getErrorMessageIfRefusal(
               part.delta.stop_reason,
               options.model,
+              (part.delta as { stop_details?: RefusalStopDetails | null })
+                .stop_details,
             )
             if (refusalMessage) {
               yield refusalMessage

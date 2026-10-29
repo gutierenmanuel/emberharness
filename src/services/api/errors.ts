@@ -22,6 +22,7 @@ import {
 } from 'src/utils/auth.js'
 import {
   createAssistantAPIErrorMessage,
+  REFUSAL_ERROR_MARKER,
   NO_RESPONSE_REQUESTED,
 } from 'src/utils/messages.js'
 import {
@@ -1181,27 +1182,53 @@ export function categorizeRetryableAPIError(
   return 'unknown'
 }
 
+/** `stop_details` que la API adjunta a un `stop_reason: "refusal"` (safeguard). */
+export type RefusalStopDetails = {
+  type?: string
+  category?: string | null
+  explanation?: string | null
+}
+
 export function getErrorMessageIfRefusal(
   stopReason: BetaStopReason | null,
   model: string,
+  stopDetails?: RefusalStopDetails | null,
 ): AssistantMessage | undefined {
   if (stopReason !== 'refusal') {
     return
   }
 
-  logEvent('tengu_refusal_api_response', {})
-
-  const baseMessage = getIsNonInteractiveSession()
-    ? `${API_ERROR_MESSAGE_PREFIX}: Claude Code is unable to respond to this request, which appears to violate our Usage Policy (https://www.anthropic.com/legal/aup). Try rephrasing the request or attempting a different approach.`
-    : `${API_ERROR_MESSAGE_PREFIX}: Claude Code is unable to respond to this request, which appears to violate our Usage Policy (https://www.anthropic.com/legal/aup). Please double press esc to edit your last message or start a new session for Claude Code to assist with a different task.`
-
-  const modelSuggestion =
-    model !== 'claude-sonnet-4-20250514'
-      ? ' If you are seeing this refusal repeatedly, try running /model claude-sonnet-4-20250514 to switch models.'
-      : ''
+  logEvent('tengu_refusal_api_response', {
+    category: (stopDetails?.category ??
+      'unknown') as AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS,
+  })
 
   return createAssistantAPIErrorMessage({
-    content: baseMessage + modelSuggestion,
+    content: formatRefusalMessage(model, stopDetails),
     error: 'invalid_request',
   })
+}
+
+/**
+ * Texto visible de un safeguard de la API. Siempre empieza por
+ * REFUSAL_ERROR_MARKER (lo usa dropRefusedExchanges para reconocerlo).
+ */
+export function formatRefusalMessage(
+  model: string,
+  stopDetails?: RefusalStopDetails | null,
+): string {
+  const lines = [
+    `${API_ERROR_MESSAGE_PREFIX}: ${REFUSAL_ERROR_MARKER} (${model}) y bloqueó la respuesta.`,
+  ]
+  if (stopDetails?.category) lines.push(`Categoría: ${stopDetails.category}`)
+  if (stopDetails?.explanation) lines.push(`Motivo: ${stopDetails.explanation}`)
+  if (!stopDetails?.category && !stopDetails?.explanation) {
+    lines.push(
+      'La API no envió detalle del bloqueo (posible violación de la Usage Policy: https://www.anthropic.com/legal/aup).',
+    )
+  }
+  lines.push(
+    'Ese intercambio se descarta del contexto; el siguiente mensaje continúa desde antes. Reformula el prompt o prueba otro modelo con /model.',
+  )
+  return lines.join('\n')
 }
