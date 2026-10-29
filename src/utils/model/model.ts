@@ -32,6 +32,7 @@ import { isModelAllowed } from './modelAllowlist.js'
 import { isMultimodelActive } from '../../services/api/openai-compat/profiles.js'
 import { type ModelAlias, isModelAlias } from './aliases.js'
 import { getModelIdentity } from './modelIdentity.js'
+import { claudeAliasApiId, claudeAliasName } from '../../services/config/claudeModels.js'
 import { capitalize } from '../stringUtils.js'
 
 export type ModelShortName = string
@@ -47,7 +48,8 @@ export function isNonCustomOpusModel(model: ModelName): boolean {
     model === getModelStrings().opus40 ||
     model === getModelStrings().opus41 ||
     model === getModelStrings().opus45 ||
-    model === getModelStrings().opus46
+    model === getModelStrings().opus46 ||
+    model === claudeAliasApiId('opus')
   )
 }
 
@@ -124,7 +126,7 @@ export function getDefaultOpusModel(): ModelName {
   if (getAPIProvider() !== 'firstParty') {
     return getModelStrings().opus46
   }
-  return getModelStrings().opus46
+  return claudeAliasApiId('opus') ?? getModelStrings().opus46
 }
 
 // @[MODEL LAUNCH]: Update the default Sonnet model (3P providers may lag so keep defaults unchanged).
@@ -136,7 +138,7 @@ export function getDefaultSonnetModel(): ModelName {
   if (getAPIProvider() !== 'firstParty') {
     return getModelStrings().sonnet45
   }
-  return getModelStrings().sonnet46
+  return claudeAliasApiId('sonnet') ?? getModelStrings().sonnet46
 }
 
 // @[MODEL LAUNCH]: Update the default Haiku model (3P providers may lag so keep defaults unchanged).
@@ -146,6 +148,9 @@ export function getDefaultHaikuModel(): ModelName {
   }
 
   // Haiku 4.5 is available on all platforms (first-party, Foundry, Bedrock, Vertex)
+  if (getAPIProvider() === 'firstParty') {
+    return claudeAliasApiId('haiku') ?? getModelStrings().haiku45
+  }
   return getModelStrings().haiku45
 }
 
@@ -287,6 +292,12 @@ export function firstPartyNameToCanonical(name: ModelName): ModelShortName {
   if (name.includes('gpt-5.3-codex')) {
     return 'gpt-5.3-codex'
   }
+  // Any later `claude-<tier>-<major>[-<minor>]` (5-5, 6-0, ...) canonicalizes
+  // without a code change, so its prices and identity are found in claude-models.json.
+  const modern = name.match(/claude-(?:opus|sonnet|haiku)-\d+(?:-\d{1,2})?(?!\d)/)
+  if (modern) {
+    return modern[0]
+  }
   const match = name.match(/(claude-(\d+-\d+-)?\w+)/)
   if (match && match[1]) {
     return match[1]
@@ -317,18 +328,18 @@ export function getClaudeAiUserDefaultModelDescription(
   }
   if (isMaxSubscriber() || isTeamPremiumSubscriber()) {
     if (isOpus1mMergeEnabled()) {
-      return `Opus 4.6 with 1M context · Most capable for complex work${fastMode ? getOpus46PricingSuffix(true) : ''}`
+      return `${claudeAliasName('opus')} with 1M context · Most capable for complex work${fastMode ? getOpus46PricingSuffix(true) : ''}`
     }
-    return `Opus 4.6 · Most capable for complex work${fastMode ? getOpus46PricingSuffix(true) : ''}`
+    return `${claudeAliasName('opus')} · Most capable for complex work${fastMode ? getOpus46PricingSuffix(true) : ''}`
   }
-  return 'Sonnet 4.6 · Best for everyday tasks'
+  return `${claudeAliasName('sonnet')} · Best for everyday tasks`
 }
 
 export function renderDefaultModelSetting(
   setting: ModelName | ModelAlias,
 ): string {
   if (setting === 'opusplan') {
-    return 'Opus 4.6 in plan mode, else Sonnet 4.6'
+    return `${claudeAliasName('opus')} in plan mode, else ${claudeAliasName('sonnet')}`
   }
   return renderModelName(parseUserSpecifiedModel(setting))
 }
@@ -675,7 +686,8 @@ export function getMarketingNameForModel(modelId: string): string | undefined {
       ? `${identity.marketingName} (with 1M context)`
       : identity.marketingName
   }
-  return undefined
+  // Claude models newer than the table above come from claude-models.json.
+  return getModelIdentity(modelId).marketingName
 }
 
 export function normalizeModelStringForAPI(model: string): string {

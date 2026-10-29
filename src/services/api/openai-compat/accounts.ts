@@ -16,9 +16,9 @@ import { dirname, join } from 'path'
 import { SecretError, defaultCtx, resolveRef } from '../../secrets/secrets.js'
 import { findProvider } from './catalog.js'
 import { loadCatalog } from './catalogStore.js'
+import { getProviderPresets, providerKeyRef } from '../../config/providers.js'
 import {
   MultimodelConfigError,
-  PROVIDER_PRESETS,
   resolveProfile,
   type MultimodelProfile,
 } from './profiles.js'
@@ -79,6 +79,13 @@ export function loadStore(path = accountsFilePath()): AccountStore {
   }
 }
 
+/** Like `loadStore` but an unreadable or invalid file throws; a missing one is an empty store. */
+export function loadStoreStrict(path = accountsFilePath()): AccountStore {
+  if (!existsSync(path)) return { accounts: {} }
+  const raw = JSON.parse(readFileSync(path, 'utf8'))
+  return { active: raw.active, default: raw.default, accounts: raw.accounts ?? {} }
+}
+
 export function saveStore(store: AccountStore, path = accountsFilePath()): void {
   mkdirSync(dirname(path), { recursive: true })
   writeFileSync(path, JSON.stringify(store, null, 2) + '\n', { mode: 0o600 })
@@ -106,24 +113,28 @@ export function accountEnv(
 
 /** Name of the environment variable that carries a provider's key (VENICE_API_KEY, ...), if known. */
 export function providerKeyEnv(provider: string, base: Env = process.env): string | undefined {
-  return PROVIDER_PRESETS[provider]?.apiKeyEnv ?? findProvider(loadCatalog(base), provider)?.env[0]
+  return getProviderPresets()[provider]?.apiKeyEnv ?? findProvider(loadCatalog(base), provider)?.env[0]
 }
 
 /**
- * Key behind `apiKeyRef`. An exported provider variable (VENICE_API_KEY, ...)
+ * Key behind `apiKeyRef` (or the provider's `keyRef` in providers.json). An exported provider variable (VENICE_API_KEY, ...)
  * wins over the reference, so it is not even read; a literal `apiKey` in the
  * store still wins over both (older behaviour). A reference that cannot be read
  * aborts with the reason instead of the generic "needs an API key".
  */
 function keyFromRef(id: string, stored: StoredAccount, provider: string, base: Env): string | undefined {
-  if (!stored.apiKeyRef) return undefined
+  // The account's own reference wins; else the one providers.json gives its
+  // provider (a preset `keyRef` or the `keyRefTemplate`), except for local
+  // servers that need no key.
+  const ref = stored.apiKeyRef ?? (getProviderPresets()[provider]?.keyOptional ? undefined : providerKeyRef(provider))
+  if (!ref) return undefined
   const envName = providerKeyEnv(provider, base)
   if (envName && base[envName]) return undefined
   try {
-    return resolveRef(stored.apiKeyRef, defaultCtx(base))
+    return resolveRef(ref, defaultCtx(base))
   } catch (err) {
     const why = err instanceof SecretError ? err.message : String(err)
-    throw new MultimodelConfigError(`No se pudo leer la clave de "${id}" (${stored.apiKeyRef}): ${why}. Revisa /secrets.`)
+    throw new MultimodelConfigError(`No se pudo leer la clave de "${id}" (${ref}): ${why}. Revisa /secrets.`)
   }
 }
 
@@ -134,7 +145,7 @@ export function profileForAccount(
   base: Env,
 ): MultimodelProfile | null {
   if (id === CLAUDE_ACCOUNT_ID) return null
-  const known = id in PROVIDER_PRESETS || id in store.accounts
+  const known = id in getProviderPresets() || id in store.accounts
   if (!known) {
     throw new MultimodelConfigError(
       `Unknown account "${id}". Use /account list to see the available ones.`,
@@ -146,9 +157,9 @@ export function profileForAccount(
 export function listAccounts(store: AccountStore, base: Env): Account[] {
   const ids = [
     CLAUDE_ACCOUNT_ID,
-    ...Object.keys(PROVIDER_PRESETS).filter(id => id !== 'custom'),
+    ...Object.keys(getProviderPresets()).filter(id => id !== 'custom'),
     ...Object.keys(store.accounts).filter(
-      id => id !== CLAUDE_ACCOUNT_ID && !(id in PROVIDER_PRESETS),
+      id => id !== CLAUDE_ACCOUNT_ID && !(id in getProviderPresets()),
     ),
   ]
   return ids.map(id => describeAccount(id, store, base))
@@ -177,7 +188,7 @@ function describeAccount(id: string, store: AccountStore, base: Env): Account {
       detail: `${profile.model} @ ${profile.baseUrl}`,
     }
   } catch (err) {
-    const preset = PROVIDER_PRESETS[stored?.provider ?? id]
+    const preset = getProviderPresets()[stored?.provider ?? id]
     return {
       id,
       label: stored?.label ?? preset?.label ?? id,
@@ -216,7 +227,7 @@ export function isLocalUrl(baseUrl: string | null): boolean {
 
 /** Can `id` be resolved to an account right now (built-in, preset or saved)? */
 export function isKnownAccount(id: string, store: AccountStore): boolean {
-  return id === CLAUDE_ACCOUNT_ID || id in PROVIDER_PRESETS || id in store.accounts
+  return id === CLAUDE_ACCOUNT_ID || id in getProviderPresets() || id in store.accounts
 }
 
 /**

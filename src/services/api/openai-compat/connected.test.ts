@@ -1,5 +1,21 @@
-import { describe, expect, test } from 'bun:test'
+import { afterEach, beforeEach, describe, expect, test } from 'bun:test'
+import { mkdtempSync } from 'fs'
+import { tmpdir } from 'os'
+import { join } from 'path'
+import { resetProvidersForTesting } from '../../config/providers.js'
 import { applyMockOverride, computeConnectedSummary, connectedAccountIds, formatConnectedLine, isAccountConnected } from './connected.js'
+
+// Presets come from providers.json: keep the developer's real one out of these tests.
+const savedDir = process.env.CLAUDE_CONFIG_DIR
+beforeEach(() => {
+  process.env.CLAUDE_CONFIG_DIR = mkdtempSync(join(tmpdir(), 'fnh-conn-'))
+  resetProvidersForTesting()
+})
+afterEach(() => {
+  if (savedDir === undefined) delete process.env.CLAUDE_CONFIG_DIR
+  else process.env.CLAUDE_CONFIG_DIR = savedDir
+  resetProvidersForTesting()
+})
 
 describe('connected accounts', () => {
   test('rule: ready, and local servers must answer', () => {

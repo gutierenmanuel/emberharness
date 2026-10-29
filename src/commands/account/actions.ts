@@ -18,9 +18,9 @@ import {
 } from '../../services/api/openai-compat/accounts.js'
 import { findProvider, usableProviders, type Catalog } from '../../services/api/openai-compat/catalog.js'
 import { loadCatalog } from '../../services/api/openai-compat/catalogStore.js'
+import { getProviderPresets } from '../../services/config/providers.js'
 import {
   MultimodelConfigError,
-  PROVIDER_PRESETS,
   getMultimodelProfile,
   setActiveProfile,
 } from '../../services/api/openai-compat/profiles.js'
@@ -164,7 +164,7 @@ export function persistModelForActiveAccount(model: string | null, env = process
 }
 
 export function setKey(id: string, apiKey: string, env = process.env): ActionResult {
-  if (!(id in PROVIDER_PRESETS) && !loadStore(accountsFilePath(env)).accounts[id]) {
+  if (!(id in getProviderPresets()) && !loadStore(accountsFilePath(env)).accounts[id]) {
     throw new MultimodelConfigError(`Unknown account "${id}"`)
   }
   const path = accountsFilePath(env)
@@ -198,11 +198,11 @@ export function addAccount(
     const why = provider.kind === 'anthropic' ? 'habla el protocolo de Anthropic' : 'usa un SDK o credenciales propias'
     throw new MultimodelConfigError(`${provider.name} (${provider.id}) ${why}; fnharness aún solo sabe hablar OpenAI-compatible.`)
   }
-  if (first in PROVIDER_PRESETS) {
+  if (first in getProviderPresets()) {
     throw new MultimodelConfigError(`"${first}" ya es una cuenta integrada: actívala con /account ${first}.`)
   }
   const id = second ?? provider.id
-  if (id === CLAUDE_ACCOUNT_ID || id in PROVIDER_PRESETS) {
+  if (id === CLAUDE_ACCOUNT_ID || id in getProviderPresets()) {
     throw new MultimodelConfigError(`"${id}" is a built-in account name`)
   }
   const path = accountsFilePath(env)
@@ -221,7 +221,7 @@ function addCustomAccount(
   model: string | undefined,
   env = process.env,
 ): ActionResult {
-  if (id === CLAUDE_ACCOUNT_ID || id in PROVIDER_PRESETS) {
+  if (id === CLAUDE_ACCOUNT_ID || id in getProviderPresets()) {
     throw new MultimodelConfigError(`"${id}" is a built-in account name`)
   }
   const path = accountsFilePath(env)
@@ -238,7 +238,7 @@ export function catalogLines(catalog: Catalog, filter = ''): string[] {
   const usable = usableProviders(catalog).filter(match)
   const others = Object.values(catalog).filter(p => !usable.includes(p) && match(p) && !(p.kind === 'openai' && p.baseUrl))
   const lines = usable.map(
-    p => `${p.id.padEnd(24)} ${String(p.models.length).padStart(4)} modelos  ${p.name}${p.id in PROVIDER_PRESETS ? '  (cuenta integrada)' : ''}`,
+    p => `${p.id.padEnd(24)} ${String(p.models.length).padStart(4)} modelos  ${p.name}${p.id in getProviderPresets() ? '  (cuenta integrada)' : ''}`,
   )
   lines.unshift(`Catálogo models.dev: ${usable.length} proveedores OpenAI-compatibles. Alta: /account add <proveedor> [id] [modelo]`)
   if (others.length) lines.push(`(${others.length} más con otro protocolo, no usables aún${q ? '' : '; filtra con /account catalog <texto>'})`)
@@ -289,16 +289,16 @@ export function buildPickerSections(
   const active: PickerEntry[] = []
   const add: PickerEntry[] = []
   for (const a of accounts) {
-    if (a.ready || !(a.id in PROVIDER_PRESETS)) {
+    if (a.ready || !(a.id in getProviderPresets())) {
       active.push({ kind: 'account', id: a.id, label: a.label, detail: a.detail, ready: a.ready, online: a.online })
     } else if (match(a.id, a.label)) {
-      add.push({ kind: 'preset', id: a.id, label: a.label, keyEnv: PROVIDER_PRESETS[a.id]?.apiKeyEnv })
+      add.push({ kind: 'preset', id: a.id, label: a.label, keyEnv: getProviderPresets()[a.id]?.apiKeyEnv })
     }
   }
   const taken = new Set(accounts.map(a => a.id))
   for (const id of Object.keys(stored)) taken.add(id)
   for (const p of usableProviders(catalog)) {
-    if (taken.has(p.id) || p.id in PROVIDER_PRESETS || !match(p.id, p.name)) continue
+    if (taken.has(p.id) || p.id in getProviderPresets() || !match(p.id, p.name)) continue
     add.push({ kind: 'catalog', id: p.id, label: p.name, modelCount: p.models.length, keyEnv: p.env[0] })
   }
   return { active, add }
@@ -306,6 +306,6 @@ export function buildPickerSections(
 
 /** Env/key hint shown after picking a preset that has no key yet. */
 export function presetKeyHint(id: string): string {
-  const env = PROVIDER_PRESETS[id]?.apiKeyEnv
-  return `${PROVIDER_PRESETS[id]?.label ?? id} necesita clave: /account key ${id} <apikey>${env ? ` o la variable ${env}` : ''}.`
+  const env = getProviderPresets()[id]?.apiKeyEnv
+  return `${getProviderPresets()[id]?.label ?? id} necesita clave: /account key ${id} <apikey>${env ? ` o la variable ${env}` : ''}.`
 }

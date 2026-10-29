@@ -68,6 +68,37 @@ sin ella todo sigue como antes (se abre con la última usada). Se fija con `/acc
 «última usada». Si la predeterminada deja de existir (se borra la cuenta) se salta y se usa la última.
 `fnharness --accounts` y `/account list` marcan cuál es y con cuál abrirá.
 
+## Configuración en JSON con recarga en caliente
+
+Cuentas, claves, modelos y tarifas salen de ficheros JSON en `~/.fnharness/` (`CLAUDE_CONFIG_DIR`), no
+del código. Los valores por defecto viajan en `src/config/defaults/`; el fichero del usuario se
+superpone campo a campo y no hace falta tenerlo. Se recargan solos (se comprueba mtime y tamaño como
+mucho una vez por segundo): editar el fichero basta, sin reiniciar. Si queda inválido se mantiene la
+última configuración buena y se avisa en el log de depuración.
+
+| Fichero | Contenido |
+|---|---|
+| `accounts.json` | cuentas (`model`, `smallModel`, `baseUrl`, `apiKeyRef`, `contextProfile`), cuenta activa y predeterminada |
+| `providers.json` | presets de proveedor (URL, variable de clave, `keyRef`, modelo por defecto, ventana) y, por modelo, ventana, tope de salida y tarifa (`models`). `keyRefTemplate` (`pass:apis/{provider}`) da la referencia de clave a todo proveedor que no tenga una propia |
+| `claude-models.json` | alias `sonnet`/`opus`/`haiku` y el modelo al que apuntan, filas del `/model`, y por modelo: nombre, ventana nativa, corte de conocimiento y tarifa (`pricing`, `fastPricing`) |
+
+Adoptar un modelo nuevo es una edición, p. ej. en `claude-models.json`:
+
+```json
+{
+  "aliases": { "sonnet": "claude-sonnet-6-0" },
+  "models": {
+    "claude-sonnet-6-0": { "tier": "sonnet", "version": "6.0", "apiId": "claude-sonnet-6-0",
+                           "contextWindow": 1000000, "pricing": { "input": 3, "output": 15 } }
+  }
+}
+```
+
+Orden de la clave de una cuenta: variable de entorno del proveedor > `apiKey` de la cuenta >
+`apiKeyRef` de la cuenta > `keyRef` del proveedor > `keyRefTemplate`. La ventana de contexto: la que
+informa el servidor local > `models` de `providers.json` > la del preset > el catálogo de models.dev.
+Las capacidades (pensamiento adaptativo, esfuerzo) siguen en el código.
+
 ## Barra de estado
 
 `statusline.sh` recibe por stdin el JSON de siempre más un bloque `fnharness` que se calcula con la

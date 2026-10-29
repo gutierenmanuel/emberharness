@@ -1,5 +1,13 @@
 # Changelog de FnHarness
 
+## Sin publicar
+
+### Novedades
+
+- cuentas, claves (`keyRef`), presets de proveedor, modelos Claude y tarifas salen de `accounts.json`, `providers.json` y `claude-models.json`, con recarga en caliente
+- Sonnet 5.5 y Opus 5.5 como modelos por defecto de los alias `sonnet` y `opus`, con tarifa y ventana de 1M
+- el contexto de una cuenta (p. ej. Venice) completa la caché de models.dev con el snapshot cuando el proveedor falta
+
 ## v0.9.0 (25/10/2026)
 
 ### Novedades

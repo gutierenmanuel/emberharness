@@ -9,7 +9,7 @@
  * Selection is purely environment-driven so it composes with the existing
  * Claude Code flags and settings:
  *
- *   CLAUDE_MULTIMODEL_PROVIDER   preset name (see PROVIDER_PRESETS) or "custom"
+ *   CLAUDE_MULTIMODEL_PROVIDER   preset name (see providers.json) or "custom"
  *   CLAUDE_MULTIMODEL_BASE_URL   overrides the preset URL (required for custom)
  *   CLAUDE_MULTIMODEL_API_KEY    overrides the preset key env var
  *   CLAUDE_MULTIMODEL_MODEL      main model id sent to the backend
@@ -17,142 +17,23 @@
  */
 
 import { AsyncLocalStorage } from 'async_hooks'
+import { statSync } from 'fs'
 import { catalogIdFor, findProvider, modelLimits, type Catalog } from './catalog.js'
 import { loadCatalog } from './catalogStore.js'
+import { configFilePath } from '../../config/hotJson.js'
+import { getProviderPresets, providerModelOverride, type ProviderPreset } from '../../config/providers.js'
 import { isLocalBaseUrl } from './speedStats.js'
 import { getServerInfo, refreshServerInfo } from './statusInfo.js'
 import {
   accountsFilePath,
   loadStore,
+  loadStoreStrict,
   profileForAccount,
   startupAccountId,
   type StoredAccount,
 } from './accounts.js'
 
-export type ProviderPreset = {
-  /** Extra env vars that may hold the key (catalog providers list several). */
-  extraKeyEnvs?: string[]
-  /** Human readable label shown in the CLI header. */
-  label: string
-  baseUrl: string
-  /** Env var the key is read from when CLAUDE_MULTIMODEL_API_KEY is unset. */
-  apiKeyEnv?: string
-  /** Whether the backend works without any key (local servers). */
-  keyOptional: boolean
-  defaultModel: string
-  /** OpenAI proper rejects `max_tokens` on newer models. */
-  maxTokensParam: 'max_tokens' | 'max_completion_tokens'
-  /** Real context window of the backend; drives auto-compact (defaults to the Claude value). */
-  contextWindow?: number
-  /** Default max output tokens; keep it small on short-context local models. */
-  maxOutputTokens?: number
-}
-
-export const PROVIDER_PRESETS: Record<string, ProviderPreset> = {
-  ollama: {
-    label: 'Ollama',
-    baseUrl: 'http://localhost:11434/v1',
-    keyOptional: true,
-    defaultModel: 'qwen3:8b',
-    maxTokensParam: 'max_tokens',
-  },
-  llamacpp: {
-    label: 'llama.cpp server',
-    baseUrl: 'http://localhost:8082/v1',
-    keyOptional: true,
-    defaultModel: 'default',
-    maxTokensParam: 'max_tokens',
-  },
-  qwen36: {
-    label: 'Qwen3.6 35B heretic (local)',
-    // Through llm-tap (:8090) so requests show up in reports/llm_monitor.html;
-    // the llama-server itself listens on :8082.
-    baseUrl: 'http://localhost:8090/v1',
-    keyOptional: true,
-    defaultModel: 'qwen36-35b-heretic-q4km',
-    maxTokensParam: 'max_tokens',
-    contextWindow: 32768,
-    maxOutputTokens: 4096,
-  },
-  lmstudio: {
-    label: 'LM Studio',
-    baseUrl: 'http://localhost:1234/v1',
-    keyOptional: true,
-    defaultModel: 'default',
-    maxTokensParam: 'max_tokens',
-  },
-  openai: {
-    label: 'OpenAI',
-    baseUrl: 'https://api.openai.com/v1',
-    apiKeyEnv: 'OPENAI_API_KEY',
-    keyOptional: false,
-    defaultModel: 'gpt-4.1',
-    maxTokensParam: 'max_completion_tokens',
-  },
-  openrouter: {
-    label: 'OpenRouter',
-    baseUrl: 'https://openrouter.ai/api/v1',
-    apiKeyEnv: 'OPENROUTER_API_KEY',
-    keyOptional: false,
-    defaultModel: 'anthropic/claude-sonnet-4.5',
-    maxTokensParam: 'max_tokens',
-  },
-  groq: {
-    label: 'Groq',
-    baseUrl: 'https://api.groq.com/openai/v1',
-    apiKeyEnv: 'GROQ_API_KEY',
-    keyOptional: false,
-    defaultModel: 'llama-3.3-70b-versatile',
-    maxTokensParam: 'max_tokens',
-  },
-  deepseek: {
-    label: 'DeepSeek',
-    baseUrl: 'https://api.deepseek.com/v1',
-    apiKeyEnv: 'DEEPSEEK_API_KEY',
-    keyOptional: false,
-    defaultModel: 'deepseek-chat',
-    maxTokensParam: 'max_tokens',
-  },
-  gemini: {
-    label: 'Google Gemini',
-    baseUrl: 'https://generativelanguage.googleapis.com/v1beta/openai',
-    apiKeyEnv: 'GEMINI_API_KEY',
-    keyOptional: false,
-    defaultModel: 'gemini-2.5-pro',
-    maxTokensParam: 'max_tokens',
-  },
-  mistral: {
-    label: 'Mistral',
-    baseUrl: 'https://api.mistral.ai/v1',
-    apiKeyEnv: 'MISTRAL_API_KEY',
-    keyOptional: false,
-    defaultModel: 'mistral-large-latest',
-    maxTokensParam: 'max_tokens',
-  },
-  together: {
-    label: 'Together AI',
-    baseUrl: 'https://api.together.xyz/v1',
-    apiKeyEnv: 'TOGETHER_API_KEY',
-    keyOptional: false,
-    defaultModel: 'meta-llama/Llama-3.3-70B-Instruct-Turbo',
-    maxTokensParam: 'max_tokens',
-  },
-  venice: {
-    label: 'Venice AI',
-    baseUrl: 'https://api.venice.ai/api/v1',
-    apiKeyEnv: 'VENICE_API_KEY',
-    keyOptional: false,
-    defaultModel: 'deepseek-v4-1-flash-1017-uncensored',
-    maxTokensParam: 'max_tokens',
-  },
-  custom: {
-    label: 'Custom OpenAI-compatible',
-    baseUrl: '',
-    keyOptional: true,
-    defaultModel: 'default',
-    maxTokensParam: 'max_tokens',
-  },
-}
+export type { ProviderPreset }
 
 export type MultimodelProfile = {
   provider: string
@@ -182,10 +63,10 @@ export function resolveProfile(env: Env, catalog?: Catalog): MultimodelProfile |
   const provider = env.CLAUDE_MULTIMODEL_PROVIDER?.trim().toLowerCase()
   if (!provider) return null
 
-  const preset = PROVIDER_PRESETS[provider] ?? presetFromCatalog(provider, catalog ?? loadCatalog(env))
+  const preset = getProviderPresets()[provider] ?? presetFromCatalog(provider, catalog ?? loadCatalog(env))
   if (!preset) {
     throw new MultimodelConfigError(
-      `Unknown provider "${provider}". Available: ${Object.keys(PROVIDER_PRESETS).join(', ')}, or any OpenAI-compatible provider of the catalog (/account catalog)`,
+      `Unknown provider "${provider}". Available: ${Object.keys(getProviderPresets()).join(', ')}, or any OpenAI-compatible provider of the catalog (/account catalog)`,
     )
   }
 
@@ -257,8 +138,10 @@ export function getModelLimits(
     : undefined
   // A local server that reported its real n_ctx (GET /props) is the truth.
   const serverCtx = getServerInfo(profile.baseUrl)?.nCtx ?? undefined
-  const contextWindow = serverCtx ?? profile.contextWindow ?? fromCatalog?.contextWindow
-  let maxOutputTokens = profile.maxOutputTokens ?? fromCatalog?.maxOutputTokens
+  // providers.json per-model overrides sit between the server's real window and the preset.
+  const override = providerModelOverride(profile.provider, model)
+  const contextWindow = serverCtx ?? override?.contextWindow ?? profile.contextWindow ?? fromCatalog?.contextWindow
+  let maxOutputTokens = override?.maxOutputTokens ?? profile.maxOutputTokens ?? fromCatalog?.maxOutputTokens
   // A short window with no output cap would reserve the Claude default (32k)
   // for the answer and push auto-compact below zero: a quarter of it instead.
   if (maxOutputTokens === undefined && contextWindow !== undefined && contextWindow <= SMALL_WINDOW) {
@@ -341,7 +224,75 @@ export function getMultimodelProfile(): MultimodelProfile | null {
   if (cachedProfile === undefined) {
     cachedProfile = resolveProfile(process.env)
   }
+  reloadActiveProfileIfConfigChanged()
   return cachedProfile
+}
+
+// ── hot reload ──────────────────────────────────────────────────────────
+
+const RELOAD_CHECK_MS = 1000
+let configBaseline: string | undefined
+let reloadEnabled = false
+let lastReloadCheck = 0
+
+/** mtime+size of the files the live profile was built from. */
+function configSignature(env: Env): string {
+  return [accountsFilePath(env), configFilePath('providers.json', env)]
+    .map(p => {
+      try {
+        const st = statSync(p)
+        return `${st.mtimeMs}:${st.size}`
+      } catch {
+        return '-'
+      }
+    })
+    .join('|')
+}
+
+/** The account the session is on and its profile, rebuilt from the files as they are now. */
+function resolveSessionProfile(id: string, env: Env, strict = false): MultimodelProfile | null {
+  // The hot reload must not swap a working profile for the defaults because
+  // the file is mid-edit, so it reads strictly; startup stays lenient.
+  const store = (strict ? loadStoreStrict : loadStore)(accountsFilePath(env))
+  // Launch flags (--model, --base-url, ...) tune the startup account for
+  // this run only; they are never written back to accounts.json.
+  const launch: StoredAccount = {}
+  if (env.CLAUDE_MULTIMODEL_BASE_URL) launch.baseUrl = env.CLAUDE_MULTIMODEL_BASE_URL
+  if (env.CLAUDE_MULTIMODEL_API_KEY) launch.apiKey = env.CLAUDE_MULTIMODEL_API_KEY
+  if (env.CLAUDE_MULTIMODEL_MODEL) launch.model = env.CLAUDE_MULTIMODEL_MODEL
+  if (env.CLAUDE_MULTIMODEL_SMALL_MODEL) launch.smallModel = env.CLAUDE_MULTIMODEL_SMALL_MODEL
+  store.accounts[id] = { ...store.accounts[id], ...launch }
+  return profileForAccount(id, store, env)
+}
+
+/**
+ * Hot reload of the session's backend: when accounts.json or providers.json
+ * changed (checked at most once a second), the profile is rebuilt and, if it
+ * differs, made live again (model slots, base URL, key, window). A file that
+ * no longer resolves keeps the current profile and is reported once.
+ */
+function reloadActiveProfileIfConfigChanged(env: Env = process.env): void {
+  if (!reloadEnabled || cachedProfile === null || cachedProfile === undefined) return
+  if (env.CLAUDE_MULTIMODEL_PROVIDER) return // explicit launch env: not file-driven
+  const now = Date.now()
+  if (now - lastReloadCheck < RELOAD_CHECK_MS) return
+  lastReloadCheck = now
+  const sig = configSignature(env)
+  if (configBaseline === undefined) {
+    configBaseline = sig
+    return
+  }
+  if (sig === configBaseline) return
+  configBaseline = sig
+  const id = env.FNHARNESS_ACCOUNT
+  if (!id) return
+  try {
+    const next = resolveSessionProfile(id, env, true)
+    if (JSON.stringify(next) !== JSON.stringify(cachedProfile)) setActiveProfile(next, id, env)
+  } catch (err) {
+    const msg = `config de cuentas: ${err instanceof Error ? err.message : String(err)}; se mantiene la anterior`
+    void import('../../../utils/debug.js').then(m => m.logForDebugging(msg, { level: 'warn' }))
+  }
 }
 
 /**
@@ -380,6 +331,9 @@ export function getOriginalModelEnv(env: Env = process.env): Env {
 export function resetActiveProfileForTesting(): void {
   originalModelEnv = undefined
   cachedProfile = undefined
+  configBaseline = undefined
+  reloadEnabled = false
+  lastReloadCheck = 0
 }
 
 /**
@@ -395,6 +349,9 @@ export function setActiveProfile(
 ): void {
   originalModelEnv ??= Object.fromEntries(MODEL_ENV_KEYS.map(k => [k, env[k]]))
   cachedProfile = profile
+  // Only the live process env is file-driven; a synthetic env (tests) is not reloaded.
+  configBaseline = env === process.env ? configSignature(env) : undefined
+  reloadEnabled = env === process.env
 
   const slots: Env = profile
     ? {
@@ -434,17 +391,8 @@ export function applyMultimodelEnv(env: Env = process.env): void {
       setActiveProfile(profile, env.CLAUDE_MULTIMODEL_PROVIDER, env)
       return
     }
-    const store = loadStore(accountsFilePath(env))
-    const id = startupAccountId(store, env)
-    // Launch flags (--model, --base-url, ...) tune the startup account for
-    // this run only; they are never written back to accounts.json.
-    const launch: StoredAccount = {}
-    if (env.CLAUDE_MULTIMODEL_BASE_URL) launch.baseUrl = env.CLAUDE_MULTIMODEL_BASE_URL
-    if (env.CLAUDE_MULTIMODEL_API_KEY) launch.apiKey = env.CLAUDE_MULTIMODEL_API_KEY
-    if (env.CLAUDE_MULTIMODEL_MODEL) launch.model = env.CLAUDE_MULTIMODEL_MODEL
-    if (env.CLAUDE_MULTIMODEL_SMALL_MODEL) launch.smallModel = env.CLAUDE_MULTIMODEL_SMALL_MODEL
-    store.accounts[id] = { ...store.accounts[id], ...launch }
-    setActiveProfile(profileForAccount(id, store, env), id, env)
+    const id = startupAccountId(loadStore(accountsFilePath(env)), env)
+    setActiveProfile(resolveSessionProfile(id, env), id, env)
   } catch (err) {
     if (err instanceof MultimodelConfigError) {
       process.stderr.write(`fnharness: ${err.message}\n`)

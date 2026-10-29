@@ -1,0 +1,105 @@
+{
+  "providers": {
+    "ollama": {
+      "label": "Ollama",
+      "baseUrl": "http://localhost:11434/v1",
+      "keyOptional": true,
+      "defaultModel": "qwen3:8b",
+      "maxTokensParam": "max_tokens"
+    },
+    "llamacpp": {
+      "label": "llama.cpp server",
+      "baseUrl": "http://localhost:8082/v1",
+      "keyOptional": true,
+      "defaultModel": "default",
+      "maxTokensParam": "max_tokens"
+    },
+    "qwen36": {
+      "label": "Qwen3.6 35B heretic (local)",
+      "baseUrl": "http://localhost:8090/v1",
+      "keyOptional": true,
+      "defaultModel": "qwen36-35b-heretic-q4km",
+      "maxTokensParam": "max_tokens",
+      "contextWindow": 32768,
+      "maxOutputTokens": 4096
+    },
+    "lmstudio": {
+      "label": "LM Studio",
+      "baseUrl": "http://localhost:1234/v1",
+      "keyOptional": true,
+      "defaultModel": "default",
+      "maxTokensParam": "max_tokens"
+    },
+    "openai": {
+      "label": "OpenAI",
+      "baseUrl": "https://api.openai.com/v1",
+      "apiKeyEnv": "OPENAI_API_KEY",
+      "keyOptional": false,
+      "defaultModel": "gpt-4.1",
+      "maxTokensParam": "max_completion_tokens"
+    },
+    "openrouter": {
+      "label": "OpenRouter",
+      "baseUrl": "https://openrouter.ai/api/v1",
+      "apiKeyEnv": "OPENROUTER_API_KEY",
+      "keyOptional": false,
+      "defaultModel": "anthropic/claude-sonnet-4.5",
+      "maxTokensParam": "max_tokens"
+    },
+    "groq": {
+      "label": "Groq",
+      "baseUrl": "https://api.groq.com/openai/v1",
+      "apiKeyEnv": "GROQ_API_KEY",
+      "keyOptional": false,
+      "defaultModel": "llama-3.3-70b-versatile",
+      "maxTokensParam": "max_tokens"
+    },
+    "deepseek": {
+      "label": "DeepSeek",
+      "baseUrl": "https://api.deepseek.com/v1",
+      "apiKeyEnv": "DEEPSEEK_API_KEY",
+      "keyOptional": false,
+      "defaultModel": "deepseek-chat",
+      "maxTokensParam": "max_tokens"
+    },
+    "gemini": {
+      "label": "Google Gemini",
+      "baseUrl": "https://generativelanguage.googleapis.com/v1beta/openai",
+      "apiKeyEnv": "GEMINI_API_KEY",
+      "keyOptional": false,
+      "defaultModel": "gemini-2.5-pro",
+      "maxTokensParam": "max_tokens"
+    },
+    "mistral": {
+      "label": "Mistral",
+      "baseUrl": "https://api.mistral.ai/v1",
+      "apiKeyEnv": "MISTRAL_API_KEY",
+      "keyOptional": false,
+      "defaultModel": "mistral-large-latest",
+      "maxTokensParam": "max_tokens"
+    },
+    "together": {
+      "label": "Together AI",
+      "baseUrl": "https://api.together.xyz/v1",
+      "apiKeyEnv": "TOGETHER_API_KEY",
+      "keyOptional": false,
+      "defaultModel": "meta-llama/Llama-3.3-70B-Instruct-Turbo",
+      "maxTokensParam": "max_tokens"
+    },
+    "venice": {
+      "label": "Venice AI",
+      "baseUrl": "https://api.venice.ai/api/v1",
+      "apiKeyEnv": "VENICE_API_KEY",
+      "keyOptional": false,
+      "defaultModel": "deepseek-v4-1-flash-1017-uncensored",
+      "maxTokensParam": "max_tokens"
+    },
+    "custom": {
+      "label": "Custom OpenAI-compatible",
+      "baseUrl": "",
+      "keyOptional": true,
+      "defaultModel": "default",
+      "maxTokensParam": "max_tokens"
+    }
+  }
+}

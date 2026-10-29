@@ -24,8 +24,8 @@ import {
   profileForAccount,
   type AccountStore,
 } from './openai-compat/accounts.js'
+import { getProviderPresets } from '../config/providers.js'
 import {
-  PROVIDER_PRESETS,
   getMultimodelProfile,
   setActiveProfile,
   type MultimodelProfile,
@@ -75,7 +75,7 @@ export function parseFallbackTarget(
 /** Pure: account ids known to a store (claude, presets and the stored ones). */
 export function accountPredicate(store: AccountStore): (id: string) => boolean {
   return id =>
-    id === CLAUDE_ACCOUNT_ID || id in PROVIDER_PRESETS || id in store.accounts
+    id === CLAUDE_ACCOUNT_ID || id in getProviderPresets() || id in store.accounts
 }
 
 /**
