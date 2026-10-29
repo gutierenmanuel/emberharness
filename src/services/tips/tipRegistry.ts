@@ -1,4 +1,5 @@
 import chalk from 'chalk'
+import { fnharnessTips } from './fnharnessTips.js'
 import { logForDebugging } from 'src/utils/debug.js'
 import { fileHistoryEnabled } from 'src/utils/fileHistory.js'
 import {
@@ -676,7 +677,8 @@ export async function getRelevantTips(context?: TipContext): Promise<Tip[]> {
   }
 
   // Otherwise, filter built-in tips as before and combine with custom
-  const tips = [...externalTips, ...internalOnlyTips]
+  // fnharness: tips propios en lugar de los de Claude Code (ver fnharnessTips.ts).
+  const tips = fnharnessTips
   const isRelevant = await Promise.all(tips.map(_ => _.isRelevant(context)))
   const filtered = tips
     .filter((_, index) => isRelevant[index])
