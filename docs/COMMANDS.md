@@ -368,7 +368,7 @@ fnharness --account llamacpp -p "resume este repo"      # una sola pasada
 fnharness --list
 ```
 
-Salida real de `fnharness --list`: `ollama`, `llamacpp`, `lmstudio`, `openai`, `openrouter`, `groq`, `deepseek`, `gemini`, `mistral`, `together`, `custom`.
+Salida real de `fnharness --list`: `ollama`, `llamacpp`, `lmstudio`, `openai`, `openrouter`, `groq`, `deepseek`, `gemini`, `mistral`, `together`, `venice`, `custom`.
 
 ### 4.1 Presets (`PROVIDER_PRESETS`)
 
@@ -384,7 +384,37 @@ Salida real de `fnharness --list`: `ollama`, `llamacpp`, `lmstudio`, `openai`, `
 | `gemini` | `https://generativelanguage.googleapis.com/v1beta/openai` | `GEMINI_API_KEY` | No | `gemini-2.5-pro` | `max_tokens` |
 | `mistral` | `https://api.mistral.ai/v1` | `MISTRAL_API_KEY` | No | `mistral-large-latest` | `max_tokens` |
 | `together` | `https://api.together.xyz/v1` | `TOGETHER_API_KEY` | No | `meta-llama/Llama-3.3-70B-Instruct-Turbo` | `max_tokens` |
+| `venice` | `https://api.venice.ai/api/v1` | `VENICE_API_KEY` | No | `deepseek-v4-1-flash-1017-uncensored` | `max_tokens` |
 | `custom` | (vacía; obliga a `CLAUDE_MULTIMODEL_BASE_URL`) | | Sí | `default` | `max_tokens` |
+
+### 4.2 Claves y gestores de secretos (`/secrets`)
+
+Una cuenta puede guardar su clave fuera de `accounts.json` con `apiKeyRef: "<gestor>:<ref>"`
+(`src/services/secrets/secrets.ts`). Gestores:
+
+| Gestor | Referencia | Escribe | Notas |
+|---|---|---|---|
+| `pass` | `pass:apis/venice` | sí | `pass show/insert/rm`; la referencia no puede empezar por `-` ni contener `..` |
+| `env` | `env:VENICE_API_KEY` | no | variable de entorno |
+| `file` | `file:venice` | sí | `<config dir>/secrets.json`, en claro, modo 0600 |
+| `keyring` | `keyring:venice` | sí | `secret-tool` (libsecret); `service=fnharness account=<ref>` |
+| `cmd` | `cmd:venice` | no | comando declarado en `secrets.json` → `"commands": {"venice": {"get": "op read op://v/venice/credential"}}` |
+
+Precedencia al arrancar: clave en claro de `accounts.json` (`/account key`, comportamiento anterior) >
+variable exportada del proveedor (`VENICE_API_KEY`) > `apiKeyRef`. Si la referencia no se puede leer, el
+arranque aborta con el motivo. Cada referencia se lee una vez por proceso. Los mensajes de `/secrets`
+nunca incluyen la clave.
+
+| Comando | Efecto |
+|---|---|
+| `/secrets` | gestor interactivo: elige cuenta y luego guardar, usar existente, mover, probar o desvincular |
+| `/secrets list` | cuentas que necesitan clave, de dónde sale cada una y si se lee (sin descifrar) |
+| `/secrets backends` | gestores instalados y formato de cada referencia |
+| `/secrets set <cuenta> <gestor> [ref]` | pide la clave oculta (nunca por argumento) y la guarda |
+| `/secrets use <cuenta> <gestor:ref>` | apunta a un secreto existente, comprobando que se lee |
+| `/secrets move <cuenta> <gestor> [ref]` | copia al nuevo gestor y borra la copia anterior si el gestor lo permite |
+| `/secrets test <cuenta>` | lee la clave y la prueba contra `GET {baseUrl}/models` (muestra longitud y HTTP, no la clave) |
+| `/secrets rm <cuenta> [--purge]` | desvincula; `--purge` borra también el valor del gestor |
 
 ## 5. Variables `CLAUDE_MULTIMODEL_*`
 

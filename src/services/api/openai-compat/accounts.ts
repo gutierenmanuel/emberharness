@@ -13,6 +13,9 @@
 import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'fs'
 import { homedir } from 'os'
 import { dirname, join } from 'path'
+import { SecretError, defaultCtx, resolveRef } from '../../secrets/secrets.js'
+import { findProvider } from './catalog.js'
+import { loadCatalog } from './catalogStore.js'
 import {
   MultimodelConfigError,
   PROVIDER_PRESETS,
@@ -27,6 +30,11 @@ export type StoredAccount = {
   label?: string
   baseUrl?: string
   apiKey?: string
+  /**
+   * Where the key lives instead of `apiKey`: `<gestor>:<ref>` (pass:apis/venice,
+   * file:x, keyring:x, cmd:x, env:X). Managed with /secrets; see services/secrets.
+   */
+  apiKeyRef?: string
   model?: string
   smallModel?: string
   /** Context profile (/scope, Ctrl+Tab) remembered for this account. */
@@ -90,9 +98,32 @@ export function accountEnv(
     ...base,
     CLAUDE_MULTIMODEL_PROVIDER: provider,
     CLAUDE_MULTIMODEL_BASE_URL: stored.baseUrl,
-    CLAUDE_MULTIMODEL_API_KEY: stored.apiKey,
+    CLAUDE_MULTIMODEL_API_KEY: stored.apiKey ?? keyFromRef(id, stored, provider, base),
     CLAUDE_MULTIMODEL_MODEL: stored.model,
     CLAUDE_MULTIMODEL_SMALL_MODEL: stored.smallModel ?? stored.model,
+  }
+}
+
+/** Name of the environment variable that carries a provider's key (VENICE_API_KEY, ...), if known. */
+export function providerKeyEnv(provider: string, base: Env = process.env): string | undefined {
+  return PROVIDER_PRESETS[provider]?.apiKeyEnv ?? findProvider(loadCatalog(base), provider)?.env[0]
+}
+
+/**
+ * Key behind `apiKeyRef`. An exported provider variable (VENICE_API_KEY, ...)
+ * wins over the reference, so it is not even read; a literal `apiKey` in the
+ * store still wins over both (older behaviour). A reference that cannot be read
+ * aborts with the reason instead of the generic "needs an API key".
+ */
+function keyFromRef(id: string, stored: StoredAccount, provider: string, base: Env): string | undefined {
+  if (!stored.apiKeyRef) return undefined
+  const envName = providerKeyEnv(provider, base)
+  if (envName && base[envName]) return undefined
+  try {
+    return resolveRef(stored.apiKeyRef, defaultCtx(base))
+  } catch (err) {
+    const why = err instanceof SecretError ? err.message : String(err)
+    throw new MultimodelConfigError(`No se pudo leer la clave de "${id}" (${stored.apiKeyRef}): ${why}. Revisa /secrets.`)
   }
 }
 
