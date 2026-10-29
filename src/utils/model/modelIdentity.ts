@@ -120,6 +120,8 @@ export function getLatestClaudeModels(): Record<
   for (const entry of claudeIdentityModels()) {
     const tier = entry.tier!
     const version = entry.version!
+    // "5.1 Fable" is its own line of models, not the newest Opus.
+    if (!/^\d+(\.\d+)*$/.test(version)) continue
     const current = result[tier]
     if (!current || compareVersions(version, current.version) > 0) {
       result[tier] = {

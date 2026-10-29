@@ -21,6 +21,7 @@ import { displayModelId } from './multimodelOptions.js'
 import {
   claudeAliasModel,
   claudeAliasName,
+  claudeIdentityModels,
   claudePrices,
   getClaudeModels,
 } from '../../services/config/claudeModels.js'
@@ -54,18 +55,56 @@ export function claudeModelEntries(): ModelEntry[] {
   const entries: ModelEntry[] = [
     { value: 'default', label: 'Default', description: 'El modelo recomendado para tu plan' },
   ]
+  // Alias entries (latest of each tier) first
+  const aliasIds = new Set<string>()
   for (const { alias, description } of getClaudeModels().picker) {
     const model = claudeAliasModel(alias)
+    if (model) aliasIds.add(model.id)
     const ctx = (model?.contextWindow ?? 0) >= 1_000_000 ? '1M ctx' : '200k ctx'
     const prices = model && claudePrices(model.id)
     const price = prices ? ` · $${prices.inputTokens}/$${prices.outputTokens} por Mtok` : ''
     entries.push({
       value: alias,
-      label: claudeAliasName(alias),
+      label: `${claudeAliasName(alias)} (latest)`,
       description: `${ctx} · razonamiento · imagen — ${description}${price}`,
     })
   }
+  // All individual models with identity, grouped by tier
+  const allModels = claudeIdentityModels().filter(m => !aliasIds.has(m.id))
+  for (const m of allModels) {
+    const ctx = (m.contextWindow ?? 0) >= 1_000_000 ? '1M ctx' : '200k ctx'
+    const prices = claudePrices(m.id)
+    const price = prices ? ` · $${prices.inputTokens}/$${prices.outputTokens} por Mtok` : ''
+    const label = claudeModelLabel(m.tier, m.version, m.id)
+    entries.push({
+      value: m.id,
+      label,
+      description: `${ctx}${price}${m.knowledgeCutoff ? ` · cutoff ${m.knowledgeCutoff}` : ''}`,
+    })
+  }
   return entries
+}
+
+/**
+ * Pure: the full Claude list first, then any plan-specific stock entry the
+ * list lacks (for example a 1M variant). A stock entry with the same value
+ * wins over the generic one, since it knows the plan's description.
+ */
+export function mergeClaudeEntries(full: ModelEntry[], stock: ModelEntry[] | undefined): ModelEntry[] {
+  if (!stock?.length) return full
+  const byValue = new Map(stock.map(m => [m.value, m]))
+  const merged = full.map(m => byValue.get(m.value) ?? m)
+  const known = new Set(full.map(m => m.value))
+  return [...merged, ...stock.filter(m => !known.has(m.value))]
+}
+
+/** Pure: "Opus 5.5" for a plain version, "Fable 5.1" when the version carries its own name ("5.1 Fable"). */
+export function claudeModelLabel(tier: string | undefined, version: string | undefined, id: string): string {
+  if (!version) return id
+  const named = /^(\d+(?:\.\d+)*)\s+(\S.*)$/.exec(version)
+  if (named) return `${named[2]} ${named[1]}`
+  const t = tier ? tier.charAt(0).toUpperCase() + tier.slice(1) : ''
+  return `${t} ${version}`.trim()
 }
 
 export const AGENT_MODEL_ALIASES = ['sonnet', 'opus', 'haiku', 'inherit'] as const
@@ -203,7 +242,7 @@ export async function gatherAccountModelGroups(opts: GatherOptions = {}): Promis
       const active = id === session
       const label = labels.get(id) ?? id
       if (id === CLAUDE_ACCOUNT_ID) {
-        return { accountId: id, label, active, models: active && opts.claudeOptions?.length ? opts.claudeOptions : claudeModelEntries() }
+        return { accountId: id, label, active, models: mergeClaudeEntries(claudeModelEntries(), active ? opts.claudeOptions : undefined) }
       }
       try {
         const target = targetForAccount(id, store, env)
