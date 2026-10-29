@@ -5,6 +5,7 @@ import { getFeatureValue_CACHED_MAY_BE_STALE } from '../services/analytics/growt
 import { logForDebugging } from '../utils/debug.js'
 import { isEnvDefinedFalsy } from '../utils/envUtils.js'
 import { getAPIProvider } from '../utils/model/providers.js'
+import { getWireVersion } from '../utils/wireVersion.js'
 import { getWorkload } from '../utils/workloadContext.js'
 
 const DEFAULT_PREFIX = `You are Claude Code, Anthropic's official CLI for Claude.`
@@ -75,7 +76,7 @@ export function getAttributionHeader(fingerprint: string): string {
     return ''
   }
 
-  const version = `${MACRO.VERSION}.${fingerprint}`
+  const version = `${getWireVersion()}.${fingerprint}`
   const entrypoint = process.env.CLAUDE_CODE_ENTRYPOINT ?? 'unknown'
 
   // cch=00000 placeholder is overwritten by Bun's HTTP stack with attestation token
