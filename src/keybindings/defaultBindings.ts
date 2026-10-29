@@ -74,6 +74,13 @@ export const DEFAULT_BINDINGS: KeybindingBlock[] = [
       'meta+o': 'chat:fastMode',
       'meta+t': 'chat:thinkingToggle',
       enter: 'chat:submit',
+      // FnHarness: send the prompt right now, interrupting the running turn
+      // instead of queueing it for the next tool boundary. ctrl+enter needs the
+      // kitty keyboard protocol; the chord works in any terminal.
+      'ctrl+enter': 'chat:sendNow',
+      'ctrl+x ctrl+n': 'chat:sendNow',
+      // FnHarness: ← on an empty prompt opens the background sessions view.
+      left: 'chat:agentsView',
       up: 'history:previous',
       down: 'history:next',
       // Editing shortcuts (defined here, migration in progress)

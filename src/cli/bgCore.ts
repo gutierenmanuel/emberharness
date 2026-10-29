@@ -185,6 +185,22 @@ export function formatEventLine(line: string): string | null {
 }
 
 /**
+ * Last `max` readable lines of a stream-json chunk. A tail read can start in
+ * the middle of a line, so the first (possibly cut) line is dropped when
+ * `partialStart` is true.
+ */
+export function tailFormatted(text: string, max: number, partialStart = false): string[] {
+  const lines = text.split('\n')
+  if (partialStart) lines.shift()
+  const out: string[] = []
+  for (const l of lines) {
+    const f = formatEventLine(l)
+    if (f !== null) out.push(...f.split('\n'))
+  }
+  return out.slice(-max)
+}
+
+/**
  * Incremental line splitter for `logs -f`: feed it chunks, get back complete
  * lines; the unterminated tail stays buffered.
  */

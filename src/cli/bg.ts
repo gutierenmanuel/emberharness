@@ -37,6 +37,7 @@ import {
   resolveId,
   shortId,
   splitLines,
+  tailFormatted,
 } from './bgCore.js'
 
 export function getBgDir(): string {
@@ -243,12 +244,8 @@ export async function logsHandler(args: string[]): Promise<void> {
   await followLogs(meta, follow)
 }
 
-export async function killHandler(idArg: string | undefined): Promise<void> {
-  const meta = pick(idArg)
-  if (statusOf(meta) !== 'running') {
-    process.stdout.write(`La sesión ${meta.id} ya no está en marcha (${statusOf(meta)}).\n`)
-    return
-  }
+/** Stops a running session (SIGTERM to its group, SIGKILL if it lingers). No output. */
+export async function stopBgSession(meta: BgMeta): Promise<void> {
   const dir = sessionDir(meta.id)
   writeFileSync(join(dir, 'meta.json'), JSON.stringify({ ...meta, stoppedAt: Date.now() }, null, 2))
   const signal = (sig: NodeJS.Signals) => {
@@ -267,6 +264,30 @@ export async function killHandler(idArg: string | undefined): Promise<void> {
     await new Promise(r => setTimeout(r, 150))
   }
   if (isProcessRunning(meta.pid)) signal('SIGKILL')
+}
+
+/** Last `max` readable lines of a session's event log (reads only the file tail). */
+export function readBgTail(meta: BgMeta, max: number): string[] {
+  const path = join(sessionDir(meta.id), 'events.jsonl')
+  let size = 0
+  try {
+    size = statSync(path).size
+  } catch {
+    return []
+  }
+  const window = 64 * 1024
+  const start = Math.max(0, size - window)
+  const chunk = readFrom(path, start)
+  return tailFormatted(chunk.text, max, start > 0)
+}
+
+export async function killHandler(idArg: string | undefined): Promise<void> {
+  const meta = pick(idArg)
+  if (statusOf(meta) !== 'running') {
+    process.stdout.write(`La sesión ${meta.id} ya no está en marcha (${statusOf(meta)}).\n`)
+    return
+  }
+  await stopBgSession(meta)
   process.stdout.write(`Sesión ${meta.id} detenida.\n`)
 }
 
