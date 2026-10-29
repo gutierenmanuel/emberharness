@@ -6,7 +6,7 @@ import {
   dropRefusedExchanges,
   normalizeMessagesForAPI,
 } from './messages.js'
-import { getErrorMessageIfRefusal } from '../services/api/errors.js'
+import { formatRefusalMessage, getErrorMessageIfRefusal } from '../services/api/errors.js'
 
 const refusal = () => getErrorMessageIfRefusal('refusal', 'claude-opus-5-5')!
 
@@ -52,5 +52,35 @@ describe('dropRefusedExchanges', () => {
     const api = normalizeMessagesForAPI(msgs)
     expect(api).toHaveLength(1)
     expect(JSON.stringify(api[0]!.message.content)).toContain('hola')
+  })
+})
+
+describe('formatRefusalMessage', () => {
+  test('muestra categoría y motivo del safeguard', () => {
+    const text = formatRefusalMessage('claude-opus-5-5', {
+      type: 'refusal',
+      category: 'reasoning_extraction',
+      explanation: 'bloqueado por ToS',
+    })
+    expect(text).toContain('Safeguard de la API activado')
+    expect(text).toContain('Categoría: reasoning_extraction')
+    expect(text).toContain('Motivo: bloqueado por ToS')
+  })
+
+  test('sin stop_details lo dice y sigue siendo reconocible como rechazo', () => {
+    const msgs = [
+      createUserMessage({ content: 'x' }),
+      getErrorMessageIfRefusal('refusal', 'claude-opus-5-5')!,
+    ]
+    expect(JSON.stringify(msgs[1])).toContain('no envió detalle')
+    expect(dropRefusedExchanges(msgs)).toEqual([])
+  })
+
+  test('el texto con stop_details también dispara el rollback', () => {
+    const msgs = [
+      createUserMessage({ content: 'x' }),
+      getErrorMessageIfRefusal('refusal', 'm', { category: 'c', explanation: 'e' })!,
+    ]
+    expect(dropRefusedExchanges(msgs)).toEqual([])
   })
 })
