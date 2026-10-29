@@ -5,6 +5,8 @@ import {
   decodePickerValue,
   formatAgentAccountsSection,
   type AccountModelGroup,
+  mergeClaudeEntries,
+  claudeModelLabel,
 } from './routedModels.js'
 
 const groups: AccountModelGroup[] = [
@@ -95,5 +97,26 @@ describe('agentModelParamError', () => {
     expect(agentModelParamError('qwen36:x', route)).toBeNull()
     expect(agentModelParamError('openai:gpt-4.1', route)).toMatch(/needs an API key/)
     expect(agentModelParamError('gpt-4.1', route)).toMatch(/cuenta:modelo/)
+  })
+})
+
+describe('mergeClaudeEntries', () => {
+  const e = (value: string, description = '') => ({ value, label: value, description })
+  test('keeps the full list and appends plan-only stock entries', () => {
+    const out = mergeClaudeEntries([e('default'), e('opus'), e('claude-opus-4-8')], [e('default'), e('opus', 'plan'), e('opus[1m]')])
+    expect(out.map(m => m.value)).toEqual(['default', 'opus', 'claude-opus-4-8', 'opus[1m]'])
+    expect(out[1]!.description).toBe('plan')
+  })
+  test('without stock entries returns the full list', () => {
+    const full = [e('default'), e('claude-haiku-4-5')]
+    expect(mergeClaudeEntries(full, undefined)).toBe(full)
+  })
+})
+
+describe('claudeModelLabel', () => {
+  test('plain, named and missing versions', () => {
+    expect(claudeModelLabel('opus', '5.5', 'claude-opus-5-5')).toBe('Opus 5.5')
+    expect(claudeModelLabel('opus', '5.1 Fable', 'claude-fable-5-1')).toBe('Fable 5.1')
+    expect(claudeModelLabel('opus', undefined, 'claude-opus-4-1')).toBe('claude-opus-4-1')
   })
 })

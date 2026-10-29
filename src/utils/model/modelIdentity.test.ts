@@ -64,7 +64,7 @@ describe('modelos Claude más recientes', () => {
     const latest = getLatestClaudeModels()
     expect(latest.sonnet.marketingName).toBe('Sonnet 5.5')
     expect(latest.opus.marketingName).toBe('Opus 5.5')
-    expect(latest.haiku.apiId).toBe('claude-haiku-4-5-20251001')
+    expect(latest.haiku.apiId).toBe('claude-haiku-5-5')
     const text = describeLatestClaudeModels()
     expect(text).toContain("Sonnet 5.5: 'claude-sonnet-5-5'")
     expect(text).not.toContain('4.5/4.6')

@@ -10,8 +10,31 @@
     { "alias": "haiku", "description": "Fastest for quick answers" }
   ],
   "models": {
+    "claude-fable-5-1": {
+      "tier": "opus", "version": "5.1 Fable", "apiId": "claude-fable-5-1", "contextWindow": 1000000,
+      "pricing": { "input": 10, "output": 50, "cacheWrite": 12.5, "cacheRead": 1 }
+    },
+    "claude-fable-5": {
+      "tier": "opus", "version": "5 Fable", "apiId": "claude-fable-5", "contextWindow": 1000000,
+      "pricing": { "input": 10, "output": 50, "cacheWrite": 12.5, "cacheRead": 1 }
+    },
     "claude-opus-5-5": {
       "tier": "opus", "version": "5.5", "apiId": "claude-opus-5-5", "contextWindow": 1000000,
+      "pricing": { "input": 5, "output": 25, "cacheWrite": 6.25, "cacheRead": 0.5 },
+      "fastPricing": { "input": 8, "output": 40, "cacheWrite": 10, "cacheRead": 0.8 }
+    },
+    "claude-opus-5": {
+      "tier": "opus", "version": "5", "apiId": "claude-opus-5", "contextWindow": 1000000,
+      "pricing": { "input": 5, "output": 25, "cacheWrite": 6.25, "cacheRead": 0.5 },
+      "fastPricing": { "input": 10, "output": 50, "cacheWrite": 12.5, "cacheRead": 1 }
+    },
+    "claude-opus-4-8": {
+      "tier": "opus", "version": "4.8", "apiId": "claude-opus-4-8", "contextWindow": 1000000,
+      "pricing": { "input": 5, "output": 25, "cacheWrite": 6.25, "cacheRead": 0.5 },
+      "fastPricing": { "input": 10, "output": 50, "cacheWrite": 12.5, "cacheRead": 1 }
+    },
+    "claude-opus-4-7": {
+      "tier": "opus", "version": "4.7", "apiId": "claude-opus-4-7", "contextWindow": 1000000,
       "pricing": { "input": 5, "output": 25, "cacheWrite": 6.25, "cacheRead": 0.5 }
     },
     "claude-opus-4-6": {
@@ -33,6 +56,10 @@
       "tier": "sonnet", "version": "5.5", "apiId": "claude-sonnet-5-5", "contextWindow": 1000000,
       "pricing": { "input": 3, "output": 15, "cacheWrite": 3.75, "cacheRead": 0.3 }
     },
+    "claude-sonnet-5": {
+      "tier": "sonnet", "version": "5", "apiId": "claude-sonnet-5", "contextWindow": 1000000,
+      "pricing": { "input": 2, "output": 10, "cacheWrite": 2.5, "cacheRead": 0.2 }
+    },
     "claude-sonnet-4-6": {
       "tier": "sonnet", "version": "4.6", "apiId": "claude-sonnet-4-6", "knowledgeCutoff": "August 2025",
       "pricing": { "input": 3, "output": 15, "cacheWrite": 3.75, "cacheRead": 0.3 }
@@ -49,6 +76,10 @@
     },
     "claude-3-5-sonnet": {
       "pricing": { "input": 3, "output": 15, "cacheWrite": 3.75, "cacheRead": 0.3 }
+    },
+    "claude-haiku-5-5": {
+      "tier": "haiku", "version": "5.5", "apiId": "claude-haiku-5-5", "contextWindow": 1000000,
+      "pricing": { "input": 0.1, "output": 0.5, "cacheWrite": 0.125, "cacheRead": 0.01 }
     },
     "claude-haiku-4-5": {
       "tier": "haiku", "version": "4.5", "apiId": "claude-haiku-4-5-20251001", "knowledgeCutoff": "February 2025",
