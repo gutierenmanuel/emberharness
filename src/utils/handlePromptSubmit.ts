@@ -115,6 +115,12 @@ export type HandlePromptSubmitParams = BaseExecutionParams & {
    * trigger local slash commands or skills.
    */
   skipSlashCommands?: boolean
+  /**
+   * When true and a turn is running, the message is queued with priority
+   * 'now': the REPL aborts the turn and runs it immediately instead of
+   * waiting for the next tool boundary.
+   */
+  sendNow?: boolean
 }
 
 export async function handlePromptSubmit(
@@ -340,6 +346,7 @@ export async function handlePromptSubmit(
       pastedContents: hasImages ? pastedContents : undefined,
       skipSlashCommands,
       uuid,
+      ...(params.sendNow && { priority: 'now' as const }),
     })
 
     onInputChange('')

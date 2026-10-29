@@ -3181,6 +3181,7 @@ export function REPL({
     setAppState: SetAppState;
   }, options?: {
     fromKeybinding?: boolean;
+    sendNow?: boolean;
   }) => {
     // Re-pin scroll to bottom on submit so the user always sees the new
     // exchange (matches OpenCode's auto-scroll behavior).
@@ -3551,7 +3552,8 @@ export function REPL({
       // Read via ref so streamMode can be dropped from onSubmit deps —
       // handlePromptSubmit only uses it for debug log + telemetry event.
       streamMode: streamModeRef.current,
-      hasInterruptibleToolInProgress: hasInterruptibleToolInProgressRef.current
+      hasInterruptibleToolInProgress: hasInterruptibleToolInProgressRef.current,
+      sendNow: options?.sendNow
     });
 
     // Restore stash that was deferred above. Two cases:

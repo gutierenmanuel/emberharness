@@ -10,6 +10,7 @@ import {
   shortId,
   shortPrompt,
   splitLines,
+  tailFormatted,
 } from './bgCore.js'
 
 const meta = (id: string, over: Partial<BgMeta> = {}): BgMeta => ({
@@ -111,4 +112,20 @@ test('backgroundPassthrough mirrors the permission mode', () => {
   expect(backgroundPassthrough('bypassPermissions')).toContain('bypassPermissions')
   expect(backgroundPassthrough('plan')).toEqual(['--permission-mode', 'plan'])
   expect(backgroundPassthrough('default')).toEqual([])
+})
+
+describe('tailFormatted', () => {
+  const assistant = (text: string) =>
+    JSON.stringify({ type: 'assistant', message: { content: [{ type: 'text', text }] } })
+
+  test('keeps only the last lines, skipping noise', () => {
+    const text = [assistant('uno'), '{"type":"system","subtype":"hook"}', assistant('dos'), assistant('tres')].join('\n')
+    expect(tailFormatted(text, 2)).toEqual(['dos', 'tres'])
+  })
+
+  test('drops the first line when the read started mid-line', () => {
+    const text = ['cut-off garbage', assistant('entera')].join('\n')
+    expect(tailFormatted(text, 5, true)).toEqual(['entera'])
+    expect(tailFormatted(text, 5, false)).toEqual(['cut-off garbage', 'entera'])
+  })
 })

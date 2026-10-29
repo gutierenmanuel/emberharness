@@ -66,6 +66,7 @@ import { isBilledAsExtraUsage } from '../../utils/extraUsage.js';
 import { getFastModeUnavailableReason, isFastModeAvailable, isFastModeCooldown, isFastModeEnabled, isFastModeSupportedByModel } from '../../utils/fastMode.js';
 import { isFullscreenEnvEnabled } from '../../utils/fullscreen.js';
 import type { PromptInputHelpers } from '../../utils/handlePromptSubmit.js';
+import { BgSessionsDialog } from '../tasks/BgSessionsDialog.js';
 import { getImageFromClipboard, PASTE_THRESHOLD } from '../../utils/imagePaste.js';
 import type { ImageDimensions } from '../../utils/imageResizer.js';
 import { cacheImagePath, storeImage } from '../../utils/imageStore.js';
@@ -167,6 +168,7 @@ type Props = {
     setAppState: (f: (prev: AppState) => AppState) => void;
   }, options?: {
     fromKeybinding?: boolean;
+    sendNow?: boolean;
   }) => Promise<void>;
   onAgentSubmit?: (input: string, task: InProcessTeammateTaskState | LocalAgentTaskState, helpers: PromptInputHelpers) => Promise<void>;
   isSearchingHistory: boolean;
@@ -986,7 +988,7 @@ function PromptInput({
   const setSuggestionsState = useCallback((updater: typeof suggestionsState | ((prev: typeof suggestionsState) => typeof suggestionsState)) => {
     setSuggestionsStateRaw(prev => typeof updater === 'function' ? updater(prev) : updater);
   }, []);
-  const onSubmit = useCallback(async (inputParam: string, isSubmittingSlashCommand = false) => {
+  const onSubmit = useCallback(async (inputParam: string, isSubmittingSlashCommand = false, sendNow = false) => {
     inputParam = inputParam.trimEnd();
 
     // Don't submit if a footer indicator is being opened. Read fresh from
@@ -1106,7 +1108,9 @@ function PromptInput({
       setCursorOffset,
       clearBuffer,
       resetHistory
-    });
+    }, undefined, sendNow ? {
+      sendNow: true
+    } : undefined);
   }, [promptSuggestionState, speculation, speculationSessionTimeSavedMs, teamContext, store, footerItems, suggestionsState.suggestions, onSubmitProp, onAgentSubmit, clearBuffer, resetHistory, logOutcomeAtSubmission, setAppState, markAccepted, pastedContents, removeNotification]);
   const {
     suggestions,
@@ -1639,6 +1643,23 @@ function PromptInput({
     });
   }, [addNotification, onImagePaste]);
 
+  // chat:agentsView — ← on an empty prompt opens the background sessions view;
+  // with text in the prompt it returns false so the cursor still moves.
+  const [showBgSessions, setShowBgSessions] = useState(false);
+  useKeybinding('chat:agentsView', () => {
+    if (input !== '' || suggestions.length > 0 || footerItemSelected || isSearchingHistory || mode !== 'prompt' || historyIndex > 0) return false;
+    setShowBgSessions(true);
+  }, {
+    context: 'Chat',
+    isActive: !isModalOverlayActive && !showBashesDialog && !showBgSessions
+  });
+
+  // chat:sendNow — submit and interrupt the running turn so the model sees the
+  // message immediately. With no turn running it behaves like a plain submit.
+  const handleSendNow = useCallback(() => {
+    void onSubmit(input, false, true);
+  }, [onSubmit, input]);
+
   // Register chat:submit handler directly in the handler registry (not via
   // useKeybindings) so that only the ChordInterceptor can invoke it for chord
   // completions (e.g., "ctrl+e s"). The default Enter binding for submit is
@@ -1670,8 +1691,9 @@ function PromptInput({
     'chat:modelPicker': handleModelPicker,
     'chat:thinkingToggle': handleThinkingToggle,
     'chat:cycleMode': handleCycleMode,
-    'chat:imagePaste': handleImagePaste
-  }), [handleUndo, handleNewline, handleExternalEditor, handleStash, handleModelPicker, handleThinkingToggle, handleCycleMode, handleImagePaste]);
+    'chat:imagePaste': handleImagePaste,
+    'chat:sendNow': handleSendNow
+  }), [handleUndo, handleNewline, handleExternalEditor, handleStash, handleModelPicker, handleThinkingToggle, handleCycleMode, handleImagePaste, handleSendNow]);
   useKeybindings(chatHandlers, {
     context: 'Chat',
     isActive: !isModalOverlayActive
@@ -2126,6 +2148,9 @@ function PromptInput({
   // Memoized so the portal useEffect doesn't churn on every PromptInput render.
   const autoModeOptInDialog = useMemo(() => feature('TRANSCRIPT_CLASSIFIER') && showAutoModeOptIn ? <AutoModeOptInDialog onAccept={handleAutoModeOptInAccept} onDecline={handleAutoModeOptInDecline} /> : null, [showAutoModeOptIn, handleAutoModeOptInAccept, handleAutoModeOptInDecline]);
   useSetPromptOverlayDialog(isFullscreenEnvEnabled() ? autoModeOptInDialog : null);
+  if (showBgSessions) {
+    return <BgSessionsDialog onDone={() => setShowBgSessions(false)} />;
+  }
   if (showBashesDialog) {
     return <BackgroundTasksDialog onDone={() => setShowBashesDialog(false)} toolUseContext={getToolUseContext(messages, [], new AbortController(), mainLoopModel)} initialDetailTaskId={typeof showBashesDialog === 'string' ? showBashesDialog : undefined} />;
   }
