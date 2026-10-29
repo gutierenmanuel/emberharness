@@ -13,6 +13,7 @@ import {
 import {
   describeModel,
   listAccountModels,
+  modelStats,
   targetForAccount,
 } from '../../services/api/openai-compat/accountModels.js'
 import { connectedAccountIds } from '../../services/api/openai-compat/connected.js'
@@ -28,7 +29,8 @@ import {
 
 type Env = Record<string, string | undefined>
 
-export type ModelEntry = { value: string; label: string; description: string }
+/** `info` is the short stats shown next to the name in /model (context, price...). */
+export type ModelEntry = { value: string; label: string; description: string; info?: string }
 
 export type AccountModelGroup = {
   accountId: string
@@ -41,7 +43,8 @@ export type AccountModelGroup = {
 export type PickerOption = {
   value: string
   label: string
-  description?: string
+  /** Short stats shown dimmed on the same line. */
+  info?: string
   disabled?: boolean
 }
 
@@ -62,11 +65,12 @@ export function claudeModelEntries(): ModelEntry[] {
     if (model) aliasIds.add(model.id)
     const ctx = (model?.contextWindow ?? 0) >= 1_000_000 ? '1M ctx' : '200k ctx'
     const prices = model && claudePrices(model.id)
-    const price = prices ? ` · $${prices.inputTokens}/$${prices.outputTokens} por Mtok` : ''
+    const price = prices ? ` · $${prices.inputTokens}/$${prices.outputTokens} por M` : ''
     entries.push({
       value: alias,
       label: `${claudeAliasName(alias)} (latest)`,
       description: `${ctx} · razonamiento · imagen — ${description}${price}`,
+      info: `${ctx}${price}`,
     })
   }
   // All individual models with identity, grouped by tier
@@ -74,12 +78,13 @@ export function claudeModelEntries(): ModelEntry[] {
   for (const m of allModels) {
     const ctx = (m.contextWindow ?? 0) >= 1_000_000 ? '1M ctx' : '200k ctx'
     const prices = claudePrices(m.id)
-    const price = prices ? ` · $${prices.inputTokens}/$${prices.outputTokens} por Mtok` : ''
+    const price = prices ? ` · $${prices.inputTokens}/$${prices.outputTokens} por M` : ''
     const label = claudeModelLabel(m.tier, m.version, m.id)
     entries.push({
       value: m.id,
       label,
       description: `${ctx}${price}${m.knowledgeCutoff ? ` · cutoff ${m.knowledgeCutoff}` : ''}`,
+      info: `${ctx}${price}`,
     })
   }
   return entries
@@ -88,12 +93,16 @@ export function claudeModelEntries(): ModelEntry[] {
 /**
  * Pure: the full Claude list first, then any plan-specific stock entry the
  * list lacks (for example a 1M variant). A stock entry with the same value
- * wins over the generic one, since it knows the plan's description.
+ * wins over the generic one, since it knows the plan's description (it keeps
+ * the generic stats when it has none of its own).
  */
 export function mergeClaudeEntries(full: ModelEntry[], stock: ModelEntry[] | undefined): ModelEntry[] {
   if (!stock?.length) return full
   const byValue = new Map(stock.map(m => [m.value, m]))
-  const merged = full.map(m => byValue.get(m.value) ?? m)
+  const merged = full.map(m => {
+    const s = byValue.get(m.value)
+    return s ? { ...s, info: s.info ?? m.info } : m
+  })
   const known = new Set(full.map(m => m.value))
   return [...merged, ...stock.filter(m => !known.has(m.value))]
 }
@@ -131,8 +140,9 @@ function matches(query: string, ...fields: string[]): boolean {
  * Pure: flat Select options, one disabled header per account followed by its
  * models. `query` keeps the models whose `cuenta:modelo`, name or description
  * match every word; an account whose id or label matches keeps all of them.
- * The model in use is marked with ●. One line per model: no description
- * (it is still searched by the filter).
+ * The model in use is marked with ●. One line per model: the name, padded to
+ * a column per account, then its short stats; the prose description is not
+ * shown (the filter still searches it).
  */
 export function buildModelPickerOptions(
   groups: AccountModelGroup[],
@@ -152,13 +162,16 @@ export function buildModelPickerOptions(
       label: `── ${g.label} (${g.accountId})${g.active ? ' · cuenta activa' : ''} ──`,
       disabled: true,
     })
+    // Capped so one very long name does not push every row's stats off screen.
+    const width = Math.min(44, Math.max(...models.map(m => m.label.length)))
     for (const m of models) {
       const inUse =
         g.accountId === current.account &&
         (m.value === (current.model ?? 'default') || m.value === current.model)
       out.push({
         value: `${g.accountId}:${m.value}`,
-        label: `${inUse ? '●' : ' '} ${m.label}`,
+        label: `${inUse ? '●' : ' '} ${m.info ? m.label.padEnd(width) : m.label}`,
+        ...(m.info ? { info: m.info } : {}),
       })
     }
   }
@@ -253,6 +266,7 @@ export async function gatherAccountModelGroups(opts: GatherOptions = {}): Promis
             value: m.id,
             label: m.name && m.name !== m.id ? `${m.name} (${shown})` : shown,
             description: shown !== m.id ? `${describeModel(m)} · fichero ${m.id}` : describeModel(m),
+            info: modelStats(m) || undefined,
           }
         })
         const own = active && opts.sessionModel ? opts.sessionModel : store.accounts[id]?.model

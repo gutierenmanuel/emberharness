@@ -46,6 +46,13 @@ export function UnifiedModelPicker({ groups, current, onPick, onCancel }: Props)
   const [focused, setFocused] = React.useState<string | undefined>(undefined)
 
   const options = React.useMemo(() => buildModelPickerOptions(groups, query, current), [groups, query, current])
+  const rows = React.useMemo(
+    () =>
+      options.map(({ info, ...o }) =>
+        info ? { ...o, label: <Text>{o.label}  <Text dimColor>{info}</Text></Text> } : o,
+      ),
+    [options],
+  )
   const currentValue = `${current.account}:${current.model ?? 'default'}`
   const hasCurrent = options.some(o => o.value === currentValue)
   const firstModel = options.find(o => !o.disabled)?.value
@@ -76,7 +83,7 @@ export function UnifiedModelPicker({ groups, current, onPick, onCancel }: Props)
           </Text>
           <Select
             key={query}
-            options={options}
+            options={rows}
             defaultValue={!query && hasCurrent ? currentValue : undefined}
             defaultFocusValue={initialFocus}
             onFocus={setFocused}
