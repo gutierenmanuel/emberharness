@@ -14,7 +14,7 @@
 
 export type ModelFamily = 'claude' | 'openai' | 'other'
 
-export type ClaudeTier = 'opus' | 'sonnet' | 'haiku'
+export type ClaudeTier = 'opus' | 'sonnet' | 'haiku' | 'fable'
 
 export type ModelIdentity = {
   family: ModelFamily
@@ -36,7 +36,7 @@ export type ModelIdentity = {
 
 import { claudeIdentityModels } from '../../services/config/claudeModels.js'
 
-const CLAUDE_ID_RE = /claude-(opus|sonnet|haiku)-(\d{1,2})(?:-(\d{1,2}))?(?!\d)/
+const CLAUDE_ID_RE = /claude-(opus|sonnet|haiku|fable)-(\d{1,2})(?:-(\d{1,2}))?(?!\d)/
 
 const CLAUDE_EMAIL = 'noreply@anthropic.com'
 const LOCAL_EMAIL = 'noreply@fnharness.local'

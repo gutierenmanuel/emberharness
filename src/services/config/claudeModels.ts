@@ -42,6 +42,9 @@ export type ClaudeModelData = {
   pricing?: ModelPrices
   /** Prices while fast mode is active. */
   fastPricing?: ModelPrices
+  /** Prompts longer than this many tokens (input plus cache reads and writes) are billed at `longPricing`. */
+  longPromptTokens?: number
+  longPricing?: ModelPrices
 }
 
 export type PickerEntry = { alias: ClaudeTier; description: string }
@@ -86,6 +89,8 @@ function parseModel(id: string, raw: unknown): ClaudeModelData | undefined {
     contextWindow: num(raw.contextWindow),
     pricing: parsePrices(raw.pricing),
     fastPricing: parsePrices(raw.fastPricing),
+    longPromptTokens: num(raw.longPromptTokens),
+    longPricing: parsePrices(raw.longPricing),
   }
 }
 
@@ -94,7 +99,7 @@ function overlayModel(base: unknown, user: unknown): unknown {
   if (!isRecord(user)) return base
   const b = isRecord(base) ? base : {}
   const out: Record<string, unknown> = { ...b, ...user }
-  for (const k of ['pricing', 'fastPricing']) {
+  for (const k of ['pricing', 'fastPricing', 'longPricing']) {
     if (isRecord(b[k]) && isRecord(user[k])) out[k] = { ...b[k], ...user[k] }
   }
   return out
@@ -219,9 +224,20 @@ export function claudeIdentityModels(): ClaudeModelData[] {
   return Object.values(getClaudeModels().models).filter(m => m.tier && m.version && m.apiId)
 }
 
-/** Prices of a listed model; `fast` picks the fast-mode ones when it has them. */
-export function claudePrices(canonicalId: string, fast = false): ModelPrices | undefined {
+/**
+ * Prices of a listed model; `fast` picks the fast-mode ones when it has them and
+ * `promptTokens` the long-prompt ones when the prompt exceeds the model's threshold.
+ */
+export function claudePrices(
+  canonicalId: string,
+  fast = false,
+  promptTokens = 0,
+): ModelPrices | undefined {
   const m = claudeModelData(canonicalId)
   if (!m) return undefined
-  return (fast ? m.fastPricing : undefined) ?? m.pricing
+  if (fast && m.fastPricing) return m.fastPricing
+  if (m.longPricing && m.longPromptTokens !== undefined && promptTokens > m.longPromptTokens) {
+    return m.longPricing
+  }
+  return m.pricing
 }

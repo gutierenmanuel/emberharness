@@ -6,7 +6,13 @@
 
 - cuentas, claves (`keyRef`), presets de proveedor, modelos Claude y tarifas salen de `accounts.json`, `providers.json` y `claude-models.json`, con recarga en caliente
 - Sonnet 5.5 y Opus 5.5 como modelos por defecto de los alias `sonnet` y `opus`, con tarifa y ventana de 1M
+- Haiku 5.5 y Fable 5.1 en `claude-models.json` (el alias `haiku` pasa a Haiku 5.5); Haiku 5.5 cobra el tramo de prompts de más de 100k tokens con `longPromptTokens` y `longPricing`
 - el contexto de una cuenta (p. ej. Venice) completa la caché de models.dev con el snapshot cuando el proveedor falta
+
+### Correcciones
+
+- la API rechazaba los modelos 5.x (`claude_code_version_too_old`): el cliente anuncia ahora la versión 2.1.280 como mínimo (`FNHARNESS_API_VERSION` la sobrescribe)
+- tarifas oficiales de Sonnet 5.5 (2/10) y Opus 5.5 (4/20, rápido 8/40), con la caché de lectura al 0.05x; se añaden los modelos 5, 4.7 y 4.8 y Fable 5
 
 ## v0.9.0 (25/10/2026)
 

@@ -72,7 +72,16 @@ export function getModelCosts(model: string, usage: Usage): ModelCosts {
   const shortName = getCanonicalName(model)
 
   // Fast mode has its own prices on the models that offer it.
-  const costs = claudePrices(shortName, usage.speed === 'fast' && isFastModeEnabled())
+  // A prompt counts every input token, cache reads and writes included.
+  const promptTokens =
+    usage.input_tokens +
+    (usage.cache_read_input_tokens ?? 0) +
+    (usage.cache_creation_input_tokens ?? 0)
+  const costs = claudePrices(
+    shortName,
+    usage.speed === 'fast' && isFastModeEnabled(),
+    promptTokens,
+  )
   if (!costs) {
     trackUnknownModelCost(model, shortName)
     return (

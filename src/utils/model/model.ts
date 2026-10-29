@@ -294,7 +294,7 @@ export function firstPartyNameToCanonical(name: ModelName): ModelShortName {
   }
   // Any later `claude-<tier>-<major>[-<minor>]` (5-5, 6-0, ...) canonicalizes
   // without a code change, so its prices and identity are found in claude-models.json.
-  const modern = name.match(/claude-(?:opus|sonnet|haiku)-\d+(?:-\d{1,2})?(?!\d)/)
+  const modern = name.match(/claude-(?:opus|sonnet|haiku|fable)-\d+(?:-\d{1,2})?(?!\d)/)
   if (modern) {
     return modern[0]
   }

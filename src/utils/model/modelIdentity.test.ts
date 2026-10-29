@@ -6,11 +6,17 @@ import {
 } from './modelIdentity.js'
 
 describe('getModelIdentity', () => {
-  test('claude-sonnet-5-5 se reconoce aunque no tenga corte de conocimiento', () => {
+  test('claude-fable-5-1 se reconoce como Fable 5.1', () => {
+    const id = getModelIdentity('claude-fable-5-1')
+    expect(id.marketingName).toBe('Fable 5.1')
+    expect(id.coAuthorName).toBe('Claude Fable 5.1')
+  })
+
+  test('claude-sonnet-5-5 se reconoce con su corte de conocimiento', () => {
     const id = getModelIdentity('claude-sonnet-5-5')
     expect(id.family).toBe('claude')
     expect(id.marketingName).toBe('Sonnet 5.5')
-    expect(id.knowledgeCutoff).toBeUndefined()
+    expect(id.knowledgeCutoff).toBe('June 2026')
     expect(id.supportsFastMode).toBe(false)
     expect(id.coAuthorName).toBe('Claude Sonnet 5.5')
     expect(id.coAuthorEmail).toBe('noreply@anthropic.com')
@@ -64,7 +70,7 @@ describe('modelos Claude más recientes', () => {
     const latest = getLatestClaudeModels()
     expect(latest.sonnet.marketingName).toBe('Sonnet 5.5')
     expect(latest.opus.marketingName).toBe('Opus 5.5')
-    expect(latest.haiku.apiId).toBe('claude-haiku-4-5-20251001')
+    expect(latest.haiku.apiId).toBe('claude-haiku-5-5')
     const text = describeLatestClaudeModels()
     expect(text).toContain("Sonnet 5.5: 'claude-sonnet-5-5'")
     expect(text).not.toContain('4.5/4.6')
