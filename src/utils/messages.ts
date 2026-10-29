@@ -2003,6 +2003,55 @@ function relocateToolReferenceSiblings(
   return result
 }
 
+const REFUSAL_ERROR_MARKER = 'which appears to violate our Usage Policy'
+
+function isRefusalErrorMessage(message: Message): boolean {
+  if (!isSyntheticApiErrorMessage(message)) return false
+  const block = message.message.content[0]
+  return block?.type === 'text' && block.text.includes(REFUSAL_ERROR_MARKER)
+}
+
+function isToolResultOnlyUserMessage(message: Message): boolean {
+  return (
+    message.type === 'user' &&
+    Array.isArray(message.message.content) &&
+    message.message.content.length > 0 &&
+    message.message.content.every(b => b.type === 'tool_result')
+  )
+}
+
+/**
+ * Removes every exchange that ended in an API refusal (stop_reason
+ * "refusal"), from the user prompt that started it through the refusal
+ * message. The refusal is a classifier verdict on the conversation content;
+ * if the refused prompt, thinking and tool results stay in the history, every
+ * later turn is refused too (even "hola") and the session never recovers.
+ * Dropping the exchange is the equivalent of rewinding to before that prompt.
+ */
+export function dropRefusedExchanges<T extends Message>(messages: T[]): T[] {
+  if (!messages.some(isRefusalErrorMessage)) return messages
+  const dropped = new Set<number>()
+  messages.forEach((message, i) => {
+    if (!isRefusalErrorMessage(message)) return
+    dropped.add(i)
+    for (let j = i - 1; j >= 0; j--) {
+      const candidate = messages[j]!
+      if (candidate.type === 'assistant' || isToolResultOnlyUserMessage(candidate)) {
+        dropped.add(j)
+        continue
+      }
+      if (candidate.type === 'user' && !candidate.isMeta) {
+        dropped.add(j)
+        break
+      }
+      if (dropped.has(j)) continue
+      // attachments / system / progress inside the exchange go with it
+      dropped.add(j)
+    }
+  })
+  return messages.filter((_, i) => !dropped.has(i))
+}
+
 export function normalizeMessagesForAPI(
   messages: Message[],
   tools: Tools = [],
@@ -2013,8 +2062,10 @@ export function normalizeMessagesForAPI(
   // First, reorder attachments to bubble up until they hit a tool result or assistant message
   // Then strip virtual messages — they're display-only (e.g. REPL inner tool
   // calls) and must never reach the API.
-  const reorderedMessages = reorderAttachmentsForAPI(messages).filter(
-    m => !((m.type === 'user' || m.type === 'assistant') && m.isVirtual),
+  const reorderedMessages = dropRefusedExchanges(
+    reorderAttachmentsForAPI(messages).filter(
+      m => !((m.type === 'user' || m.type === 'assistant') && m.isVirtual),
+    ),
   )
 
   // Build a map from error text → which block types to strip from the preceding user message.
