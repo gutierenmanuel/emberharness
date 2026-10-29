@@ -131,7 +131,8 @@ function matches(query: string, ...fields: string[]): boolean {
  * Pure: flat Select options, one disabled header per account followed by its
  * models. `query` keeps the models whose `cuenta:modelo`, name or description
  * match every word; an account whose id or label matches keeps all of them.
- * The model in use is marked with ●.
+ * The model in use is marked with ●. One line per model: no description
+ * (it is still searched by the filter).
  */
 export function buildModelPickerOptions(
   groups: AccountModelGroup[],
@@ -158,7 +159,6 @@ export function buildModelPickerOptions(
       out.push({
         value: `${g.accountId}:${m.value}`,
         label: `${inUse ? '●' : ' '} ${m.label}`,
-        description: m.description,
       })
     }
   }
