@@ -72,15 +72,21 @@ export function filterToolsForAgent({
   isBuiltIn,
   isAsync = false,
   permissionMode,
+  allowAgentTool = false,
 }: {
   tools: Tools
   isBuiltIn: boolean
   isAsync?: boolean
   permissionMode?: PermissionMode
+  /** Keep the Agent tool: a first-level subagent may launch one more level. */
+  allowAgentTool?: boolean
 }): Tools {
   return tools.filter(tool => {
     // Allow MCP tools for all agents
     if (tool.name.startsWith('mcp__')) {
+      return true
+    }
+    if (allowAgentTool && toolMatchesName(tool, AGENT_TOOL_NAME)) {
       return true
     }
     // Allow ExitPlanMode for agents in plan mode (e.g., in-process teammates)
@@ -127,6 +133,7 @@ export function resolveAgentTools(
   availableTools: Tools,
   isAsync = false,
   isMainThread = false,
+  allowAgentTool = false,
 ): ResolvedAgentTools {
   const {
     tools: agentTools,
@@ -144,6 +151,7 @@ export function resolveAgentTools(
         isBuiltIn: source === 'built-in',
         isAsync,
         permissionMode,
+        allowAgentTool,
       })
 
   // Create a set of disallowed tool names for quick lookup
@@ -195,11 +203,11 @@ export function resolveAgentTools(
       }
       // For sub-agents, Agent is excluded by filterToolsForAgent — mark the spec
       // valid for allowedAgentTypes tracking but skip tool resolution.
-      if (!isMainThread) {
+      if (!isMainThread && !allowAgentTool) {
         validTools.push(toolSpec)
         continue
       }
-      // For main thread, filtering was skipped so Agent is in availableToolMap —
+      // For main thread (or a subagent allowed to nest), Agent is in availableToolMap —
       // fall through to normal resolution below.
     }
 
