@@ -1,5 +1,5 @@
 import type { LocalJSXCommandOnDone } from '../../types/command.js'
-import { validateAgentModelParam } from '../model/routedModels.js'
+import { sessionAgentModel, validateAgentModelParam } from '../model/routedModels.js'
 import {
   buildSubagentPrompt,
   parseSubagentArgs,
@@ -17,7 +17,9 @@ export async function runSubagentCommand(
     onDone(parsed.message, { display: 'system' })
     return null
   }
-  const modelError = validateAgentModelParam(parsed.model ?? undefined)
+  // The Agent tool needs cuenta:modelo; without --model the agent stays on the session's.
+  const model = parsed.model ?? sessionAgentModel()
+  const modelError = validateAgentModelParam(model)
   if (modelError) {
     onDone(modelError, { display: 'system' })
     return null
@@ -25,7 +27,7 @@ export async function runSubagentCommand(
   onDone(`Lanzando /${mode} en segundo plano: ${parsed.directive}`, {
     display: 'system',
     shouldQuery: true,
-    metaMessages: [buildSubagentPrompt(mode, parsed.directive, parsed.model)],
+    metaMessages: [buildSubagentPrompt(mode, parsed.directive, model)],
   })
   return null
 }

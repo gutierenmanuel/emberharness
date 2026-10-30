@@ -85,7 +85,7 @@ const baseInputSchema = lazySchema(() => z.object({
   description: z.string().describe('A short (3-5 word) description of the task'),
   prompt: z.string().describe('The task for the agent to perform'),
   subagent_type: z.string().optional().describe('The type of specialized agent to use for this task'),
-  model: z.string().optional().describe("Optional model override for this agent: 'sonnet', 'opus' or 'haiku', or 'cuenta:modelo' to run it on another connected account (e.g. 'claude:haiku', 'qwen36:qwen36-35b-heretic-q4km'; see the list in the tool description). Takes precedence over the agent definition's model frontmatter. If omitted, uses the agent definition's model, or inherits from the parent."),
+  model: z.string().describe("Required: the account and model that run this agent, as 'cuenta:modelo' (e.g. 'claude:haiku', 'claude:opus', 'qwen36:qwen36-35b-heretic-q4km'; see the accounts in the tool description). A bare alias like 'sonnet' is rejected. Takes precedence over the agent definition's model frontmatter."),
   run_in_background: z.boolean().optional().describe('Set to true to run this agent in the background. You will be notified when it completes.')
 }));
 
