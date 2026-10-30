@@ -286,6 +286,18 @@ export const AgentTool = buildTool({
       throw new Error('In-process teammates cannot spawn background agents. Use run_in_background=false for synchronous subagents.');
     }
 
+    // A subagent may launch one more level (runAgent keeps Agent only for the
+    // main thread's children). Those nested agents run in the foreground: the
+    // caller waits for the result, so it manages them itself and their
+    // completion never lands in the main session's notification queue.
+    const isNestedSpawn = toolUseContext.agentId !== undefined && !isInProcessTeammate();
+    if (isNestedSpawn && run_in_background === true) {
+      throw new Error('A subagent can only launch foreground agents: call Agent again without run_in_background and wait for its result.');
+    }
+    if (isNestedSpawn && name) {
+      throw new Error('A subagent cannot spawn named teammates: omit `name` to launch a foreground subagent.');
+    }
+
     // Check if this is a multi-agent spawn request
     // Spawn is triggered when team_name is set (from param or context) and name is provided
     if (teamName && name) {
@@ -572,7 +584,7 @@ export const AgentTool = buildTool({
     // <task-notification> re-entry there is handled by the else branch
     // below (registerAsyncAgentTask + notifyOnCompletion).
     const assistantForceAsync = feature('KAIROS') ? appState.kairosEnabled : false;
-    const shouldRunAsync = (run_in_background === true || selectedAgent.background === true || isCoordinator || forceAsync || assistantForceAsync || (proactiveModule?.isProactiveActive() ?? false)) && !isBackgroundTasksDisabled;
+    const shouldRunAsync = !isNestedSpawn && (run_in_background === true || selectedAgent.background === true || isCoordinator || forceAsync || assistantForceAsync || (proactiveModule?.isProactiveActive() ?? false)) && !isBackgroundTasksDisabled;
     // Assemble the worker's tool pool independently of the parent's.
     // Workers always get their tools from assembleToolPool with their own
     // permission mode, so they aren't affected by the parent's tool
@@ -834,7 +846,7 @@ export const AgentTool = buildTool({
             model: resolvedAgentModel,
             setAppState: rootSetAppState,
             toolUseId: toolUseContext.toolUseId,
-            autoBackgroundMs: getAutoBackgroundMs() || undefined
+            autoBackgroundMs: isNestedSpawn ? undefined : getAutoBackgroundMs() || undefined
           });
           foregroundTaskId = registration.taskId;
           backgroundPromise = registration.backgroundSignal.then(() => ({

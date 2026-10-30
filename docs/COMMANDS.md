@@ -458,5 +458,11 @@ la sesión sigue en la suya. La descripción de la herramienta lista las cuentas
 modelos de cada una. Como el parámetro va siempre, gana al frontmatter `model:` de
 `.claude/agents/*.md` y a `CLAUDE_CODE_SUBAGENT_MODEL`. En el panel de subagentes la fila muestra
 `[cuenta]` cuando no es la de la sesión.
+
+Anidamiento de un nivel: un subagente lanzado por la sesión principal conserva la herramienta `Agent`
+(también en segundo plano), así un modelo de una cuenta puede delegar a su vez en modelos de otras. Los
+agentes que él lance ya no la tienen, y corren siempre en primer plano: quien los lanza espera su
+resultado y los gestiona él mismo, sin que su aviso de fin llegue a la sesión principal. Por eso a un
+subagente se le rechazan `run_in_background: true` y `name`, y no se pasan solos a segundo plano.
 Diseño y límites: `docs/plans/account_routing.md`.
 

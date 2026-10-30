@@ -499,7 +499,15 @@ export async function* runAgent({
 
   const resolvedTools = useExactTools
     ? availableTools
-    : resolveAgentTools(agentDefinition, availableTools, isAsync).resolvedTools
+    : resolveAgentTools(
+        agentDefinition,
+        availableTools,
+        isAsync,
+        false,
+        // One level of nesting: a subagent launched by the main thread keeps the
+        // Agent tool; the agents it launches (parent has an agentId) do not.
+        toolUseContext.agentId === undefined,
+      ).resolvedTools
 
   const additionalWorkingDirectories = Array.from(
     appState.toolPermissionContext.additionalWorkingDirectories.keys(),
