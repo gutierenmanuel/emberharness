@@ -445,12 +445,18 @@ Otros puntos de integración: `src/services/api/client.ts` enruta las peticiones
 
 ## Subagentes en otra cuenta (`cuenta:modelo`)
 
-La herramienta `Agent` acepta en `model` los alias de siempre (`sonnet`, `opus`, `haiku`, `inherit`) o
-`cuenta:modelo` de una cuenta lista (`claude:haiku`, `qwen36:qwen36-35b-heretic-q4km`,
-`openrouter:deepseek/deepseek-chat`, `qwen36:` = el modelo propio de la cuenta). El frontmatter de
-`.claude/agents/*.md` admite lo mismo (`model: claude:haiku`). El subagente corre en esa cuenta y la
-sesión sigue en la suya. La descripción de la herramienta lista las cuentas conectadas y unos pocos
-modelos de cada una. Un `cuenta:modelo` explícito gana a `CLAUDE_CODE_SUBAGENT_MODEL`, que queda como
-valor por defecto. En el panel de subagentes la fila muestra `[cuenta]` cuando no es la de la sesión.
+En la herramienta `Agent` el parámetro `model` es **obligatorio** y siempre lleva cuenta y modelo:
+`cuenta:modelo` de una cuenta lista (`claude:haiku`, `claude:opus`, `qwen36:qwen36-35b-heretic-q4km`,
+`openrouter:deepseek/deepseek-chat`). Un alias suelto (`sonnet`), un id sin cuenta (`gpt-4.1`), una cuenta
+sin modelo (`qwen36:`) o una cuenta que no puede servir se rechazan con un mensaje que explica el formato
+y dice el `cuenta:modelo` de la sesión (`validateAgentModelParam`). Así el modelo que lanza un agente
+decide siempre en qué cuenta corre, y puede repartir trabajo a modelos de otras cuentas y seguir
+gestionándolos con `SendMessage` y `TaskStop`. Para quedarse en la cuenta y el modelo de la sesión se
+pasa el valor que la descripción de la herramienta indica (también en los forks, para reutilizar la
+caché). `/fork` y `/subtask` sin `--model` rellenan el de la sesión. El subagente corre en esa cuenta y
+la sesión sigue en la suya. La descripción de la herramienta lista las cuentas conectadas y unos pocos
+modelos de cada una. Como el parámetro va siempre, gana al frontmatter `model:` de
+`.claude/agents/*.md` y a `CLAUDE_CODE_SUBAGENT_MODEL`. En el panel de subagentes la fila muestra
+`[cuenta]` cuando no es la de la sesión.
 Diseño y límites: `docs/plans/account_routing.md`.
 

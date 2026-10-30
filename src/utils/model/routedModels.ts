@@ -19,6 +19,7 @@ import {
 import { connectedAccountIds } from '../../services/api/openai-compat/connected.js'
 import { routeForModel, sessionAccountId } from '../../services/api/accountRouting.js'
 import { displayModelId } from './multimodelOptions.js'
+import { getMainLoopModel } from './model.js'
 import {
   claudeAliasModel,
   claudeAliasName,
@@ -116,8 +117,6 @@ export function claudeModelLabel(tier: string | undefined, version: string | und
   return `${t} ${version}`.trim()
 }
 
-export const AGENT_MODEL_ALIASES = ['sonnet', 'opus', 'haiku', 'inherit'] as const
-
 // ── pure ────────────────────────────────────────────────────────────────
 
 /** Pure: `cuenta:modelo` picker value to its parts (account ids never hold a colon). */
@@ -182,45 +181,61 @@ export function buildModelPickerOptions(
 }
 
 /**
- * Pure: the Agent tool paragraph listing what `model` accepts, short: at most
- * `maxModels` per account, the rest summarised.
+ * Pure: the Agent tool paragraph explaining that `model` is a required
+ * `cuenta:modelo`, with the session's own value and, per connected account,
+ * at most `maxModels` models (the rest summarised).
  */
 export function formatAgentAccountsSection(
   groups: AccountModelGroup[],
   maxModels = 6,
+  sessionModel?: string,
 ): string {
-  const others = groups.filter(g => g.models.length > 0)
-  if (others.length <= 1 && others.every(g => g.active)) return ''
-  const lines = others.map(g => {
-    const ids = g.models.filter(m => m.value !== 'default').map(m => m.value)
-    const shown = ids.slice(0, maxModels).join(', ')
-    const more = ids.length > maxModels ? ` (+${ids.length - maxModels} más)` : ''
-    return `- ${g.accountId}${g.active ? ' (cuenta de la sesión)' : ''}: ${shown}${more}`
-  })
+  const lines = groups
+    .filter(g => g.models.length > 0)
+    .map(g => {
+      const ids = g.models.filter(m => m.value !== 'default').map(m => m.value)
+      const shown = ids.slice(0, maxModels).join(', ')
+      const more = ids.length > maxModels ? ` (+${ids.length - maxModels} más)` : ''
+      return `- ${g.accountId}${g.active ? ' (cuenta de la sesión)' : ''}: ${shown}${more}`
+    })
   return [
     '',
-    '## Running an agent on another account',
-    '`model` also accepts `cuenta:modelo` to run that agent on another connected account while this session stays where it is (for example `claude:haiku` or `qwen36:qwen36-35b-heretic-q4km`). Connected accounts and some of their models:',
+    '## Account and model of every agent (required)',
+    '`model` is REQUIRED on every Agent call and must be `cuenta:modelo`: the connected account that serves the agent and the model on it (for example `claude:haiku` or `qwen36:qwen36-35b-heretic-q4km`). A bare alias (`sonnet`) or a bare model id is rejected. The agent runs on that account while this session stays where it is, so you can hand work to a model of another account and keep managing it (SendMessage to continue it, TaskStop to stop it).',
+    ...(sessionModel ? [`To keep the agent on this session's account and model, pass \`${sessionModel}\`.`] : []),
+    'Connected accounts and some of their models:',
     ...lines,
   ].join('\n')
 }
 
+/** Pure: what to show when `model` is not a usable `cuenta:modelo`. */
+function agentModelFormatHint(sessionModel?: string): string {
+  const own = sessionModel ? ` (this session: ${sessionModel})` : ''
+  return `the Agent tool needs \`model\` as cuenta:modelo, an account from /account and a model on it, e.g. claude:haiku or qwen36:qwen36-35b-heretic-q4km${own}`
+}
+
 /**
  * Pure: why `model` cannot be used for a subagent, or null when it can.
- * `route` resolves a `cuenta:modelo` (throws when the account cannot serve).
+ * `model` is required and must be `cuenta:modelo` with both parts. `route`
+ * resolves it (null when the prefix is no account; throws when the account
+ * cannot serve).
  */
 export function agentModelParamError(
   model: string | undefined,
   route: (m: string) => unknown,
+  sessionModel?: string,
 ): string | null {
-  if (!model) return null
-  if ((AGENT_MODEL_ALIASES as readonly string[]).includes(model.toLowerCase())) return null
+  const hint = agentModelFormatHint(sessionModel)
+  if (!model || !model.trim()) return `model is missing: ${hint}`
+  const i = model.indexOf(':')
+  if (i <= 0) return `model "${model}" has no account: ${hint}`
+  if (!model.slice(i + 1).trim()) return `model "${model}" names no model after the account: ${hint}`
   try {
     if (route(model)) return null
   } catch (err) {
     return `model "${model}": ${err instanceof Error ? err.message : String(err)}`
   }
-  return `model "${model}" is not valid: use sonnet, opus, haiku, inherit or cuenta:modelo (an account from /account, e.g. claude:haiku or qwen36:qwen36-35b-heretic-q4km)`
+  return `model "${model}": "${model.slice(0, i)}" is not a connected account: ${hint}`
 }
 
 // ── I/O ─────────────────────────────────────────────────────────────────
@@ -285,10 +300,15 @@ export async function gatherAccountModelGroups(opts: GatherOptions = {}): Promis
   return groups.sort((a, b) => Number(b.active) - Number(a.active))
 }
 
+/** The session's own `cuenta:modelo`, what an agent that stays on it must pass. */
+export function sessionAgentModel(): string {
+  return `${sessionAccountId()}:${getMainLoopModel()}`
+}
+
 /** Agent tool paragraph for the current process. Never throws. */
 export async function agentAccountsPromptSection(): Promise<string> {
   try {
-    return formatAgentAccountsSection(await gatherAccountModelGroups({ remote: false }))
+    return formatAgentAccountsSection(await gatherAccountModelGroups({ remote: false }), 6, sessionAgentModel())
   } catch {
     return ''
   }
@@ -296,5 +316,5 @@ export async function agentAccountsPromptSection(): Promise<string> {
 
 /** Validation of the Agent tool `model` parameter against the live accounts. */
 export function validateAgentModelParam(model: string | undefined): string | null {
-  return agentModelParamError(model, m => routeForModel(m))
+  return agentModelParamError(model, m => routeForModel(m), sessionAgentModel())
 }

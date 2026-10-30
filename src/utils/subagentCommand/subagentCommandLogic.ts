@@ -13,13 +13,13 @@ export function subagentUsage(mode: SubagentMode): string {
     mode === 'fork'
       ? 'Lanza un subagente en segundo plano que hereda TODA la conversación actual y trabaja la instrucción.'
       : 'Lanza un subagente en segundo plano con contexto limpio (sin el historial): solo ve la instrucción.'
-  return `Uso: /${mode} [--model <modelo|cuenta:modelo>] <instrucción>
+  return `Uso: /${mode} [--model <cuenta:modelo>] <instrucción>
 
 ${what}
 
   /${mode} revisa los tests de src/utils y dime qué falla
   /${mode} --model claude:haiku cuenta los ficheros de src/
-  --model <m>   modelo del subagente: sonnet, opus, haiku o cuenta:modelo (por defecto, el de la sesión)`
+  --model <m>   cuenta y modelo del subagente, p. ej. claude:haiku (por defecto, los de la sesión)`
 }
 
 /** Parse raw `/fork` / `/subtask` arguments. `--model` may appear anywhere. */

@@ -8,6 +8,7 @@
 - Sonnet 5.5 y Opus 5.5 como modelos por defecto de los alias `sonnet` y `opus`, con tarifa y ventana de 1M
 - Haiku 5.5 y Fable 5.1 en `claude-models.json` (el alias `haiku` pasa a Haiku 5.5); Haiku 5.5 cobra el tramo de prompts de más de 100k tokens con `longPromptTokens` y `longPricing`
 - el contexto de una cuenta (p. ej. Venice) completa la caché de models.dev con el snapshot cuando el proveedor falta
+- la herramienta `Agent` exige `model` como `cuenta:modelo` en cada llamada (alias sueltos, ids sin cuenta y cuentas sin modelo se rechazan), así el modelo que lanza un agente elige siempre cuenta y modelo y puede delegar en otras cuentas; `/fork` y `/subtask` sin `--model` usan los de la sesión
 
 ### Correcciones
 

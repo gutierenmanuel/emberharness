@@ -98,29 +98,38 @@ test('decodePickerValue splits at the first colon only', () => {
 })
 
 describe('formatAgentAccountsSection', () => {
-  test('lists every account with at most N models', () => {
-    const text = formatAgentAccountsSection(groups, 1)
-    expect(text).toContain('`model` also accepts `cuenta:modelo`')
+  test('says model is required and lists every account with at most N models', () => {
+    const text = formatAgentAccountsSection(groups, 1, 'qwen36:qwen36-35b-heretic-q4km')
+    expect(text).toContain('`model` is REQUIRED on every Agent call and must be `cuenta:modelo`')
+    expect(text).toContain("pass `qwen36:qwen36-35b-heretic-q4km`")
     expect(text).toContain('- qwen36 (cuenta de la sesión): qwen36-35b-heretic-q4km')
     expect(text).toContain('- claude: sonnet (+1 más)')
     expect(text).toContain('- openrouter: deepseek/deepseek-chat (+1 más)')
   })
-  test('nothing to say with only the session account', () => {
-    expect(formatAgentAccountsSection([groups[0]!])).toBe('')
+  test('still explains the format with only the session account', () => {
+    expect(formatAgentAccountsSection([groups[0]!])).toContain('REQUIRED')
   })
 })
 
 describe('agentModelParamError', () => {
   const route = (m: string) => {
     if (m.startsWith('openai:')) throw new Error('needs an API key')
-    return m.includes(':') ? {} : null
+    return m.startsWith('qwen36:') || m.startsWith('claude:') ? {} : null
   }
-  test('aliases and routable cuenta:modelo pass; the rest explain why', () => {
-    expect(agentModelParamError(undefined, route)).toBeNull()
-    expect(agentModelParamError('haiku', route)).toBeNull()
+  test('only a routable cuenta:modelo with both parts passes', () => {
     expect(agentModelParamError('qwen36:x', route)).toBeNull()
+    expect(agentModelParamError('claude:haiku', route)).toBeNull()
+  })
+  test('missing model, bare alias or bare id are rejected with the format', () => {
+    expect(agentModelParamError(undefined, route, 'claude:opus')).toMatch(/missing.*cuenta:modelo.*this session: claude:opus/)
+    expect(agentModelParamError('', route)).toMatch(/missing/)
+    expect(agentModelParamError('haiku', route)).toMatch(/no account.*cuenta:modelo/)
+    expect(agentModelParamError('gpt-4.1', route)).toMatch(/no account/)
+  })
+  test('empty model after the account, unknown account and unusable account', () => {
+    expect(agentModelParamError('qwen36:', route)).toMatch(/names no model/)
+    expect(agentModelParamError('qwen3:8b', route)).toMatch(/"qwen3" is not a connected account/)
     expect(agentModelParamError('openai:gpt-4.1', route)).toMatch(/needs an API key/)
-    expect(agentModelParamError('gpt-4.1', route)).toMatch(/cuenta:modelo/)
   })
 })
 
