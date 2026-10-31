@@ -1,4 +1,5 @@
 // biome-ignore-all assist/source/organizeImports: ANT-ONLY import markers must not be reordered
+import { existsSync } from 'fs'
 import { type as osType, version as osVersion, release as osRelease } from 'os'
 import { env } from '../utils/env.js'
 import { getIsGit } from '../utils/git.js'
@@ -433,6 +434,30 @@ function getSimpleToneAndStyleSection(): string {
   return [`# Tone and style`, ...prependBullets(items)].join(`\n`)
 }
 
+/**
+ * Cross-session messaging: how this session is reached and, when another
+ * session launched it, the duty to send that parent its result.
+ */
+function getPeerMessagingSection(): string | null {
+  /* eslint-disable @typescript-eslint/no-require-imports */
+  const uds =
+    require('../utils/udsMessaging.js') as typeof import('../utils/udsMessaging.js')
+  /* eslint-enable @typescript-eslint/no-require-imports */
+  const mine = uds.getUdsMessagingSocketPath()
+  if (!mine) return null
+  const lines = [
+    '# Other sessions',
+    `Other fnharness sessions on this machine can message this one (pid ${process.pid}, address "uds:${mine}"). Their messages arrive as <cross-session-message from="..."> blocks; answer with SendMessage using that from value as \`to\`, because your plain text is not visible to them. ListPeers lists the live sessions with their ids.`,
+  ]
+  const parent = uds.getParentUdsSocketPath()
+  if (parent && existsSync(parent)) {
+    lines.push(
+      'This session was launched by another session, which is waiting for it. When you finish the task you were given, or if you get blocked, send it your result or question with SendMessage to "parent" (one concise message with the outcome and where to find any artefacts).',
+    )
+  }
+  return lines.join('\n\n')
+}
+
 export async function getSystemPrompt(
   tools: Tools,
   model: string,
@@ -574,6 +599,9 @@ ${CYBER_RISK_INSTRUCTION}`,
       : []),
     ...(feature('KAIROS') || feature('KAIROS_BRIEF')
       ? [systemPromptSection('brief', () => getBriefSection())]
+      : []),
+    ...(feature('UDS_INBOX')
+      ? [systemPromptSection('peer_messaging', () => getPeerMessagingSection())]
       : []),
   ]
 

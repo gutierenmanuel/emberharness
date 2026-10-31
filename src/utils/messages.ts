@@ -4765,6 +4765,8 @@ export function shouldShowUserMessage(
       message.origin?.kind === 'channel'
     )
       return true
+    // Cross-session peer messages render through UserCrossSessionMessage.
+    if (feature('UDS_INBOX') && message.origin?.kind === 'peer') return true
     return false
   }
   if (message.isVisibleInTranscriptOnly && !isTranscriptMode) return false

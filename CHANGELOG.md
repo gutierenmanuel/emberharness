@@ -10,6 +10,9 @@
 - el contexto de una cuenta (p. ej. Venice) completa la caché de models.dev con el snapshot cuando el proveedor falta
 - la herramienta `Agent` exige `model` como `cuenta:modelo` en cada llamada (alias sueltos, ids sin cuenta y cuentas sin modelo se rechazan), así el modelo que lanza un agente elige siempre cuenta y modelo y puede delegar en otras cuentas; `/fork` y `/subtask` sin `--model` usan los de la sesión
 - un nivel de agentes anidados: un subagente de la sesión principal puede lanzar agentes (de cualquier cuenta) en primer plano; esos ya no pueden lanzar más
+- las sesiones de la misma máquina se comunican: cada una escucha en un socket UDS, la herramienta `ListPeers` y `/peers` listan las vivas con pid, id de sesión, estado y cwd, y `SendMessage` (`uds:…`, `peer:<pid|sesión|nombre>` o `parent`) o `/peers send` les dejan un mensaje en la cola; una sesión lanzada desde otra conoce a su padre y se le pide enviarle el resultado al terminar
+- `SendMessage` siempre disponible, también sin equipos de agentes: continúa un subagente por su `agentId`
+- los subagentes siempre responden a su padre: si terminan el turno sin texto se les pide una vez el informe final, y si aun así paran sin él el padre recibe un aviso con su último texto en vez de un resultado vacío
 
 ### Correcciones
 

@@ -281,6 +281,47 @@ export function countToolUses(messages: MessageType[]): number {
   return count
 }
 
+type ReportBlock = { type: 'text'; text: string }
+
+function nonBlankText(m: MessageType): ReportBlock[] {
+  if (m.type !== 'assistant') return []
+  return (m.message.content as { type: string; text?: string }[])
+    .filter(b => b.type === 'text' && typeof b.text === 'string' && b.text.trim() !== '')
+    .map(b => ({ type: 'text' as const, text: b.text! }))
+}
+
+/**
+ * The text the parent receives. Normally the last assistant text; when the
+ * agent stopped without one (turn limit, loop exited mid-turn) the parent is
+ * told so, with the most recent text it did write, instead of getting nothing
+ * or a stale "let me check…" passed off as the answer.
+ */
+export function extractAgentReport(
+  agentMessages: MessageType[],
+  totalToolUseCount: number,
+): ReportBlock[] {
+  const last = getLastAssistantMessage(agentMessages)
+  const finalText = last ? nonBlankText(last) : []
+  if (finalText.length > 0) return finalText
+  for (let i = agentMessages.length - 1; i >= 0; i--) {
+    const earlier = nonBlankText(agentMessages[i]!)
+    if (earlier.length > 0) {
+      return [
+        {
+          type: 'text',
+          text: `[The subagent stopped without a final report after ${totalToolUseCount} tool uses. Its most recent text was:]\n\n${earlier.map(b => b.text).join('\n')}`,
+        },
+      ]
+    }
+  }
+  return [
+    {
+      type: 'text',
+      text: `[The subagent stopped after ${totalToolUseCount} tool uses without writing any text. Check its output file or transcript, or continue it with SendMessage.]`,
+    },
+  ]
+}
+
 export function finalizeAgentTool(
   agentMessages: MessageType[],
   agentId: string,
@@ -309,23 +350,10 @@ export function finalizeAgentTool(
   // Extract text content from the agent's response. If the final assistant
   // message is a pure tool_use block (loop exited mid-turn), fall back to
   // the most recent assistant message that has text content.
-  let content = lastAssistantMessage.message.content.filter(
-    _ => _.type === 'text',
-  )
-  if (content.length === 0) {
-    for (let i = agentMessages.length - 1; i >= 0; i--) {
-      const m = agentMessages[i]!
-      if (m.type !== 'assistant') continue
-      const textBlocks = m.message.content.filter(_ => _.type === 'text')
-      if (textBlocks.length > 0) {
-        content = textBlocks
-        break
-      }
-    }
-  }
+  const totalToolUseCount = countToolUses(agentMessages)
+  const content = extractAgentReport(agentMessages, totalToolUseCount)
 
   const totalTokens = getTokenCountFromUsage(lastAssistantMessage.message.usage)
-  const totalToolUseCount = countToolUses(agentMessages)
 
   logEvent('tengu_agent_tool_completed', {
     agent_type:

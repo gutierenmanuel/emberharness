@@ -116,6 +116,12 @@ import { runTools } from './services/tools/toolOrchestration.js'
 import { applyToolResultBudget } from './utils/toolResultStorage.js'
 import { recordContentReplacement } from './utils/sessionStorage.js'
 import { handleStopHooks } from './query/stopHooks.js'
+import {
+  FINAL_REPORT_NUDGE,
+  isParentReportingQuery,
+  lacksFinalText,
+} from './query/finalReport.js'
+import { isTeammate } from './utils/teammate.js'
 import { buildQueryConfig } from './query/config.js'
 import { productionDeps, type QueryDeps } from './query/deps.js'
 import type { Terminal, Continue } from './query/transitions.js'
@@ -331,6 +337,8 @@ async function* queryLoop(
   // trigger point. Loop-local (not on State) to avoid touching the 7 continue
   // sites.
   let taskBudgetRemaining: number | undefined = undefined
+  // Set once this loop has asked its subagent for a missing final report.
+  let finalReportNudged = false
 
   // Snapshot immutable env/statsig/session state once at entry. See QueryConfig
   // for what's included and why feature() gates are intentionally excluded.
@@ -1420,6 +1428,36 @@ async function* queryLoop(
             queryDepth: queryTracking.depth,
           })
         }
+      }
+
+      // A subagent that ends with no text would hand its parent an empty
+      // result: ask once for the final report before letting it finish.
+      if (
+        !finalReportNudged &&
+        isParentReportingQuery(querySource, toolUseContext.agentId, isTeammate()) &&
+        lacksFinalText(assistantMessages)
+      ) {
+        finalReportNudged = true
+        logForDebugging(
+          `[query] subagent ${toolUseContext.agentId} ended without text; asking for its final report`,
+        )
+        state = {
+          messages: [
+            ...messagesForQuery,
+            ...assistantMessages,
+            createUserMessage({ content: FINAL_REPORT_NUDGE, isMeta: true }),
+          ],
+          toolUseContext,
+          autoCompactTracking: tracking,
+          maxOutputTokensRecoveryCount: 0,
+          hasAttemptedReactiveCompact,
+          maxOutputTokensOverride: undefined,
+          pendingToolUseSummary: undefined,
+          stopHookActive: undefined,
+          turnCount,
+          transition: { reason: 'subagent_final_report' },
+        }
+        continue
       }
 
       return { reason: 'completed' }

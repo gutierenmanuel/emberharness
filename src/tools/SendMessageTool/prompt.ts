@@ -1,39 +1,40 @@
 import { feature } from 'bun:bundle'
+import { isAgentSwarmsEnabled } from '../../utils/agentSwarmsEnabled.js'
 
-export const DESCRIPTION = 'Send a message to another agent'
+export const DESCRIPTION =
+  'Send a message to a subagent, a teammate, or another session on this machine'
 
 export function getPrompt(): string {
-  const udsRow = feature('UDS_INBOX')
-    ? `\n| \`"uds:/path/to.sock"\` | Local Claude session's socket (same machine; use \`ListPeers\`) |
-| \`"bridge:session_..."\` | Remote Control peer session (cross-machine; use \`ListPeers\`) |`
+  const swarms = isAgentSwarmsEnabled()
+  const teammateRows = swarms
+    ? `
+| \`"researcher"\` | Teammate by name |
+| \`"*"\` | Broadcast to all teammates — expensive (linear in team size), use only when everyone genuinely needs it |`
+    : ''
+  const udsRows = feature('UDS_INBOX')
+    ? `
+| \`"uds:/path/to.sock"\` | Another fnharness session on this machine (address from \`ListPeers\`) |
+| \`"peer:<pid>"\`, \`"peer:<session-id or prefix>"\`, \`"peer:<name>"\` | The same, resolved from the live session list |
+| \`"parent"\` | The session that launched this one, if any |`
     : ''
   const udsSection = feature('UDS_INBOX')
-    ? `\n\n## Cross-session
+    ? `
 
-Use \`ListPeers\` to discover targets, then:
+## Other sessions (CLIs) on this machine
+
+Use \`ListPeers\` to see the other live sessions with their pid, session id, name, status, cwd and address, then:
 
 \`\`\`json
-{"to": "uds:/tmp/cc-socks/1234.sock", "message": "check if tests pass over there"}
-{"to": "bridge:session_01AbCd...", "message": "what branch are you on?"}
+{"to": "peer:48213", "message": "do the tests pass on your branch?"}
+{"to": "uds:/tmp/fnharness-socks/48213.sock", "message": "done, see reports/x.md"}
 \`\`\`
 
-A listed peer is alive and will process your message — no "busy" state; messages enqueue and drain at the receiver's next tool round. Your message arrives wrapped as \`<cross-session-message from="...">\`. **To reply to an incoming message, copy its \`from\` attribute as your \`to\`.**`
+A listed peer is alive and will process your message — messages enqueue and drain at the receiver's next tool round, or start a turn if it is idle. Incoming messages arrive wrapped as \`<cross-session-message from="..." pid="..." session="...">\`. **To reply, copy its \`from\` attribute as your \`to\`.** If another session asked you for something, send the answer back when you finish: your plain text is not visible to it. Only plain text can cross sessions.`
     : ''
-  return `
-# SendMessage
+  const teammateSection = swarms
+    ? `
 
-Send a message to another agent.
-
-\`\`\`json
-{"to": "researcher", "summary": "assign task 1", "message": "start on task #1"}
-\`\`\`
-
-| \`to\` | |
-|---|---|
-| \`"researcher"\` | Teammate by name |
-| \`"*"\` | Broadcast to all teammates — expensive (linear in team size), use only when everyone genuinely needs it |${udsRow}
-
-Your plain text output is NOT visible to other agents — to communicate, you MUST call this tool. Messages from teammates are delivered automatically; you don't check an inbox. Refer to teammates by name, never by UUID. When relaying, don't quote the original — it's already rendered to the user.${udsSection}
+Messages from teammates are delivered automatically; you don't check an inbox. Refer to teammates by name, never by UUID. When relaying, don't quote the original — it's already rendered to the user.
 
 ## Protocol responses (legacy)
 
@@ -44,6 +45,21 @@ If you receive a JSON message with \`type: "shutdown_request"\` or \`type: "plan
 {"to": "researcher", "message": {"type": "plan_approval_response", "request_id": "...", "approve": false, "feedback": "add error handling"}}
 \`\`\`
 
-Approving shutdown terminates your process. Rejecting plan sends the teammate back to revise. Don't originate \`shutdown_request\` unless asked. Don't send structured JSON status messages — use TaskUpdate.
+Approving shutdown terminates your process. Rejecting plan sends the teammate back to revise. Don't originate \`shutdown_request\` unless asked. Don't send structured JSON status messages — use TaskUpdate.`
+    : ''
+  return `
+# SendMessage
+
+Send a message to another agent or session.
+
+\`\`\`json
+{"to": "a1b2c3d4e5f6a7b8c", "summary": "follow-up", "message": "now also check the edge cases"}
+\`\`\`
+
+| \`to\` | |
+|---|---|
+| \`"<agentId>"\` | A subagent you launched, by the agentId in the Agent result (or its name). A running one gets the message at its next tool round; a finished one is resumed in the background with it and notifies you when done |${teammateRows}${udsRows}
+
+Your plain text output is NOT visible to other agents or sessions — to communicate, you MUST call this tool.${udsSection}${teammateSection}
 `.trim()
 }

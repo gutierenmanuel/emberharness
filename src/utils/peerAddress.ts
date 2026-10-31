@@ -1,16 +1,20 @@
 /**
- * Peer address parsing — kept separate from peerRegistry.ts so that
+ * Peer address parsing — kept separate from udsClient.ts so that
  * SendMessageTool can import parseAddress without transitively loading
  * the bridge (axios) and UDS (fs, net) modules at tool-enumeration time.
  */
 
 /** Parse a URI-style address into scheme + target. */
 export function parseAddress(to: string): {
-  scheme: 'uds' | 'bridge' | 'other'
+  scheme: 'uds' | 'bridge' | 'peer' | 'other'
   target: string
 } {
   if (to.startsWith('uds:')) return { scheme: 'uds', target: to.slice(4) }
   if (to.startsWith('bridge:')) return { scheme: 'bridge', target: to.slice(7) }
+  // `peer:<pid|session id|name|parent>` is resolved against the live session
+  // registry (ListPeers); bare `parent` is the session that launched this one.
+  if (to.startsWith('peer:')) return { scheme: 'peer', target: to.slice(5) }
+  if (to === 'parent') return { scheme: 'peer', target: 'parent' }
   // Legacy: old-code UDS senders emit bare socket paths in from=; route them
   // through the UDS branch so replies aren't silently dropped into teammate
   // routing. (No bare-session-ID fallback — bridge messaging is new enough

@@ -85,7 +85,16 @@ export async function registerSession(): Promise<boolean> {
         kind,
         entrypoint: process.env.CLAUDE_CODE_ENTRYPOINT,
         ...(feature('UDS_INBOX')
-          ? { messagingSocketPath: process.env.CLAUDE_CODE_MESSAGING_SOCKET }
+          ? (() => {
+              /* eslint-disable @typescript-eslint/no-require-imports */
+              const uds =
+                require('./udsMessaging.js') as typeof import('./udsMessaging.js')
+              /* eslint-enable @typescript-eslint/no-require-imports */
+              return {
+                messagingSocketPath: uds.getUdsMessagingSocketPath(),
+                parentMessagingSocketPath: uds.getParentUdsSocketPath(),
+              }
+            })()
           : {}),
         ...(feature('BG_SESSIONS')
           ? {

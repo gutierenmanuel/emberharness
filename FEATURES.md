@@ -119,6 +119,34 @@ externalized `@ant/*` packages.
   session refreshed every 1.5 s; `Enter` shows the tail of its log, `x` stops a
   running one, `←`/`Esc` closes. Rebind with the `chat:agentsView` action.
 
+- `UDS_INBOX` (on by default)
+  Sessions on the same machine talk to each other. Each session listens on a
+  Unix socket (`$TMPDIR/fnharness-socks/<pid>.sock`, exported as
+  `CLAUDE_CODE_MESSAGING_SOCKET`) and records it in
+  `<CLAUDE_CONFIG_DIR>/sessions/<pid>.json`. The `ListPeers` tool and `/peers`
+  list the live sessions with pid, session id, name, status, cwd and address;
+  `SendMessage` with `to: "uds:<socket>"`, `"peer:<pid|session id|prefix|name>"`
+  or `"parent"` drops a message into the other session's prompt queue (drained
+  at its next tool round, or as a new turn when idle), wrapped as
+  `<cross-session-message from="..." pid="..." session="...">`; the receiver
+  answers to that `from`. `/peers send <pid|session|name|parent> <message>`
+  sends from the keyboard. A session launched from another one (it inherits the
+  socket variable) keeps it as its parent (`CLAUDE_CODE_PARENT_MESSAGING_SOCKET`),
+  shows it as `[parent]` in the list and is told in its system prompt to send
+  its result there when it finishes. Remote Control (`bridge:`) peers are not
+  supported. Code: `src/utils/udsMessaging.ts` (server), `src/utils/udsClient.ts`
+  (registry, resolution, client), `src/tools/ListPeersTool/`, `src/commands/peers/`.
+
+## Subagents always answer their parent
+
+`SendMessage` is always available (not only with agent teams): it continues a
+subagent by the `agentId` of its Agent result, queuing the message if it is still
+running or resuming it in the background if it finished. A subagent whose turn
+ends with no text is asked once, inside its own query loop, for its final report
+(`src/query/finalReport.ts`); if it still stops without one (turn limit, loop
+exited mid-turn), the parent gets a note saying so with the last text it wrote,
+never an empty result (`extractAgentReport` in `agentToolUtils.ts`).
+
 ## Sending messages while the model works
 
 `Enter` while a turn is running queues the message; it reaches the model at the
@@ -372,8 +400,6 @@ than a single wrapper or asset.
   Missing `src/ssh/createSSHSession.js`.
 - `TERMINAL_PANEL`
   Missing `src/tools/TerminalCaptureTool/TerminalCaptureTool.js`.
-- `UDS_INBOX`
-  Missing `src/utils/udsMessaging.js`.
 - `WEB_BROWSER_TOOL`
   Missing `src/tools/WebBrowserTool/WebBrowserTool.js`.
 - `WORKFLOW_SCRIPTS`
