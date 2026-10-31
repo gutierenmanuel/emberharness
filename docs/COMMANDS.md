@@ -153,7 +153,7 @@ No existen en el build por defecto (solo se activan `VOICE_MODE`, `AGENT_TRIGGER
 | `/proactive` | `PROACTIVE` o `KAIROS` | Modo proactivo. | No encontrado |
 | `/fork` | `FORK_SUBAGENT` | Subagente fork (entonces `/branch` pierde el alias `fork`). | No encontrado |
 | `/buddy` | `BUDDY` | Compañero. | No encontrado |
-| `/peers` | `UDS_INBOX` | Mensajería entre pares por socket UDS. | No encontrado |
+| `/peers` | `UDS_INBOX` (activo por defecto) | Lista las otras sesiones de la máquina (pid, sesión, estado, cwd, dirección) o envía un mensaje: `/peers send <pid\|sesión\|nombre\|parent> <mensaje>`. | `commands/peers/` |
 | `/workflows` | `WORKFLOW_SCRIPTS` | Scripts de flujo de trabajo. | No encontrado |
 | `/torch` | `TORCH` | Experimental. | No encontrado |
 | remote-control-server | `DAEMON` y `BRIDGE_MODE` | Servidor de control remoto. | No encontrado |
