@@ -284,14 +284,10 @@ export function AttachmentMessage({
         if (attachment.hookEvent === 'Stop' || attachment.hookEvent === 'SubagentStop') {
           return null;
         }
-        // Show stderr to the user so they can understand why the hook blocked
-        const stderr = attachment.blockingError.blockingError.trim();
-        return <>
-          <Line color="error">
-            {attachment.hookName} hook returned blocking error
-          </Line>
-          {stderr ? <Line color="error">{stderr}</Line> : null}
-        </>;
+        // Show stderr to the user so they can understand why the hook blocked.
+        // One column-wise block: as a bare fragment the reason landed beside
+        // the title (the parent lays children out in a row).
+        return <HookBlockedNotice hookName={attachment.hookName} reason={attachment.blockingError.blockingError.trim()} />;
       }
     case 'hook_non_blocking_error':
       {
@@ -503,6 +499,32 @@ function TeammateTaskStatus(t0) {
 }
 // We allow setting dimColor to false here to help work around the dim-bold bug.
 // https://github.com/chalk/chalk/issues/290
+/**
+ * A hook stopped the action: red title with an icon, then the hook's reason
+ * in plain text behind a red bar, all in one column under the tool call.
+ */
+function HookBlockedNotice({
+  hookName,
+  reason
+}: {
+  hookName: string;
+  reason: string;
+}): React.ReactNode {
+  const bg = useSelectedMessageBg();
+  return <Box backgroundColor={bg} flexDirection="column" width="100%">
+      <MessageResponse>
+        <Box flexDirection="column" flexGrow={1}>
+          <Text wrap="wrap">
+            <Text color="error" bold>⊘ Hook bloqueó la acción</Text>
+            <Text dimColor> · {hookName}</Text>
+          </Text>
+          {reason ? <Box borderStyle="bold" borderColor="error" borderTop={false} borderRight={false} borderBottom={false} paddingLeft={1}>
+              <Text wrap="wrap">{reason}</Text>
+            </Box> : null}
+        </Box>
+      </MessageResponse>
+    </Box>;
+}
 function Line(t0) {
   const $ = _c(7);
   const {
