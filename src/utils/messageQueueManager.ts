@@ -371,6 +371,7 @@ export function isQueuedCommandVisible(cmd: QueuedCommand): boolean {
     cmd.origin?.kind === 'channel'
   )
     return true
+  if (feature('UDS_INBOX') && cmd.origin?.kind === 'peer') return true
   return isQueuedCommandEditable(cmd)
 }
 

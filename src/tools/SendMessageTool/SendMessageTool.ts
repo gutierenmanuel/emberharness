@@ -1,7 +1,5 @@
 import { feature } from 'bun:bundle'
 import { z } from 'zod/v4'
-import { isReplBridgeActive } from '../../bootstrap/state.js'
-import { getReplBridgeHandle } from '../../bridge/replBridgeHandle.js'
 import type { Tool, ToolUseContext } from '../../Tool.js'
 import { buildTool, type ToolDef } from '../../Tool.js'
 import { findTeammateTaskByAgentId } from '../../tasks/InProcessTeammateTask/InProcessTeammateTask.js'
@@ -70,7 +68,7 @@ const inputSchema = lazySchema(() =>
       .string()
       .describe(
         feature('UDS_INBOX')
-          ? 'Recipient: teammate name, "*" for broadcast, "uds:<socket-path>" for a local peer, or "bridge:<session-id>" for a Remote Control peer (use ListPeers to discover)'
+          ? 'Recipient: a subagent id (from the Agent result) or name, a teammate name, "*" for broadcast, another session on this machine as "uds:<socket-path>", "peer:<pid|session-id|name>" or "parent" (use ListPeers to discover)'
           : 'Recipient: teammate name, or "*" for broadcast to all teammates',
       ),
     summary: z
@@ -532,8 +530,10 @@ export const SendMessageTool: Tool<InputSchema, SendMessageToolOutput> =
     },
     shouldDefer: true,
 
+    // Always on: besides swarm teammates it continues subagents by id and
+    // talks to other sessions on this machine (UDS inbox).
     isEnabled() {
-      return isAgentSwarmsEnabled()
+      return true
     },
 
     isReadOnly(input) {
@@ -611,7 +611,9 @@ export const SendMessageTool: Tool<InputSchema, SendMessageToolOutput> =
       }
       const addr = parseAddress(input.to)
       if (
-        (addr.scheme === 'bridge' || addr.scheme === 'uds') &&
+        (addr.scheme === 'bridge' ||
+          addr.scheme === 'uds' ||
+          addr.scheme === 'peer') &&
         addr.target.trim().length === 0
       ) {
         return {
@@ -628,35 +630,19 @@ export const SendMessageTool: Tool<InputSchema, SendMessageToolOutput> =
           errorCode: 9,
         }
       }
-      if (feature('UDS_INBOX') && parseAddress(input.to).scheme === 'bridge') {
-        // Structured-message rejection first — it's the permanent constraint.
-        // Showing "not connected" first would make the user reconnect only to
-        // hit this error on retry.
-        if (typeof input.message !== 'string') {
-          return {
-            result: false,
-            message:
-              'structured messages cannot be sent cross-session — only plain text',
-            errorCode: 9,
-          }
+      if (parseAddress(input.to).scheme === 'bridge') {
+        // fnharness ships without the Remote Control peer relay.
+        return {
+          result: false,
+          message:
+            'bridge: (Remote Control) peers are not supported in fnharness — use ListPeers for sessions on this machine',
+          errorCode: 9,
         }
-        // postInterClaudeMessage derives from= via getReplBridgeHandle() —
-        // check handle directly for the init-timing window. Also check
-        // isReplBridgeActive() to reject outbound-only (CCR mirror) mode
-        // where the bridge is write-only and peer messaging is unsupported.
-        if (!getReplBridgeHandle() || !isReplBridgeActive()) {
-          return {
-            result: false,
-            message:
-              'Remote Control is not connected — cannot send to a bridge: target. Reconnect with /remote-control first.',
-            errorCode: 9,
-          }
-        }
-        return { result: true }
       }
       if (
         feature('UDS_INBOX') &&
-        parseAddress(input.to).scheme === 'uds' &&
+        (parseAddress(input.to).scheme === 'uds' ||
+          parseAddress(input.to).scheme === 'peer') &&
         typeof input.message === 'string'
       ) {
         // UDS cross-session send: summary isn't rendered (UI.tsx returns null
@@ -665,7 +651,10 @@ export const SendMessageTool: Tool<InputSchema, SendMessageToolOutput> =
         return { result: true }
       }
       if (typeof input.message === 'string') {
-        if (!input.summary || input.summary.trim().length === 0) {
+        if (
+          isAgentSwarmsEnabled() &&
+          (!input.summary || input.summary.trim().length === 0)
+        ) {
           return {
             result: false,
             message: 'summary is required when message is a string',
@@ -741,44 +730,17 @@ export const SendMessageTool: Tool<InputSchema, SendMessageToolOutput> =
     async call(input, context, canUseTool, assistantMessage) {
       if (feature('UDS_INBOX') && typeof input.message === 'string') {
         const addr = parseAddress(input.to)
-        if (addr.scheme === 'bridge') {
-          // Re-check handle — checkPermissions blocks on user approval (can be
-          // minutes). validateInput's check is stale if the bridge dropped
-          // during the prompt wait; without this, from="unknown" ships.
-          // Also re-check isReplBridgeActive for outbound-only mode.
-          if (!getReplBridgeHandle() || !isReplBridgeActive()) {
-            return {
-              data: {
-                success: false,
-                message: `Remote Control disconnected before send — cannot deliver to ${input.to}`,
-              },
-            }
-          }
+        if (addr.scheme === 'uds' || addr.scheme === 'peer') {
           /* eslint-disable @typescript-eslint/no-require-imports */
-          const { postInterClaudeMessage } =
-            require('../../bridge/peerSessions.js') as typeof import('../../bridge/peerSessions.js')
-          /* eslint-enable @typescript-eslint/no-require-imports */
-          const result = await postInterClaudeMessage(
-            addr.target,
-            input.message,
-          )
-          const preview = input.summary || truncate(input.message, 50)
-          return {
-            data: {
-              success: result.ok,
-              message: result.ok
-                ? `“${preview}” → ${input.to}`
-                : `Failed to send to ${input.to}: ${result.error ?? 'unknown'}`,
-            },
-          }
-        }
-        if (addr.scheme === 'uds') {
-          /* eslint-disable @typescript-eslint/no-require-imports */
-          const { sendToUdsSocket } =
+          const { resolvePeerSocket, sendToUdsSocket } =
             require('../../utils/udsClient.js') as typeof import('../../utils/udsClient.js')
           /* eslint-enable @typescript-eslint/no-require-imports */
           try {
-            await sendToUdsSocket(addr.target, input.message)
+            const socket =
+              addr.scheme === 'peer'
+                ? await resolvePeerSocket(addr.target)
+                : addr.target
+            await sendToUdsSocket(socket, input.message)
             const preview = input.summary || truncate(input.message, 50)
             return {
               data: {
@@ -870,6 +832,17 @@ export const SendMessageTool: Tool<InputSchema, SendMessageToolOutput> =
               }
             }
           }
+        }
+      }
+
+      // Without agent teams there is no mailbox: an unknown name would be
+      // written to a team inbox nobody reads, so say so instead.
+      if (!isAgentSwarmsEnabled()) {
+        return {
+          data: {
+            success: false,
+            message: `No subagent or session called "${input.to}". Use the agentId returned by Agent to continue a subagent, or ListPeers for other sessions (to: "uds:...", "peer:<pid>" or "parent").`,
+          },
         }
       }
 

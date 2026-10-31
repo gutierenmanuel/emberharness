@@ -85,7 +85,7 @@ function getVersionChangelog(): string {
   )
 }
 
-const defaultFeatures = ['VOICE_MODE', 'AGENT_TRIGGERS', 'MONITOR_TOOL', 'BG_SESSIONS']
+const defaultFeatures = ['VOICE_MODE', 'AGENT_TRIGGERS', 'MONITOR_TOOL', 'BG_SESSIONS', 'UDS_INBOX']
 const featureSet = new Set(defaultFeatures)
 for (let i = 0; i < args.length; i += 1) {
   const arg = args[i]
