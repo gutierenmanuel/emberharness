@@ -794,6 +794,13 @@ export async function* runAgent({
           )
           break
         }
+        // Each subagent re-loads path-scoped rules into its own context; show
+        // the "Loaded <path>" line in the parent only the first time.
+        if (message.attachment.type === 'nested_memory') {
+          const shown = toolUseContext.displayedNestedMemoryPaths
+          if (shown?.has(message.attachment.path)) continue
+          shown?.add(message.attachment.path)
+        }
         yield message
         continue
       }

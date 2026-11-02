@@ -52,6 +52,7 @@ export async function clearConversation({
   readFileState,
   discoveredSkillNames,
   loadedNestedMemoryPaths,
+  displayedNestedMemoryPaths,
   getAppState,
   setAppState,
   setConversationId,
@@ -60,6 +61,7 @@ export async function clearConversation({
   readFileState: FileStateCache
   discoveredSkillNames?: Set<string>
   loadedNestedMemoryPaths?: Set<string>
+  displayedNestedMemoryPaths?: Set<string>
   getAppState?: () => AppState
   setAppState?: (f: (prev: AppState) => AppState) => void
   setConversationId?: (id: UUID) => void
@@ -131,6 +133,7 @@ export async function clearConversation({
   readFileState.clear()
   discoveredSkillNames?.clear()
   loadedNestedMemoryPaths?.clear()
+  displayedNestedMemoryPaths?.clear()
 
   // Clean out necessary items from App State
   if (setAppState) {

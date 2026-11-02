@@ -1983,6 +1983,8 @@ export function REPL({
   // readFileState is a 100-entry LRU; once it evicts a CLAUDE.md path,
   // the next discovery cycle re-injects it. Cleared in clearConversation.
   const loadedNestedMemoryPathsRef = useRef(new Set<string>());
+  // "Loaded <path>" lines already shown (main thread + subagents). Cleared in clearConversation.
+  const displayedNestedMemoryPathsRef = useRef(new Set<string>());
 
   // Helper to restore read file state from messages (used for resume flows)
   // This allows Claude to edit files that were read in previous sessions
@@ -2501,6 +2503,7 @@ export function REPL({
       onInstallIDEExtension: setIDEToInstallExtension,
       nestedMemoryAttachmentTriggers: new Set<string>(),
       loadedNestedMemoryPaths: loadedNestedMemoryPathsRef.current,
+      displayedNestedMemoryPaths: displayedNestedMemoryPathsRef.current,
       dynamicSkillDirTriggers: new Set<string>(),
       discoveredSkillNames: discoveredSkillNamesRef.current,
       setResponseLength,
@@ -3082,6 +3085,7 @@ export function REPL({
           readFileState: readFileState.current,
           discoveredSkillNames: discoveredSkillNamesRef.current,
           loadedNestedMemoryPaths: loadedNestedMemoryPathsRef.current,
+          displayedNestedMemoryPaths: displayedNestedMemoryPathsRef.current,
           getAppState: () => store.getState(),
           setAppState,
           setConversationId
@@ -4837,6 +4841,7 @@ export function REPL({
                 readFileState: readFileState.current,
                 discoveredSkillNames: discoveredSkillNamesRef.current,
                 loadedNestedMemoryPaths: loadedNestedMemoryPathsRef.current,
+                displayedNestedMemoryPaths: displayedNestedMemoryPathsRef.current,
                 getAppState: () => store.getState(),
                 setAppState,
                 setConversationId

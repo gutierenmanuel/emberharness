@@ -381,6 +381,8 @@ export function createSubagentContext(
     ),
     nestedMemoryAttachmentTriggers: new Set<string>(),
     loadedNestedMemoryPaths: new Set<string>(),
+    // Shared with the parent: display dedup of "Loaded <path>" lines.
+    displayedNestedMemoryPaths: parentContext.displayedNestedMemoryPaths,
     dynamicSkillDirTriggers: new Set<string>(),
     // Per-subagent: tracks skills surfaced by discovery for was_discovered telemetry (SkillTool.ts:116)
     discoveredSkillNames: new Set<string>(),

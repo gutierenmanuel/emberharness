@@ -1771,6 +1771,11 @@ export function memoryFilesToAttachments(
         displayPath: relative(getCwd(), memoryFile.path),
       })
       toolUseContext.loadedNestedMemoryPaths?.add(memoryFile.path)
+      // Main thread renders its own attachments directly; subagent ones are
+      // deduped (and marked) where runAgent forwards them to the parent.
+      if (toolUseContext.agentId === undefined) {
+        toolUseContext.displayedNestedMemoryPaths?.add(memoryFile.path)
+      }
 
       // Mark as loaded in readFileState — this provides cross-function and
       // cross-turn dedup via the .has() check above.
