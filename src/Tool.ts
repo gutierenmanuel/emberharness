@@ -222,6 +222,13 @@ export type ToolUseContext = {
    * re-inject the same CLAUDE.md dozens of times.
    */
   loadedNestedMemoryPaths?: Set<string>
+  /**
+   * nested_memory paths already shown as "Loaded <path>" in the REPL. Shared
+   * by reference with every subagent (unlike loadedNestedMemoryPaths, which is
+   * per agent), so each rule is announced once per conversation even when N
+   * subagents load it into their own context.
+   */
+  displayedNestedMemoryPaths?: Set<string>
   dynamicSkillDirTriggers?: Set<string>
   /** Skill names surfaced via skill_discovery this session. Telemetry only (feeds was_discovered). */
   discoveredSkillNames?: Set<string>
