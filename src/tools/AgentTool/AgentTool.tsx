@@ -86,7 +86,7 @@ const baseInputSchema = lazySchema(() => z.object({
   prompt: z.string().describe('The task for the agent to perform'),
   subagent_type: z.string().optional().describe('The type of specialized agent to use for this task'),
   model: z.string().describe("Required: the account and model that run this agent, as 'cuenta:modelo' (e.g. 'claude:haiku', 'claude:opus', 'qwen36:qwen36-35b-heretic-q4km'; see the accounts in the tool description). A bare alias like 'sonnet' is rejected. Takes precedence over the agent definition's model frontmatter."),
-  run_in_background: z.boolean().optional().describe('Set to true to run this agent in the background. You will be notified when it completes.')
+  run_in_background: z.boolean().optional().describe('Agents run in the background by default and you are notified when they complete. Set to false only when you cannot continue without the result.')
 }));
 
 // Full schema combining base + multi-agent params + isolation
@@ -443,7 +443,7 @@ export const AgentTool = buildTool({
       color: selectedAgent.color as AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS,
       is_built_in_agent: isBuiltInAgent(selectedAgent),
       is_resume: false,
-      is_async: (run_in_background === true || selectedAgent.background === true) && !isBackgroundTasksDisabled,
+      is_async: (run_in_background !== false || selectedAgent.background === true) && !isBackgroundTasksDisabled,
       is_fork: isForkPath
     });
 
@@ -565,7 +565,7 @@ export const AgentTool = buildTool({
       isBuiltInAgent: isBuiltInAgent(selectedAgent),
       startTime,
       agentType: selectedAgent.agentType,
-      isAsync: (run_in_background === true || selectedAgent.background === true) && !isBackgroundTasksDisabled
+      isAsync: (run_in_background !== false || selectedAgent.background === true) && !isBackgroundTasksDisabled
     };
 
     // Use inline env check instead of coordinatorModule to avoid circular
@@ -584,7 +584,8 @@ export const AgentTool = buildTool({
     // <task-notification> re-entry there is handled by the else branch
     // below (registerAsyncAgentTask + notifyOnCompletion).
     const assistantForceAsync = feature('KAIROS') ? appState.kairosEnabled : false;
-    const shouldRunAsync = !isNestedSpawn && (run_in_background === true || selectedAgent.background === true || isCoordinator || forceAsync || assistantForceAsync || (proactiveModule?.isProactiveActive() ?? false)) && !isBackgroundTasksDisabled;
+    // fnharness: background is the default; run_in_background=false opts into foreground.
+    const shouldRunAsync = !isNestedSpawn && (run_in_background !== false || selectedAgent.background === true || isCoordinator || forceAsync || assistantForceAsync || (proactiveModule?.isProactiveActive() ?? false)) && !isBackgroundTasksDisabled;
     // Assemble the worker's tool pool independently of the parent's.
     // Workers always get their tools from assembleToolPool with their own
     // permission mode, so they aren't affected by the parent's tool
