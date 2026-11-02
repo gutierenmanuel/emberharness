@@ -45,12 +45,17 @@ done
 set -- ${rest[@]+"${rest[@]}"}
 
 accounts_file="$CLAUDE_CONFIG_DIR/accounts.json"
-# Cuentas conocidas: claude, los presets de profiles.ts y las guardadas en accounts.json.
+# Cuentas conocidas: claude, los presets de proveedor (los de fábrica y los de providers.json del
+# usuario) y las guardadas en accounts.json. Cada fuente es opcional: si una falta o no casa nada,
+# las demás se siguen listando (con set -e un grep sin coincidencias cortaba el bloque entero).
 known_accounts() {
   {
     echo claude
-    grep -E "^  [a-z0-9]+: \{$" "$app/src/services/api/openai-compat/profiles.ts" | tr -d ' :{' | grep -vx custom
-    [[ -f "$accounts_file" ]] && jq -r '(.accounts // {}) | keys[]' "$accounts_file" 2>/dev/null
+    local f
+    for f in "$app/src/config/defaults/providers.json" "$CLAUDE_CONFIG_DIR/providers.json"; do
+      [[ -f "$f" ]] && { jq -r '(.providers // {}) | keys[]' "$f" 2>/dev/null | grep -vx custom || true; }
+    done
+    [[ -f "$accounts_file" ]] && jq -r '(.accounts // {}) | keys[]' "$accounts_file" 2>/dev/null || true
   } | awk '!seen[$0]++'
 }
 store_field() { [[ -f "$accounts_file" ]] && jq -r --arg f "$1" '.[$f] // empty' "$accounts_file" 2>/dev/null || true; }
