@@ -138,9 +138,14 @@ const externals = [
 const defines = {
   'process.env.USER_TYPE': JSON.stringify('external'),
   'process.env.CLAUDE_CODE_FORCE_FULL_LOGO': JSON.stringify('true'),
-  ...(dev
-    ? { 'process.env.NODE_ENV': JSON.stringify('development') }
-    : {}),
+  // The release build must pin NODE_ENV to 'production'. Without it the
+  // bundled react / react-reconciler pick their development builds at runtime
+  // (NODE_ENV is unset in a user shell), and React 19's dev build records a
+  // performance.measure() per component render that Bun keeps forever in the
+  // performance timeline: ~4 MB of RSS per tool call, several GB in a long
+  // session. Child processes are unaffected: `define` only rewrites the
+  // expression in our bundle, it does not touch the real environment.
+  'process.env.NODE_ENV': JSON.stringify(dev ? 'development' : 'production'),
   ...(dev
     ? {
         'process.env.CLAUDE_CODE_EXPERIMENTAL_BUILD': JSON.stringify('true'),

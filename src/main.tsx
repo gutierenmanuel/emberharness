@@ -65,6 +65,7 @@ import { skillChangeDetector } from './utils/skills/skillChangeDetector.js';
 import { jsonParse, writeFileSync_DEPRECATED } from './utils/slowOperations.js';
 import { computeInitialTeamContext } from './utils/swarm/reconnection.js';
 import { initializeWarningHandler } from './utils/warningHandler.js';
+import { installMemoryDebugSignal } from './utils/memoryDebug.js';
 import { isWorktreeModeEnabled } from './utils/worktreeModeEnabled.js';
 
 // Lazy require to avoid circular dependency: teammate.ts -> AppState.tsx -> ... -> main.tsx
@@ -605,6 +606,7 @@ export async function main() {
 
   // Initialize warning handler early to catch warnings
   initializeWarningHandler();
+  installMemoryDebugSignal();
   process.on('exit', () => {
     resetCursor();
   });
