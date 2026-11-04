@@ -12,7 +12,7 @@ const SMALL_ROWS = ['▛▀▀▀▀▀▀▀▜', '▌ > ƒ_  ▐', '▙▄▄�
 export const SMALL_LOGO_WIDTH = 9;
 
 export const ANIM_WIDTH = 64;
-const ANIM_HEIGHT = 9;
+const ANIM_HEIGHT = 6;
 const FRAME_MS = 80;
 const SCENE_S = 9;
 const FADE_S = 0.7;
