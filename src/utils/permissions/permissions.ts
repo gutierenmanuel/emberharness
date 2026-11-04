@@ -1141,18 +1141,36 @@ export async function checkRuleBasedPermissions(
     return toolPermissionResult
   }
 
-  // 1g. Safety checks (e.g. .git/, .claude/, .vscode/, shell configs) are
-  // bypass-immune — they must prompt even when a PreToolUse hook returned
-  // allow. checkPathSafetyForAutoEdit returns {type:'safetyCheck'} for these.
+  // 1g. Safety checks (e.g. .git/, .claude/, .vscode/, shell configs) must
+  // prompt even when a PreToolUse hook returned allow — except the
+  // classifierApprovable ones in bypassPermissions, where fnharness never asks.
   if (
     toolPermissionResult?.behavior === 'ask' &&
-    toolPermissionResult.decisionReason?.type === 'safetyCheck'
+    toolPermissionResult.decisionReason?.type === 'safetyCheck' &&
+    !(
+      toolPermissionResult.decisionReason.classifierApprovable &&
+      isBypassPermissionsActive(appState.toolPermissionContext)
+    )
   ) {
     return toolPermissionResult
   }
 
   // No rule-based objection
   return null
+}
+
+/**
+ * True when the session is in bypassPermissions, or in plan mode entered
+ * from bypassPermissions.
+ */
+function isBypassPermissionsActive(
+  toolPermissionContext: ToolPermissionContext,
+): boolean {
+  return (
+    toolPermissionContext.mode === 'bypassPermissions' ||
+    (toolPermissionContext.mode === 'plan' &&
+      toolPermissionContext.isBypassPermissionsModeAvailable)
+  )
 }
 
 async function hasPermissionsToUseToolInner(
@@ -1249,12 +1267,19 @@ async function hasPermissionsToUseToolInner(
     return toolPermissionResult
   }
 
-  // 1g. Safety checks (e.g. .git/, .claude/, .vscode/, shell configs) are
-  // bypass-immune — they must prompt even in bypassPermissions mode.
-  // checkPathSafetyForAutoEdit returns {type:'safetyCheck'} for these paths.
+  // 1g. Safety checks (e.g. .git/, .claude/, .vscode/, shell configs) prompt
+  // in every mode except bypassPermissions. fnharness: bypass means "never
+  // ask", so edits to its own skills, commands, hooks and settings run
+  // without confirmation too. Only classifierApprovable checks are skipped:
+  // suspicious Windows path patterns and cross-machine bridge messages stay
+  // bypass-immune. Deny rules (1a, 1d) and explicit ask rules (1f) still apply.
   if (
     toolPermissionResult?.behavior === 'ask' &&
-    toolPermissionResult.decisionReason?.type === 'safetyCheck'
+    toolPermissionResult.decisionReason?.type === 'safetyCheck' &&
+    !(
+      toolPermissionResult.decisionReason.classifierApprovable &&
+      isBypassPermissionsActive(context.getAppState().toolPermissionContext)
+    )
   ) {
     return toolPermissionResult
   }
@@ -1265,10 +1290,9 @@ async function hasPermissionsToUseToolInner(
   // Check if permissions should be bypassed:
   // - Direct bypassPermissions mode
   // - Plan mode when the user originally started with bypass mode (isBypassPermissionsModeAvailable)
-  const shouldBypassPermissions =
-    appState.toolPermissionContext.mode === 'bypassPermissions' ||
-    (appState.toolPermissionContext.mode === 'plan' &&
-      appState.toolPermissionContext.isBypassPermissionsModeAvailable)
+  const shouldBypassPermissions = isBypassPermissionsActive(
+    appState.toolPermissionContext,
+  )
   if (shouldBypassPermissions) {
     return {
       behavior: 'allow',
