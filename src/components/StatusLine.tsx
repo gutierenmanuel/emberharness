@@ -356,10 +356,15 @@ function StatusLineInner({
   // flexShrink:0 so a 0→1 row change when the command finishes steals
   // a row from ScrollBox and shifts content. Reserve the row while loading
   // (same trick as PromptInputFooterLeftSide).
+  // One Text per line: truncating a multi-line styled Text cuts the first line
+  // but leaves the colour spans of the next ones where they were, so on a
+  // narrow terminal the colours slide off their words.
   return <Box paddingX={paddingX} gap={2}>
-      {statusLineText ? <Text dimColor wrap="truncate">
-          <Ansi>{statusLineText}</Ansi>
-        </Text> : isFullscreenEnvEnabled() ? <Text> </Text> : null}
+      {statusLineText ? <Box flexDirection="column">
+          {statusLineText.split('\n').map((line, i) => <Text key={i} dimColor wrap="truncate">
+              <Ansi>{line}</Ansi>
+            </Text>)}
+        </Box> : isFullscreenEnvEnabled() ? <Text> </Text> : null}
     </Box>;
 }
 
