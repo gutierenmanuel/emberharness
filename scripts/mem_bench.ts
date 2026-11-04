@@ -9,6 +9,7 @@
  *
  *   bun run scripts/mem_bench.ts [--cli ./cli] [--prompts 30] [--calls 10]
  *                                [--size 20000] [--snapshot] [--out file.json]
+ *                                [--idle-ms 400] [--dump-every N]
  *
  * With --snapshot it sends SIGUSR2 at the end with FNHARNESS_MEMDUMP_SNAPSHOT=1
  * and prints where the heap stats / snapshot were written.
@@ -28,6 +29,11 @@ const CALLS = Number(arg('calls', '10'))
 const SIZE = Number(arg('size', '20000'))
 const SNAPSHOT = argv.includes('--snapshot')
 const OUT = arg('out', '')
+// Wait this long after each prompt before sampling RSS (lets idle work such as
+// the idle memory release run first).
+const IDLE_MS = Number(arg('idle-ms', '400'))
+// Extra arguments for the CLI, e.g. --cli-args '--debug-file /tmp/d.log'.
+const CLI_ARGS = arg('cli-args', '')
 
 type Msg = { role: string; content?: unknown }
 const sse = (delta: object, finish: string | null = null) =>
@@ -43,6 +49,7 @@ const bigFile = join(cwd, 'big.txt')
 }
 
 let finished = 0
+let lastPromptSeen = 0
 let callSeq = 0
 const server = Bun.serve({
   port: 0,
@@ -62,7 +69,9 @@ const server = Bun.serve({
       if (m.role === 'user') break
       if (m.role === 'tool') rounds++
     }
-    const isMain = JSON.stringify(body.messages).includes('MEMBENCH')
+    const wire = JSON.stringify(body.messages)
+    const isMain = wire.includes('MEMBENCH')
+    for (const m of wire.matchAll(/MEMBENCH prompt (\d+)/g)) lastPromptSeen = Math.max(lastPromptSeen, Number(m[1]))
     let out: string
     if (isMain && rounds < CALLS) {
       const id = `call_${++callSeq}`
@@ -92,7 +101,7 @@ delete env.TMUX
 delete env.TMUX_PANE
 
 const proc = Bun.spawn(
-  ['script', '-qc', `stty cols 140 rows 40 2>/dev/null; exec ${CLI_PATH} --dangerously-skip-permissions`, '/dev/null'],
+  ['script', '-qc', `stty cols 140 rows 40 2>/dev/null; exec ${CLI_PATH} --dangerously-skip-permissions ${CLI_ARGS}`, '/dev/null'],
   { cwd, env, stdin: 'pipe', stdout: 'pipe', stderr: 'pipe' },
 )
 // Drain output so the pty never blocks; keep only a small tail.
@@ -149,21 +158,41 @@ try {
   await sleep(4000)
   samples.push({ prompt: 0, toolCalls: 0, rssMB: rssMB(pid) })
   console.log(`cli pid ${pid} start rss ${samples[0]!.rssMB} MB`)
+  const DUMP_EVERY = Number(arg('dump-every', '0'))
+  const dump = async (label: string) => {
+    try {
+      writeFileSync(join(dumpDir, `smaps-${label}.txt`), readFileSync(`/proc/${pid}/smaps`, 'utf8'))
+    } catch {}
+    const before = new Set(readdirSync(dumpDir))
+    process.kill(pid, 'SIGUSR2')
+    const want = SNAPSHOT ? 2 : 1
+    await waitFor(() => readdirSync(dumpDir).filter(f => !before.has(f)).length >= want, 120_000, `dump ${label}`)
+    await sleep(SNAPSHOT ? 3000 : 300)
+    for (const f of readdirSync(dumpDir).filter(f => !before.has(f) && f.endsWith('.json'))) {
+      const j = JSON.parse(readFileSync(join(dumpDir, f), 'utf8'))
+      console.log(`dump ${label}: rss ${Math.round(j.memoryUsage.rss / 1048576)} MB, rssAfterFullGC ${Math.round(j.rssAfterFullGC / 1048576)} MB, jsc heapSize ${Math.round(j.jsc?.heapSize / 1048576)} MB, extra ${Math.round(j.jsc?.extraMemorySize / 1048576)} MB, objects ${j.jsc?.objectCount} -> ${join(dumpDir, f)}`)
+    }
+  }
+  if (SNAPSHOT || DUMP_EVERY) await dump('start')
   for (let i = 1; i <= PROMPTS; i++) {
     type(`MEMBENCH prompt ${i}`)
     await sleep(150)
     type('\r')
+    // The pty occasionally swallows the Enter while the UI is busy: resend it
+    // until the backend sees the prompt.
+    for (let t = 0; t < 20 && lastPromptSeen < i; t++) {
+      await sleep(1500)
+      if (lastPromptSeen < i) type('\r')
+    }
     await waitFor(() => finished >= i, 120_000, `prompt ${i}`)
-    await sleep(400)
+    await sleep(IDLE_MS)
     const r = rssMB(pid)
     samples.push({ prompt: i, toolCalls: callSeq, rssMB: r })
     console.log(`prompt ${i} calls ${callSeq} rss ${r} MB`)
+    if (DUMP_EVERY && i % DUMP_EVERY === 0 && i !== PROMPTS) await dump(`p${i}`)
   }
-  if (SNAPSHOT || true) {
-    process.kill(pid, 'SIGUSR2')
-    await sleep(SNAPSHOT ? 20_000 : 1500)
-    console.log('memdumps:', readdirSync(dumpDir).map(f => join(dumpDir, f)).join(' '))
-  }
+  await dump('end')
+  console.log('memdumps:', readdirSync(dumpDir).map(f => join(dumpDir, f)).join(' '))
 } finally {
   try {
     type('\x03\x03')
