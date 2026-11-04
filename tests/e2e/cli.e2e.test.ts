@@ -153,7 +153,13 @@ describe.skipIf(!hasCli)('cli e2e', () => {
     expect(text).toContain('4 cuentas conectadas · 120 modelos')
     expect(text).toContain('plan mode on')
     expect(text).toContain('2 shells · 1 monitor · 3 agents')
-    // Logo (terminal window with an ƒ prompt)
+    // Wide terminal: the animated asciimood logo replaces the small ƒ window.
+    expect(text).not.toContain('▌ > ƒ_  ▐')
+  }, 30_000)
+
+  test('TUI header on a narrow terminal keeps the small ƒ logo', async () => {
+    const { configDir, cwd } = makeSandbox()
+    const text = (await captureTui(fakeEnv(fake.baseUrl, configDir), cwd, 8, 70)).join('\n')
     expect(text).toContain('▌ > ƒ_  ▐')
   }, 30_000)
 
