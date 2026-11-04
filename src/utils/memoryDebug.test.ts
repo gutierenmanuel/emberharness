@@ -3,7 +3,10 @@ import { existsSync, mkdtempSync, readFileSync } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
 import {
+  cancelIdleMemoryRelease,
   clearPerformanceMeasures,
+  releaseMemoryNow,
+  scheduleIdleMemoryRelease,
   collectMemoryStats,
   writeMemoryDump,
 } from './memoryDebug.js'
@@ -35,6 +38,56 @@ describe('memoryDebug', () => {
       else process.env.FNHARNESS_MEMDUMP_DIR = prev
     }
   })
+
+  test('releaseMemoryNow runs a full GC and reports RSS before and after', () => {
+    const r = releaseMemoryNow()
+    expect(r.rssBefore).toBeGreaterThan(0)
+    expect(r.rssAfter).toBeGreaterThan(0)
+    expect(r.ms).toBeGreaterThanOrEqual(0)
+  })
+
+  const withEnv = async (vars: Record<string, string>, fn: () => Promise<void>) => {
+    const prev = Object.fromEntries(Object.keys(vars).map(k => [k, process.env[k]]))
+    Object.assign(process.env, vars)
+    try {
+      await fn()
+    } finally {
+      for (const [k, v] of Object.entries(prev)) {
+        if (v === undefined) delete process.env[k]
+        else process.env[k] = v
+      }
+      cancelIdleMemoryRelease()
+    }
+  }
+
+  test('scheduleIdleMemoryRelease fires once after the idle delay', () =>
+    withEnv({ FNHARNESS_IDLE_RELEASE_MS: '20', FNHARNESS_IDLE_RELEASE_MIN_INTERVAL_MS: '0' }, async () => {
+      let calls = 0
+      scheduleIdleMemoryRelease(() => calls++)
+      // Rescheduling restarts the countdown instead of stacking timers.
+      scheduleIdleMemoryRelease(() => calls++)
+      await Bun.sleep(100)
+      expect(calls).toBe(1)
+      // Cancelled before the delay: never fires.
+      scheduleIdleMemoryRelease(() => calls++)
+      cancelIdleMemoryRelease()
+      await Bun.sleep(100)
+      expect(calls).toBe(1)
+      // Disabled with 0.
+      process.env.FNHARNESS_IDLE_RELEASE_MS = '0'
+      scheduleIdleMemoryRelease(() => calls++)
+      await Bun.sleep(100)
+      expect(calls).toBe(1)
+    }))
+
+  test('scheduleIdleMemoryRelease waits for the minimum interval', () =>
+    withEnv({ FNHARNESS_IDLE_RELEASE_MS: '10', FNHARNESS_IDLE_RELEASE_MIN_INTERVAL_MS: '60000' }, async () => {
+      releaseMemoryNow() // a release "just now"
+      let calls = 0
+      scheduleIdleMemoryRelease(() => calls++)
+      await Bun.sleep(80)
+      expect(calls).toBe(0)
+    }))
 
   test('clearPerformanceMeasures drops buffered measures but keeps marks', () => {
     performance.mark('memdebug-keep')
