@@ -79,10 +79,12 @@ import {
   ensureToolResultPairing,
   normalizeContentFromAPI,
   normalizeMessagesForAPI,
+  sanitizeForeignHistoryForAnthropic,
   stripAdvisorBlocks,
   stripCallerFieldFromAssistantMessage,
   stripToolReferenceBlocksFromUserMessage,
 } from '../../utils/messages.js'
+import { getMultimodelProfile } from './openai-compat/profiles.js'
 import {
   getDefaultOpusModel,
   getDefaultSonnetModel,
@@ -1301,7 +1303,13 @@ async function* queryModel(
   })
 
   queryCheckpoint('query_message_normalization_start')
-  let messagesForAPI = normalizeMessagesForAPI(messages, filteredTools)
+  // A conversation may have been carried by another account (/account) before
+  // landing on Anthropic: drop its unsigned thinking and fix its tool ids. The
+  // OpenAI-compatible adapter already drops thinking and keeps provider ids.
+  let messagesForAPI = normalizeMessagesForAPI(
+    getMultimodelProfile() ? messages : sanitizeForeignHistoryForAnthropic(messages),
+    filteredTools,
+  )
   queryCheckpoint('query_message_normalization_end')
 
   // Model-specific post-processing: strip tool-search-specific fields if the
