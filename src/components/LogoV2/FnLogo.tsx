@@ -2,7 +2,7 @@ import * as React from 'react';
 import { useRef, useState } from 'react';
 import { useSettings } from '../../hooks/useSettings.js';
 import { Box, Text, useAnimationFrame } from '../../ink.js';
-import { BY_ID, dissolve, render, type Frame } from './asciimood/catalog.js';
+import { CATALOG, dissolve, render, type Frame } from './asciimood/catalog.js';
 
 // FnHarness logo. On a wide terminal it is a looping asciimood animation
 // (https://github.com/tmdlz/asciimood) that changes scene every few seconds
@@ -11,16 +11,16 @@ import { BY_ID, dissolve, render, type Frame } from './asciimood/catalog.js';
 const SMALL_ROWS = ['▛▀▀▀▀▀▀▀▜', '▌ > ƒ_  ▐', '▙▄▄▄▄▄▄▄▟'];
 export const SMALL_LOGO_WIDTH = 9;
 
-export const ANIM_WIDTH = 32;
-const ANIM_HEIGHT = 5;
+export const ANIM_WIDTH = 64;
+const ANIM_HEIGHT = 9;
 const FRAME_MS = 80;
 const SCENE_S = 9;
 const FADE_S = 0.7;
-// The drawings that still read at 32×5; the rest need a bigger canvas.
-const PICKS = ['sleeping-cat', 'orbits', 'char-rain', 'helix', 'checker-tunnel', 'fire', 'ink-plasma', 'moire', 'torus', 'waves', 'lava', 'wire-cube', 'horse', 'vortex', 'yellow-blobs', 'radiation', 'money-rain', 'keep-going'].map(id => BY_ID.get(id)).filter(e => e !== undefined);
+// Every drawing that ships with asciimood (the remote ones need its website).
+const PICKS = CATALOG.filter(e => e.remote !== true);
 
 // Neighbouring cells differ by a shade or two; rounding the colour joins them
-// into one Text run, so a row is a handful of elements instead of 32.
+// into one Text run, so a row is a handful of elements instead of one per cell.
 const NO_COLOR = 0x01000000;
 function toHex(c: number): string | undefined {
   if (c >= NO_COLOR) return undefined;
