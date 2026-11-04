@@ -5195,6 +5195,72 @@ export function stripSignatureBlocks(messages: Message[]): Message[] {
   return changed ? result : messages
 }
 
+const ANTHROPIC_TOOL_ID_RE = /^[a-zA-Z0-9_-]+$/
+
+function anthropicSafeToolId(id: string): string {
+  if (ANTHROPIC_TOOL_ID_RE.test(id)) return id
+  const cleaned = id.replace(/[^a-zA-Z0-9_-]/g, '_')
+  return cleaned || 'toolu_foreign'
+}
+
+/**
+ * Makes a history written partly by another account (an OpenAI-compatible
+ * backend reached through /account) acceptable to the Anthropic API:
+ *  - thinking blocks without a signature and redacted_thinking blocks without
+ *    data are dropped (the API answers 400 "Invalid `signature` in `thinking`
+ *    block"); genuine Anthropic thinking keeps its signature and stays;
+ *  - tool_use ids that other providers mint with characters Anthropic rejects
+ *    (`functions.Read:0`, ...) are rewritten, together with the matching
+ *    tool_result `tool_use_id`, into the allowed `[a-zA-Z0-9_-]` alphabet.
+ * Returns the same array when nothing needed changing.
+ */
+export function sanitizeForeignHistoryForAnthropic(messages: Message[]): Message[] {
+  let changed = false
+  const result = messages.map(msg => {
+    if (msg.type !== 'assistant' && msg.type !== 'user') return msg
+    const content = msg.message.content
+    if (!Array.isArray(content)) return msg
+
+    let msgChanged = false
+    const next: unknown[] = []
+    for (const block of content as Array<Record<string, unknown>>) {
+      if (msg.type === 'assistant') {
+        if (block.type === 'thinking' && !block.signature) {
+          msgChanged = true
+          continue
+        }
+        if (block.type === 'redacted_thinking' && !block.data) {
+          msgChanged = true
+          continue
+        }
+      }
+      if (
+        (block.type === 'tool_use' || block.type === 'server_tool_use') &&
+        typeof block.id === 'string' &&
+        !ANTHROPIC_TOOL_ID_RE.test(block.id)
+      ) {
+        msgChanged = true
+        next.push({ ...block, id: anthropicSafeToolId(block.id) })
+        continue
+      }
+      if (
+        block.type === 'tool_result' &&
+        typeof block.tool_use_id === 'string' &&
+        !ANTHROPIC_TOOL_ID_RE.test(block.tool_use_id)
+      ) {
+        msgChanged = true
+        next.push({ ...block, tool_use_id: anthropicSafeToolId(block.tool_use_id) })
+        continue
+      }
+      next.push(block)
+    }
+    if (!msgChanged) return msg
+    changed = true
+    return { ...msg, message: { ...msg.message, content: next } } as typeof msg
+  })
+  return changed ? result : messages
+}
+
 /**
  * Creates a tool use summary message for SDK emission.
  * Tool use summaries provide human-readable progress updates after tool batches complete.
