@@ -125,7 +125,7 @@ export async function captureTui(
   columns = 120,
 ): Promise<string[]> {
   const proc = Bun.spawn(
-    ['script', '-qc', `timeout ${seconds} ${CLI}`, '/dev/null'],
+    ['script', '-qc', `stty cols ${columns} rows 30 2>/dev/null; timeout ${seconds} ${CLI}`, '/dev/null'],
     {
       cwd,
       env: { ...env, COLUMNS: String(columns), LINES: '30', TERM: 'xterm-256color' },

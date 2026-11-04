@@ -13,7 +13,7 @@ import { truncate } from '../../utils/format.js'
 import { formatModelAndBilling, getLogoDisplayData, truncatePath } from '../../utils/logoV2Utils.js'
 import { renderModelSetting } from '../../utils/model/model.js'
 import { OffscreenFreeze } from '../OffscreenFreeze.js'
-import { FnLogo } from './FnLogo.js'
+import { ANIM_WIDTH, FnLogo, SMALL_LOGO_WIDTH } from './FnLogo.js'
 import { GuestPassesUpsell, incrementGuestPassesSeenCount, useShowGuestPassesUpsell } from './GuestPassesUpsell.js'
 import { incrementOverageCreditUpsellSeenCount, OverageCreditUpsell, useShowOverageCreditUpsell } from './OverageCreditUpsell.js'
 
@@ -39,8 +39,10 @@ export function CondensedLogo(): React.ReactNode {
     if (showOverageCreditUpsell && !showGuestPassesUpsell) incrementOverageCreditUpsellSeenCount()
   }, [showOverageCreditUpsell, showGuestPassesUpsell])
 
-  // Condensed logo width (11) + gap (2) + padding (2) = 15 columns
-  const textWidth = Math.max(columns - 15, 20)
+  // The animated logo needs room for itself and a readable text column next to it.
+  const animated = columns >= ANIM_WIDTH + 40
+  // Logo width + gap (2) + padding (2)
+  const textWidth = Math.max(columns - (animated ? ANIM_WIDTH : SMALL_LOGO_WIDTH) - 4, 20)
   const truncatedVersion = truncate(`${MACRO.FNHARNESS_VERSION} · base ${version}`, Math.max(textWidth - 11, 6))
   const effortSuffix = getEffortSuffix(model, effortValue)
   const { shouldSplit, truncatedModel, truncatedBilling } = formatModelAndBilling(
@@ -56,7 +58,7 @@ export function CondensedLogo(): React.ReactNode {
   return (
     <OffscreenFreeze>
       <Box flexDirection="row" gap={2} alignItems="center">
-        <FnLogo />
+        <FnLogo animated={animated} />
         <Box flexDirection="column">
           <Text>
             <Text bold>FnHarness</Text> <Text dimColor>v{truncatedVersion}</Text>
