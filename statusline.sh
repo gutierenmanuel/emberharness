@@ -571,7 +571,21 @@ if [ -n "$SESSION_ID" ] && [ -f "$GOAL_FILE" ]; then
 fi
 
 # Comando para retomar esta sesion desde otra terminal, siempre visible si hay SESSION_ID.
-[ -n "$SESSION_ID" ] && echo -e "  ${DIM}🔗 fnharness --resume ${SESSION_ID}${RESET}"
+# Detras va el alias hablable de la sesion (animal + adjetivo, p. ej. "🐶 perro grande"): es el
+# nombre que Anna entiende por voz ("Anna, dile al Claude perro grande que ..."). Lo asigna y
+# mantiene get_session_alias del registry (registro pid -> alias en $XDG_RUNTIME_DIR); si no
+# esta disponible o falla, la linea queda exactamente como antes.
+if [ -n "$SESSION_ID" ]; then
+    RESUME_LINE="  ${DIM}🔗 fnharness --resume ${SESSION_ID}${RESET}"
+    FN_ROOT="${FN_REGISTRY_ROOT:-$HOME/fn_registry}"
+    ALIAS_PY="$FN_ROOT/python/.venv/bin/python3"
+    [ -x "$ALIAS_PY" ] || ALIAS_PY=python3
+    ALIAS_SCRIPT="$FN_ROOT/python/functions/infra/get_session_alias.py"
+    SESSION_ALIAS=""
+    [ -f "$ALIAS_SCRIPT" ] && SESSION_ALIAS=$(timeout 2 "$ALIAS_PY" "$ALIAS_SCRIPT" --from-pid $$ 2>/dev/null)
+    [ -n "$SESSION_ALIAS" ] && RESUME_LINE="${RESUME_LINE} ${GRAY}│${RESET} ${BOLD}${CYAN}${SESSION_ALIAS}${RESET}"
+    echo -e "$RESUME_LINE"
+fi
 
 # Imprimir resultado (2 líneas)
 # ===== LÍNEA 3: cuenta y backend =====
