@@ -3,17 +3,17 @@
  * input. Needs jq and bc (the script itself does).
  */
 import { describe, expect, test } from 'bun:test'
-import { mkdtempSync } from 'fs'
+import { chmodSync, mkdirSync, mkdtempSync, writeFileSync } from 'fs'
 import { tmpdir } from 'os'
 import { join, resolve } from 'path'
 
 const SCRIPT = resolve(import.meta.dir, '..', 'statusline.sh')
 const strip = (s: string) => s.replace(/\x1b\[[0-9;]*m/g, '')
 
-function render(input: object): string[] {
+function render(input: object, env: Record<string, string> = {}): string[] {
   const proc = Bun.spawnSync(['bash', SCRIPT], {
     stdin: new TextEncoder().encode(JSON.stringify(input)),
-    env: { ...process.env, CLAUDE_CONFIG_DIR: mkdtempSync(join(tmpdir(), 'fnh-sl-')) },
+    env: { ...process.env, CLAUDE_CONFIG_DIR: mkdtempSync(join(tmpdir(), 'fnh-sl-')), ...env },
   })
   expect(proc.exitCode).toBe(0)
   return strip(proc.stdout.toString()).split('\n').filter(Boolean)
@@ -103,5 +103,47 @@ describe('statusline.sh', () => {
   test('without a known window it prints ? instead of assuming 200k', () => {
     const [l1] = render({ ...common, model: { display_name: 'X' } })
     expect(l1).toContain('/?)')
+  })
+
+  describe('alias hablable de la sesion', () => {
+    // Registro falso: un get_session_alias.py que imprime lo que le pasa el test.
+    function fakeRegistry(body: string): string {
+      const root = mkdtempSync(join(tmpdir(), 'fnh-reg-'))
+      const dir = join(root, 'python', 'functions', 'infra')
+      mkdirSync(dir, { recursive: true })
+      writeFileSync(join(dir, 'get_session_alias.py'), body)
+      chmodSync(join(dir, 'get_session_alias.py'), 0o755)
+      return root
+    }
+    const withSession = { ...claude, session_id: 'abc-123' }
+
+    test('shows the alias after the resume command, separated', () => {
+      const root = fakeRegistry('print("🐶 perro grande")\n')
+      const lines = render(withSession, { FN_REGISTRY_ROOT: root })
+      const resume = lines.find(l => l.includes('fnharness --resume'))
+      expect(resume).toBe('  🔗 fnharness --resume abc-123 │ 🐶 perro grande')
+    })
+
+    test('passes its own pid so the registry can find the session', () => {
+      const root = fakeRegistry('import sys\nprint("args=" + " ".join(sys.argv[1:2]))\n')
+      const lines = render(withSession, { FN_REGISTRY_ROOT: root })
+      expect(lines.find(l => l.includes('fnharness --resume'))).toContain('│ args=--from-pid')
+    })
+
+    test('a failing or missing alias script leaves the resume line untouched', () => {
+      for (const root of [fakeRegistry('import sys\nsys.exit(1)\n'), mkdtempSync(join(tmpdir(), 'fnh-empty-'))]) {
+        const lines = render(withSession, { FN_REGISTRY_ROOT: root })
+        expect(lines.find(l => l.includes('fnharness --resume'))).toBe('  🔗 fnharness --resume abc-123')
+        // lo demas de la barra sigue igual
+        expect(lines.join('\n')).toContain('Sonnet 5.5')
+      }
+    })
+
+    test('no session id: no resume line and no alias lookup', () => {
+      const root = fakeRegistry('print("no debe verse")\n')
+      const lines = render(claude, { FN_REGISTRY_ROOT: root })
+      expect(lines.join('\n')).not.toContain('no debe verse')
+      expect(lines.join('\n')).not.toContain('--resume')
+    })
   })
 })
