@@ -177,6 +177,7 @@ import account from './commands/account/index.js'
 import secrets from './commands/secrets/index.js'
 import scope from './commands/scope/index.js'
 import goal from './commands/goal/index.js'
+import cyber from './commands/cyber/index.js'
 import background from './commands/background/index.js'
 import model from './commands/model/index.js'
 import tag from './commands/tag/index.js'
@@ -298,6 +299,7 @@ const COMMANDS = memoize((): Command[] => [
   secrets,
   scope,
   goal,
+  cyber,
   background,
   model,
   outputStyle,
