@@ -575,6 +575,8 @@ fi
 # nombre que Anna entiende por voz ("Anna, dile al Claude perro grande que ..."). Lo asigna y
 # mantiene get_session_alias del registry (registro pid -> alias en $XDG_RUNTIME_DIR); si no
 # esta disponible o falla, la linea queda exactamente como antes.
+# Si la sesion esta en modo cyber (marca de cyber_session_state o CLAUDE_CYBER=1), el
+# marcador [CYBER] rojo va a la derecha del alias: nombre intacto, modo visible.
 if [ -n "$SESSION_ID" ]; then
     RESUME_LINE="  ${DIM}🔗 fnharness --resume ${SESSION_ID}${RESET}"
     FN_ROOT="${FN_REGISTRY_ROOT:-$HOME/fn_registry}"
@@ -584,6 +586,14 @@ if [ -n "$SESSION_ID" ]; then
     SESSION_ALIAS=""
     [ -f "$ALIAS_SCRIPT" ] && SESSION_ALIAS=$(timeout 2 "$ALIAS_PY" "$ALIAS_SCRIPT" --from-pid $$ 2>/dev/null)
     [ -n "$SESSION_ALIAS" ] && RESUME_LINE="${RESUME_LINE} ${GRAY}│${RESET} ${BOLD}${CYAN}${SESSION_ALIAS}${RESET}"
+    CYBER_SCRIPT="$FN_ROOT/python/functions/infra/cyber_session_state.py"
+    IS_CYBER=0
+    if [ "${CLAUDE_CYBER:-0}" = "1" ]; then
+        IS_CYBER=1
+    elif [ -f "$CYBER_SCRIPT" ]; then
+        [ "$(timeout 2 "$ALIAS_PY" "$CYBER_SCRIPT" is-cyber "$SESSION_ID" 2>/dev/null)" = "1" ] && IS_CYBER=1
+    fi
+    [ "$IS_CYBER" = "1" ] && RESUME_LINE="${RESUME_LINE} ${RED}${BOLD}[CYBER]${RESET}"
     echo -e "$RESUME_LINE"
 fi
 
