@@ -1,249 +1,377 @@
-# Telemetría OpenTelemetry por cuenta y modelo, con dos destinos
+# Varias cuentas Claude en un mismo arnés y telemetría OTel por cuenta y receptor
 
-Plan ejecutable. Fecha: 11/11/2026. Estado: sin empezar; las decisiones abiertas están en la sección 9.
+Plan ejecutable. Fecha: 11/11/2026 (v2: añade varias cuentas Claude en un arnés y receptores por
+cuenta). Estado: sin empezar. Las decisiones abiertas están en la sección 11.
 
-Objetivo: que fnharness emita la misma telemetría OTel que Claude Code (métricas `claude_code.*` y
-eventos `claude_code.*`). Cada métrica y cada evento llevan atribuida la cuenta (`claude`, `qwen36`,
-`ollama`…) y el modelo que sirvieron cada petición, también cuando un subagente corre en otra
-cuenta. Los datos se envían a dos destinos independientes:
+Objetivo, en tres partes:
 
-1. **Corporativo**: el que fija la empresa por *remote managed settings* (hoy Datadog EU). Recibe
-   solo lo que IT espera medir, con el esquema oficial de Claude Code y sin atributos propios.
-2. **Propio**: nuestro destino (local o VPS). Recibe todo, de todas las cuentas, con los atributos
-   enriquecidos de fnharness.
+1. **Varias cuentas Claude (OAuth de Anthropic) en un mismo arnés**, por ejemplo `claude-personal` y
+   `claude-work`, junto a las cuentas OpenAI-compatible que ya existen (`qwen36`, `ollama`…). Hoy cada
+   identidad Claude necesita su propio directorio de configuración (`~/.fnharness`,
+   `~/.fnharness-work`).
+2. **`/account` muestra de quién es cada cuenta**: identidad (correo y organización, o proveedor y
+   URL), el modelo en uso o recordado, y a qué receptores de telemetría envía.
+3. **Telemetría OTel con atribución por cuenta y modelo**, enviada a **cada receptor que corresponda a
+   la cuenta que sirvió la petición**:
+   - el receptor de la empresa de esa cuenta (el de sus *remote managed settings*, hoy Datadog EU para
+     Acme);
+   - el nuestro;
+   - cualquier otro que se declare.
 
 ## 1. Estado actual (inventario del 11/11/2026)
 
 ### 1.1 La configuración corporativa llega, pero no se usa
 
-- `~/.fnharness-work/remote-settings.json` trae en `env`: `CLAUDE_CODE_ENABLE_TELEMETRY=1`,
-  `OTEL_EXPORTER_OTLP_ENDPOINT=https://otlp.datadoghq.eu`, `OTEL_EXPORTER_OTLP_HEADERS=dd-api-key=…`,
-  `OTEL_EXPORTER_OTLP_PROTOCOL=http/protobuf`, `OTEL_METRICS_EXPORTER=otlp`,
-  `OTEL_LOGS_EXPORTER=otlp`, `OTEL_METRICS_INCLUDE_SESSION_ID=false` y
-  `OTEL_RESOURCE_ATTRIBUTES=deployment.environment=production`. Esas variables están en el entorno
-  de cada sesión.
-- La telemetría está desactivada en el build OSS:
-  - `src/utils/telemetry/instrumentation.ts`: `isTelemetryEnabled()` devuelve `false` y
+- `~/.fnharness-work/remote-settings.json` trae en `env`:
+  - `CLAUDE_CODE_ENABLE_TELEMETRY=1`;
+  - `OTEL_EXPORTER_OTLP_ENDPOINT=https://otlp.datadoghq.eu`, con `OTEL_EXPORTER_OTLP_HEADERS=dd-api-key=…`
+    y `OTEL_EXPORTER_OTLP_PROTOCOL=http/protobuf`;
+  - `OTEL_METRICS_EXPORTER=otlp` y `OTEL_LOGS_EXPORTER=otlp`;
+  - `OTEL_METRICS_INCLUDE_SESSION_ID=false` y
+    `OTEL_RESOURCE_ATTRIBUTES=deployment.environment=production`.
+
+  Todas se aplican a `process.env` de toda la sesión.
+- En el build OSS la telemetría está desactivada:
+  - `src/utils/telemetry/instrumentation.ts`: `isTelemetryEnabled()` devuelve `false`, e
     `initializeTelemetry()`, `bootstrapTelemetry()` y `flushTelemetry()` están vacíos.
-  - `src/utils/telemetry/events.ts`: `logOTelEvent()` no hace nada e `isUserPromptLoggingEnabled()`
-    devuelve `false`.
+  - `src/utils/telemetry/events.ts`: `logOTelEvent()` no hace nada.
   - `src/entrypoints/init.ts:210`: `initializeTelemetryAfterTrust()` vuelve sin hacer nada. Lo llama
     `main.tsx:2644`.
-- **Consecuencia: hoy IT no recibe nada de las sesiones de fnharness**, ni siquiera de las que usan la
-  cuenta Claude de empresa. Esta es la razón principal del plan.
+- **Consecuencia: hoy IT no recibe nada de fnharness**, ni siquiera del uso de la cuenta Claude de
+  empresa.
 
 ### 1.2 Lo que sigue vivo (solo falta conectarlo)
 
 | Pieza | Dónde | Notas |
 |---|---|---|
-| Contadores | `src/bootstrap/state.ts` (`setMeter`, l. 961) | `claude_code.session.count`, `lines_of_code.count`, `pull_request.count`, `commit.count`, `cost.usage`, `token.usage`, `code_edit_tool.decision`, `active_time.total`. Tipo `AttributedCounter` |
-| Coste y tokens | `src/cost-tracker.ts:291` (`addToTotalSessionCost`) | Atributos `{ model, speed? }`; tokens por `type` (input, output, cacheRead, cacheCreation) |
-| LOC | `src/utils/diff.ts:72` | `type: added/removed` |
-| Commits y PR | `src/tools/shared/gitOperationTracking.ts` | |
+| Contadores | `src/bootstrap/state.ts` (`setMeter`, l. 961) | `claude_code.session.count`, `lines_of_code.count`, `pull_request.count`, `commit.count`, `cost.usage`, `token.usage`, `code_edit_tool.decision`, `active_time.total` (`AttributedCounter`) |
+| Coste y tokens | `src/cost-tracker.ts:291` (`addToTotalSessionCost`) | Atributos `{ model, speed? }`; tokens por `type` |
+| LOC, commits, PR | `utils/diff.ts:72`, `tools/shared/gitOperationTracking.ts` | |
 | Decisiones de edición | `services/tools/toolExecution.ts:976`, `hooks/toolPermission/permissionLogging.ts:216` | |
-| Tiempo activo | `src/utils/activityManager.ts` | |
-| Eventos | `logOTelEvent(...)` | `user_prompt` (2), `api_request`, `api_error`, `tool_result` (2), `tool_decision` (2), `hook_execution_start/complete`, `feedback_survey` |
-| Atributos comunes | `src/utils/telemetryAttributes.ts` | `user.id`, `session.id`, `organization.id`, `user.email`, `user.account_uuid`, `terminal.type`; respeta `OTEL_METRICS_INCLUDE_*` |
-| Dependencias | `package.json` | SDK completo `@opentelemetry/*` (exportadores OTLP grpc, http y proto, y Prometheus) |
-| Diálogo de seguridad | `src/services/remoteManagedSettings/securityCheck.tsx` | `checkManagedSettingsSecurity` muestra un diálogo bloqueante cuando cambian ajustes peligrosos. Hay que comprobar en la fase 0 que las variables `OTEL_*` lo disparan, como en Claude Code |
+| Tiempo activo | `utils/activityManager.ts` | |
+| Eventos | `logOTelEvent(...)` | `user_prompt`, `api_request`, `api_error`, `tool_result`, `tool_decision`, `hook_execution_*`, `feedback_survey` |
+| Atributos comunes | `utils/telemetryAttributes.ts` | `user.email`, `organization.id`, `user.account_uuid` salen de `getOauthAccountInfo()`, que hoy solo conoce **una** identidad OAuth |
+| SDK | `package.json` | `@opentelemetry/*` completo |
+| Diálogo de seguridad | `services/remoteManagedSettings/securityCheck.tsx` | `checkManagedSettingsSecurity` bloquea si cambian ajustes peligrosos |
 
-### 1.3 Interacciones con el enrutado por cuenta (`account_routing.md`)
+### 1.3 Modelo de cuentas actual
 
-- `ProfileScope` (AsyncLocalStorage): dentro de una petición enrutada, `getMultimodelProfile()` e
-  `isMultimodelActive()` responden por la cuenta enrutada. **Es la fuente de verdad de la cuenta en
-  cada petición.** `calculateUSDCost` ya la usa.
-- `profiles.ts:374`: una cuenta OpenAI-compatible activa pone `DISABLE_TELEMETRY ||= '1'` y
-  `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC ||= '1'`. `utils/privacyLevel.ts` lo traduce a
-  `no-telemetry`. Si la telemetría nueva respetara esa variable tal cual, una sesión en `qwen36` que
-  lance un subagente `claude:haiku` no reportaría ese consumo de Claude a la empresa. Hay que
-  distinguir el `DISABLE_TELEMETRY` que pone el perfil del que pone la persona o IT.
-- Variables de sesión: `FNHARNESS_ACCOUNT`, `FNHARNESS_ACCOUNT_LABEL` y `FNHARNESS_MODEL_BACKEND`.
-  Sirven para la cuenta de la sesión, no para la de cada petición.
-- El modelo llega como `cuenta:modelo` en peticiones enrutadas, y `queryModel*` quita el prefijo. En
-  `addToTotalSessionCost` el `model` ya va sin prefijo.
+- `src/services/api/openai-compat/accounts.ts`:
+  - `accounts.json` (0600) vive en `$CLAUDE_CONFIG_DIR`.
+  - `StoredAccount` tiene `provider`, `label`, `baseUrl`, `apiKey | apiKeyRef`, `model`,
+    `smallModel` y `contextProfile`.
+  - `CLAUDE_ACCOUNT_ID = 'claude'` es la **única** cuenta Anthropic; es implícita, no está en
+    `accounts.json`.
+- Por cada `CLAUDE_CONFIG_DIR` hay una sola copia de estos ficheros: credenciales OAuth
+  (`.credentials.json`), `remote-settings.json` (`services/remoteManagedSettings/syncCacheState.ts`)
+  y `policy-limits.json` (`services/policyLimits/index.ts`). Por eso hoy dos identidades Claude
+  necesitan dos directorios y dos lanzadores.
+- Enrutado por petición (`account_routing.md`): `ProfileScope` (AsyncLocalStorage) dice qué cuenta
+  sirve cada petición. `calculateUSDCost` ya lo usa.
+- `profiles.ts:374`: una cuenta OpenAI-compatible activa pone `DISABLE_TELEMETRY ||= '1'`, y
+  `utils/privacyLevel.ts` lo convierte en `no-telemetry`. Si se respetara tal cual, se perdería el
+  consumo de un subagente `claude-work:` lanzado desde una sesión `qwen36`.
 
-## 2. Arquitectura
+## 2. Varias cuentas Claude en un arnés
+
+### 2.1 Tipo de cuenta nuevo: `anthropic`
+
+`StoredAccount` gana `kind: 'anthropic' | 'openai_compat'` (por defecto `openai_compat`, para que
+los `accounts.json` actuales sigan valiendo).
+
+Una cuenta `anthropic` guarda su estado en `<config>/accounts/<id>/`:
+
+| Fichero | Contenido |
+|---|---|
+| `credentials.json` (0600) | tokens OAuth de esa cuenta (mismo formato que `.credentials.json`) |
+| `oauth-account.json` | `emailAddress`, `organizationUuid`, `organizationName`, `accountUuid` y plan (lo que hoy devuelve `getOauthAccountInfo()`) |
+| `remote-settings.json` | *remote managed settings* de **su** organización |
+| `policy-limits.json` | límites de política de su organización |
+
+Migración sin pérdida: al arrancar, si existe `.credentials.json` en la raíz y no hay ninguna cuenta
+`anthropic`, se registra como `claude` y sus ficheros se **copian** (no se mueven) a
+`accounts/claude/`. Así `~/.fnharness-work` sigue funcionando y la cuenta implícita `claude` sigue
+existiendo.
+
+Se puede importar un directorio existente: `/account import ~/.fnharness-work --as claude-work`
+copia sus credenciales y su caché de settings.
+
+### 2.2 Alta, sesión y renovación
+
+- `/account add claude <id>` lanza el login OAuth normal (`/login`), pero escribe en
+  `accounts/<id>/` en vez de la raíz.
+- El refresco de token es por cuenta: `getClaudeAIOAuthTokens(accountId)`. Cada cuenta refresca la
+  suya con un cerrojo de fichero propio, sin pisar a las demás.
+- `/logout <id>` borra solo esa carpeta, previa confirmación.
+
+### 2.3 Enrutado
+
+- `routeForModel` reconoce cualquier cuenta `kind: anthropic` igual que hoy `claude`:
+  `claude-work:sonnet` resuelve los alias contra las variables de modelo originales y usa el token
+  de esa cuenta.
+- `ProfileScope` amplía el ámbito: además del perfil OpenAI-compatible, lleva `anthropicAccountId`.
+  Dentro del ámbito, `getOauthAccountInfo()` y `getClaudeAIOAuthTokens()` responden por esa cuenta.
+- `isClaudeAISubscriber()` y `getAllModelBetas` siguen como en `account_routing.md`, pero por la
+  cuenta del ámbito.
+
+### 2.4 Remote managed settings y políticas por cuenta
+
+Se aplican a la cuenta, no al proceso:
+
+- **Telemetría** (`env` con `OTEL_*`, `CLAUDE_CODE_ENABLE_TELEMETRY`): se convierte en un receptor
+  ligado a esa cuenta (sección 4). **Deja de escribirse en `process.env`**, para no mezclar
+  receptores entre cuentas.
+- **Resto de ajustes y políticas** (permisos, herramientas o modelos prohibidos, límites). Regla
+  conservadora (decisión D7): una política de una cuenta corporativa aplica a **toda la sesión**
+  mientras esa cuenta esté en uso en ella (es la de la sesión o ya ha servido alguna petición).
+  Si hay varias, se combinan quedándose con lo más restrictivo. Usar otra cuenta no debe servir para
+  esquivar la política de la empresa en su máquina.
+- El diálogo de `securityCheck.tsx` se muestra **por cuenta** la primera vez que esa cuenta trae
+  ajustes peligrosos o cuando cambian, con su nombre y organización en la cabecera. Rechazarlo
+  desactiva esa cuenta; no cierra el arnés si hay otras cuentas listas. Si la cuenta rechazada es la
+  de la sesión, el arnés sale, como ahora.
+
+## 3. `/account`: de quién es cada cuenta
+
+El panel muestra, por cuenta, una cabecera de identidad y debajo el modelo y los receptores:
 
 ```
-                    ┌──────────── AttributedCounter (dual) ─────────────┐
-call site ─ add() ─▶│ attrs base + attrs de cuenta (resolveTelemetryCtx) │
-                    │   ├─ corp?  (filtro de cuenta) ─▶ MeterProvider corp ─▶ OTLP corp (Datadog)
-                    │   └─ own?                      ─▶ MeterProvider own  ─▶ OTLP propio
-                    └────────────────────────────────────────────────────┘
-logOTelEvent ─────▶ mismo reparto con dos LoggerProvider (eventos claude_code.<nombre>)
+  Cuentas
+  ── claude-work · Claude (Anthropic) ● sesión ──────────────────────
+     user@example.com · Acme (org 3f2a…) · plan Team
+     modelo: claude-opus-5-5 (recordado: opus)        ✓ lista
+     telemetría → work:datadog-eu (corporativo) · propio
+  ── claude-personal · Claude (Anthropic) ─────────────────────────────
+     yo@gmail.com · personal · plan Max
+     modelo: sonnet                                     ✓ lista
+     telemetría → propio
+  ── qwen36 · llama.cpp local ─────────────────────────────────────────
+     http://localhost:8090/v1
+     modelo: qwen36-35b-heretic-q4km                    ✓ responde
+     telemetría → propio
+  ── ollama · Ollama ──────────────────────────────────────────────────
+     http://localhost:11434 · sin servidor              ✗ no responde
 ```
 
-### 2.1 Contexto de telemetría por petición (`src/utils/telemetry/context.ts`, nuevo, puro)
+- Identidad: en `anthropic`, `emailAddress · organizationName · plan` de `oauth-account.json`; en
+  `openai_compat`, `provider · baseUrl` (y el titular de la clave si el proveedor lo expone).
+- Diferenciación por modelo: el modelo en uso (sesión) o recordado (`StoredAccount.model`), y la
+  cuenta y el modelo de cada subagente vivo enrutado a ella (`[cuenta] modelo` en el panel de agentes,
+  que ya existe).
+- Receptores: los ids de los receptores ligados (sección 4), marcando el corporativo.
+- `/model` (`UnifiedModelPicker`) usa la misma cabecera de identidad abreviada:
+  `── claude-work · user@example.com ──`.
+- La statusline añade la cuenta: `FNHARNESS_ACCOUNT` ya existe; se añade `FNHARNESS_ACCOUNT_EMAIL`
+  para las `anthropic`.
 
-`resolveTelemetryCtx(model?)` devuelve:
+## 4. Telemetría: receptores por cuenta
+
+### 4.1 Receptores (`telemetrySinks`)
+
+Un receptor es un destino OTLP con nombre. Hay dos orígenes:
+
+| Origen | Cómo nace | Editable |
+|---|---|---|
+| `managed:<cuenta>` | De las `remote-settings` de una cuenta `anthropic` (sus `OTEL_*`). Id: `<cuenta>:<host>`, p. ej. `claude-work:otlp.datadoghq.eu` | No: lo dicta su organización |
+| `user` | Declarado en `<config>/telemetry.json` (0600) | Sí, con `/telemetry` |
+
+Ejemplo de `telemetry.json`:
+
+```json
+{
+  "sinks": {
+    "propio": {
+      "endpoint": "http://127.0.0.1:4318",
+      "protocol": "http/json",
+      "headersRef": null,
+      "accounts": "*",
+      "schema": "enriched",
+      "logUserPrompts": false,
+      "logToolDetails": true,
+      "metricsIntervalMs": 60000
+    },
+    "socio-x": {
+      "endpoint": "https://otel.socio-x.example",
+      "protocol": "http/protobuf",
+      "headersRef": "pass:apis/socio-x-otel",
+      "accounts": ["claude-socio"],
+      "schema": "official"
+    }
+  }
+}
+```
+
+- `headersRef` usa el mismo gestor de secretos que `apiKeyRef` (`services/secrets`). Las cabeceras
+  nunca se escriben en claro ni se imprimen.
+- `accounts`: `"*"` o una lista de ids de cuenta.
+- `schema`:
+  - `official`: solo el esquema de Claude Code, sin atributos `fnharness.*`.
+  - `enriched`: añade los `fnharness.*` de la sección 4.3.
+
+  Los receptores `managed:*` son siempre `official`.
+- Prompts y detalle de herramientas: en un receptor `managed`, solo lo que diga su organización; en
+  uno `user`, solo si se activa en ese receptor.
+
+### 4.2 Reparto
+
+```
+call site ─ add()/logOTelEvent() ─▶ ctx = resolveTelemetryCtx(model)
+                                     │
+                                     ├─ sinksFor(ctx.account) ──▶ [claude-work:datadog, propio]
+                                     │       └─ por receptor: atributos según schema ─▶ su MeterProvider/LoggerProvider ─▶ OTLP
+                                     └─ (nada más: un receptor solo ve las cuentas que tiene ligadas)
+```
+
+- `sinksFor(account)` = receptores `managed:<account>` + receptores `user` con `accounts` que la
+  incluya. Es una función pura con test de tabla.
+- Cada receptor tiene su `MeterProvider` y su `LoggerProvider`, con su resource
+  (`OTEL_RESOURCE_ATTRIBUTES` del receptor managed o `service.name=fnharness` en los propios).
+- `AttributedCounter` dual pasa a ser N-ario: `setMeter` recibe un `createCounter` que crea el
+  instrumento en cada receptor activo, y `add(value, attrs)` solo suma en `sinksFor(ctx.account)`.
+  Los receptores que se añaden en caliente (`/telemetry add`, login de una cuenta nueva) se crean
+  perezosamente al primer uso.
+- **Identidad por receptor**: `user.email`, `organization.id` y `user.account_uuid` salen de
+  `oauth-account.json` **de la cuenta de la petición**. Un registro que va al receptor de Acme nunca
+  lleva el correo de la cuenta personal, y viceversa.
+
+### 4.3 Contexto por petición (`src/utils/telemetry/context.ts`, nuevo, puro)
 
 | Campo | Fuente | Ejemplo |
 |---|---|---|
-| `account` | `ProfileScope` vigente → id de cuenta; si no hay ámbito, `FNHARNESS_ACCOUNT` | `claude`, `qwen36` |
-| `account_kind` | `anthropic` (claude), `openai_compat` (hosted) o `local` (127.0.0.1/localhost/LAN) | `local` |
-| `backend` | host del `baseURL` del perfil o `api.anthropic.com` | `localhost:8090` |
-| `model` | argumento sin prefijo, o el modelo de la sesión | `claude-haiku-4-5-20251001` |
-| `routed` | `true` si la cuenta de la petición no es la de la sesión | `true` |
+| `account` | `ProfileScope` (OpenAI-compatible o `anthropicAccountId`); sin ámbito, la cuenta de la sesión | `claude-work`, `qwen36` |
+| `account_kind` | `anthropic`, `openai_compat` o `local` (localhost/LAN) | `local` |
+| `backend` | host del `baseURL` o `api.anthropic.com` | `localhost:8090` |
+| `model` | argumento sin prefijo, o el de la sesión | `claude-haiku-4-5-20251001` |
+| `routed` | la cuenta de la petición ≠ la de la sesión | `true` |
 | `session_account` | cuenta de la sesión | `qwen36` |
-| `agent.type` / `agent.id` | contexto del subagente si existe (`LocalAgentTaskState`) | `general-purpose` |
+| `agent.type` | contexto del subagente (`LocalAgentTaskState`) | `general-purpose` |
 
-Es una función pura sobre `(scope, sessionEnv, model)`, con test unitario de tabla.
+En el esquema `enriched` van como `fnharness.account`, `fnharness.account_kind`,
+`fnharness.backend`, `fnharness.routed`, `fnharness.session_account`, `agent.type`, `pc` (de
+`~/.fn_pc`) y `session.id` siempre.
 
-### 2.2 Dos sinks (`src/utils/telemetry/sinks.ts`, nuevo)
-
-Cada sink tiene su configuración, su `MeterProvider`, su `LoggerProvider` y su filtro.
-
-**Sink corporativo**
-
-- Configuración: las variables `OTEL_*` estándar (las de remote/managed settings). Si la persona
-  tiene `OTEL_*` propias en su settings de usuario, las managed tienen prioridad, como en Claude
-  Code.
-- Se activa si `CLAUDE_CODE_ENABLE_TELEMETRY=1` y no hay un `DISABLE_TELEMETRY` *de origen
-  humano o managed* (ver 1.3). El que inyecta `profiles.ts` se marca: el perfil pone además
-  `FNHARNESS_TELEMETRY_SUPPRESSED_BY_PROFILE=1`, o mejor, el perfil deja de ponerlo y
-  `privacyLevel` consulta el perfil.
-- Filtro: solo registros con `account` en `corpAccounts` (por defecto `["claude"]`, decisión D1).
-- Atributos: **solo el esquema oficial** (`model`, `type`, `speed`, `decision`, `tool_name`… más los
-  de `getTelemetryAttributes()`). No se envían `account`, `backend`, ni nombres de modelos locales.
-  Para IT parece Claude Code normal.
-- `OTEL_LOG_USER_PROMPTS` y `OTEL_LOG_TOOL_DETAILS`: se respetan tal como los fije IT (hoy
-  apagados). fnharness nunca los enciende para este sink.
-
-**Sink propio**
-
-- Configuración con un prefijo propio, para no pisar ni leer las de IT:
-  `FNHARNESS_OTEL_ENDPOINT`, `FNHARNESS_OTEL_PROTOCOL` (`http/json` por defecto),
-  `FNHARNESS_OTEL_HEADERS`, `FNHARNESS_OTEL_METRICS_INTERVAL_MS`, `FNHARNESS_OTEL_LOG_USER_PROMPTS`
-  y `FNHARNESS_OTEL_LOG_TOOL_DETAILS`. Vive en `settings.json` de usuario (`env`) o en
-  `accounts.json` (decisión D3).
-- Filtro: ninguno, todas las cuentas.
-- Atributos: el esquema oficial más `fnharness.account`, `fnharness.account_kind`,
-  `fnharness.backend`, `fnharness.routed`, `fnharness.session_account`, `agent.type`, `pc` (de
-  `~/.fn_pc`) y `session.id` siempre (aunque IT ponga `OTEL_METRICS_INCLUDE_SESSION_ID=false`).
-- Costes de cuentas locales: 0 USD (como `calculateUSDCost`), pero los tokens se cuentan.
-
-### 2.3 Contadores duales
-
-`setMeter` recibe un `createCounter` que crea el instrumento en ambos meters y devuelve un
-`AttributedCounter` cuyo `add(value, attrs)`:
-
-1. Calcula `ctx = resolveTelemetryCtx(attrs.model)`.
-2. Si el sink corporativo está activo y `ctx.account ∈ corpAccounts`, suma en el meter corporativo
-   con `attrs` + atributos comunes.
-3. Si el propio está activo, suma en el suyo con `attrs` + comunes + `fnharness.*`.
-
-Las llamadas existentes no se tocan. `getXCounter()?.add(...)` sigue igual.
-
-### 2.4 Métricas de sesión (no van ligadas a una petición)
+### 4.4 Métricas de sesión (sin modelo)
 
 `session.count`, `active_time`, `lines_of_code`, `commit`, `pull_request` y `code_edit_tool.decision`
-no tienen modelo. Regla (decisión D2):
+van a la unión de `sinksFor(a)` para cada cuenta `a` que la sesión ha usado hasta ese momento: la de
+la sesión más cada cuenta que haya servido una petición. Se lleva con `sessionAccountsTouched` en
+`bootstrap/state.ts`. Un receptor que entra a mitad de sesión recibe `session.count=1` en ese
+momento (decisión D2).
 
-- Propio: siempre, con `fnharness.session_account` = cuenta de la sesión en ese momento.
-- Corporativo: si la cuenta de la sesión es corporativa **o** la sesión ya ha hecho al menos una
-  petición a una cuenta corporativa (un subagente `claude:` en una sesión `qwen36` cuenta). Se
-  calcula con una marca `sessionTouchedCorp` en `bootstrap/state.ts`.
+### 4.5 `DISABLE_TELEMETRY` y privacidad
 
-### 2.5 Eventos
+- `profiles.ts` deja de poner `DISABLE_TELEMETRY`. Pone `FNHARNESS_PROFILE_NO_TELEMETRY=1`, que solo
+  apaga la telemetría no esencial **del proveedor** (nada que ver con OTel).
+- `DISABLE_TELEMETRY` puesto por la persona apaga **los receptores `user`**. Los `managed` los apaga
+  solo su organización. Saltarse la medición corporativa no es una opción del arnés.
+- Prompts: `<REDACTED>` salvo que el receptor lo permita (sección 4.1).
 
-`logOTelEvent(name, metadata)` emite un `LogRecord` con `event.name = claude_code.<name>`,
-`event.timestamp`, `event.sequence` y los atributos, por el mismo reparto que los contadores. En el
-sink corporativo, `user_prompt` lleva `prompt_length` y `prompt="<REDACTED>"` salvo que IT encienda
-`OTEL_LOG_USER_PROMPTS`. En el propio, el texto solo va si `FNHARNESS_OTEL_LOG_USER_PROMPTS=1`.
+### 4.6 Arranque, vaciado y fallos
 
-### 2.6 Arranque, vaciado y fallos
+- `initializeTelemetryAfterTrust()` construye los receptores tras la confianza del directorio y los
+  diálogos de seguridad de cada cuenta.
+- `flushTelemetry()` al salir, en paralelo y con un tope de 2 s por receptor.
+- Un receptor caído solo deja una entrada en el log de depuración. Nunca se imprime una cabecera.
+- `/telemetry` lista los receptores, sus cuentas, el último envío correcto y el último error.
+  `/telemetry test <id>` manda un punto de prueba.
 
-- `initializeTelemetryAfterTrust()` llama a `initializeTelemetry()` después de que se acepte la
-  confianza del directorio y del diálogo de managed settings. Si el diálogo se rechaza, el proceso
-  ya sale (comportamiento de `securityCheck.tsx`).
-- `flushTelemetry()` en la salida, con un tope de 2 s por sink, para no bloquear el cierre ni `-p`.
-- Un destino caído no rompe la sesión: los errores del exportador van al log de depuración, nunca a
-  la TUI. Nunca se imprime la cabecera `dd-api-key` ni otras cabeceras (se redactan en los logs).
-- Intervalos: métricas cada 60 s (`OTEL_METRIC_EXPORT_INTERVAL`) y logs cada 5 s, como Claude Code.
+## 5. Nuestro receptor: `otel_sink` (si D4 = «lo montamos»)
 
-## 3. Destino propio: `otel_sink` (si la decisión D4 es «lo montamos»)
+App nueva `apps/otel_sink` (sub-repo `dataforge/otel_sink`): un receptor OTLP/HTTP con JSON en
+`127.0.0.1:4318` (`/v1/metrics`, `/v1/logs`) que escribe en SQLite.
 
-App nueva `apps/otel_sink` (sub-repo `dataforge/otel_sink`), con una sola responsabilidad: un
-receptor OTLP/HTTP con JSON que escucha en `127.0.0.1:4318` (`/v1/metrics`, `/v1/logs`) y escribe en
-SQLite.
+- Esquema `migrations/001_init.sql`:
+  - `metric_points(ts, name, value, account, account_kind, model, type, session_id, pc, attrs_json)`;
+  - `events(ts, name, account, model, session_id, pc, attrs_json)`;
+  - índices por `(account, model, ts)`.
+- Reutilizar: `open_llm_db_py_infra` y `log_llm_usage_py_infra` ya guardan uso de LLM con coste.
+  Escribir también los `api_request` en `llm_usage`, para que `summarize_llm_usage_py_infra` y el tab
+  Monitor del `registry_dashboard` los vean.
+- Vista: tab en `registry_dashboard` con coste y tokens por cuenta y modelo y por día, % enrutado y
+  herramientas por éxito o fallo.
+- Varios PCs: fase posterior (receptor en `registry_api` o `fn sync`).
 
-- Esquema (`migrations/001_init.sql`):
-  - `metric_points(ts, name, value, account, account_kind, model, type, session_id, pc, attrs_json)`.
-  - `events(ts, name, account, model, session_id, pc, attrs_json)`.
-  - Índices por `(account, model, ts)`.
-- Reutilizar antes de escribir: `open_llm_db_py_infra` y `log_llm_usage_py_infra` ya guardan uso de
-  LLM con coste. Valorar escribir los `api_request` también en `llm_usage`, para que
-  `summarize_llm_usage_py_infra` y el tab Monitor del `registry_dashboard` los vean sin código nuevo.
-- Varios PCs: fase posterior. El receptor del VPS (`registry_api`) acepta el mismo OTLP, o se
-  sincroniza con `fn sync`.
-- Vista: un tab en `registry_dashboard` con coste y tokens por cuenta y modelo y por día, el
-  porcentaje enrutado y el top de herramientas por éxito o fallo.
-
-Alternativa sin código: exportar a un backend existente (Grafana/Loki/Prometheus o SigNoz) si ya lo
-hay en el VPS.
-
-## 4. Fases
+## 6. Fases
 
 | Fase | Contenido | Hecho cuando |
 |---|---|---|
-| 0 | Verificar `securityCheck.tsx` con `OTEL_*`; capturar en local lo que enviaría Claude Code oficial con las mismas variables (receptor falso) para fijar el esquema de referencia | Fichero `docs/otel_reference_capture.json` con métricas y eventos reales del binario oficial |
-| 1 | `context.ts` + tests de tabla | `bun run test:unit` verde |
-| 2 | `sinks.ts`, `instrumentation.ts` real, contadores duales, `initializeTelemetryAfterTrust` | e2e: un receptor falso recibe `claude_code.session.count` y `cost.usage` |
-| 3 | `logOTelEvent` real + redacción de prompts | e2e: `api_request` y `user_prompt` (redactado) llegan |
-| 4 | Filtro por cuenta + marca `sessionTouchedCorp` + `DISABLE_TELEMETRY` del perfil | e2e de enrutado: sesión en cuenta falsa A con subagente `claude:` falso → corp recibe solo lo de `claude`, propio recibe ambos |
-| 5 | `otel_sink` (si D4) + tab del dashboard | Una sesión real deja filas por cuenta y modelo en SQLite |
-| 6 | Prueba real contra Datadog | Ver sección 6 |
+| 0 | Captura de referencia: binario oficial de Claude Code con las mismas `OTEL_*` contra un receptor falso. Comprobar que `securityCheck.tsx` salta con `OTEL_*` | `docs/otel_reference_capture.json` |
+| 1 | Cuentas `anthropic`: `kind`, `accounts/<id>/`, migración por copia, login, logout y refresco por cuenta, `/account import` | e2e: dos cuentas Anthropic falsas (`ANTHROPIC_BASE_URL` a dos servidores) con tokens distintos; cada petición lleva el suyo |
+| 2 | Enrutado `anthropicAccountId` en `ProfileScope`; `getOauthAccountInfo` por ámbito | e2e: sesión en A, subagente `B:sonnet` llega a B con el token de B |
+| 3 | Remote settings y políticas por cuenta; diálogo por cuenta; el `env` OTel deja de ir a `process.env` | Test: rechazar el diálogo de B desactiva B y no cierra la sesión de A |
+| 4 | `/account` con identidad, modelo y receptores; cabecera en `/model`; statusline | Captura en pseudo-terminal con 3 cuentas |
+| 5 | `context.ts`, `sinks.ts` (`sinksFor`, `telemetry.json`), contadores N-arios, `logOTelEvent` real | Unitarias verdes |
+| 6 | Reparto por cuenta + `sessionAccountsTouched` + `DISABLE_TELEMETRY` | e2e de la sección 7 |
+| 7 | `/telemetry` (list, add, test) | Captura en pseudo-terminal |
+| 8 | `otel_sink` + tab del dashboard (si D4) | Sesión real deja filas por cuenta y modelo |
+| 9 | Prueba real con la empresa | Sección 8 |
 
-## 5. Pruebas
+Las fases 1 a 4 (cuentas) y 5 a 7 (telemetría) se pueden hacer en ramas separadas. La 6 necesita la
+2, porque la cuenta Anthropic de cada petición sale del ámbito.
 
-- **Unitarias**: `context.test.ts` (claude sin ámbito, ámbito qwen36, enrutado claude desde qwen36,
-  local frente a hosted, prefijo `cuenta:modelo`); `sinks.test.ts` (filtro corp, atributos corp sin
-  `fnharness.*`, redacción, precedencia managed > usuario, `DISABLE_TELEMETRY` humano frente al del
-  perfil).
-- **e2e** (`tests/e2e/otel.e2e.test.ts`): dos receptores OTLP falsos (corp y propio) y dos
-  servidores de modelo falsos (`accta`, y `claude` simulado con `ANTHROPIC_BASE_URL`); intervalos de
-  exportación a 200 ms. Se comprueba en cada receptor qué nombres, valores y atributos llegan, y que
-  la API key de cabecera nunca aparece en stdout ni en el log de depuración.
-- Cerrar sin que se cuelgue: `-p "hola"` termina en menos de 3 s con los dos destinos caídos.
+## 7. Pruebas
 
-## 6. Verificación con la empresa
+- **Unitarias**:
+  - `context.test.ts`: sin ámbito, ámbito OpenAI-compatible, ámbito Anthropic B desde sesión A, local
+    frente a hosted.
+  - `sinks.test.ts`: `sinksFor` con `"*"` y listas; atributos `official` sin `fnharness.*`; identidad
+    por cuenta; redacción; `DISABLE_TELEMETRY` humano frente al del perfil.
+  - `accounts.test.ts`: migración por copia, idempotente; `kind` por defecto.
+- **e2e** (`tests/e2e/otel_multiaccount.e2e.test.ts`):
+  - Montaje: tres receptores OTLP falsos (`corpA` como managed de la cuenta A, `corpB` como managed
+    de B y `propio`), dos servidores Anthropic falsos (A y B) y uno OpenAI-compatible (`acctc`).
+    Intervalos a 200 ms.
+  - Escenario: sesión en `acctc` que lanza un subagente `A:sonnet` y otro `B:haiku`.
+  - Esperado:
+    - `corpA` solo ve lo de A, con el correo de A;
+    - `corpB` solo ve lo de B, con el correo de B;
+    - `propio` ve las tres cuentas, con `fnharness.routed=true` en A y B;
+    - ninguna cabecera aparece en stdout ni en el log de depuración.
+- **Salida rápida**: `-p "hola"` termina en menos de 3 s con todos los receptores caídos.
 
-- Sesión real en la cuenta `claude` → en Datadog deben aparecer `claude_code.cost.usage` y
-  `claude_code.token.usage` con `user.email` corporativo. No tenemos acceso a Datadog: pedir a IT
-  una captura o un sí, o comparar contra la captura de referencia de la fase 0 (mismo esquema que el
-  binario oficial).
-- Comprobar que sesiones `ollama` o `qwen36` sin subagentes `claude:` no generan nada en el
-  corporativo.
+## 8. Verificación con la empresa
 
-## 7. Privacidad y cumplimiento
+- Sesión real en `claude-work`: en Datadog deben aparecer `claude_code.cost.usage` y `token.usage`
+  con `user.email` de Acme. No tenemos acceso a Datadog: pedir confirmación a IT o comparar con la
+  captura de la fase 0.
+- Sesiones de cuentas personales o locales sin subagentes `claude-work:` no generan nada en el
+  receptor de Acme.
 
-- Al destino corporativo nunca se envía más de lo que enviaría Claude Code con la misma
-  configuración. Ni prompts, ni comandos, ni rutas, ni nombres de modelos locales.
-- Tampoco se envía menos de lo que corresponde: todo uso de la cuenta Claude de empresa, incluidos
-  los subagentes `claude:` desde otras cuentas, se reporta. No se debe usar fnharness para esquivar
-  la medición corporativa; ese es el motivo del filtro por cuenta y no por sesión.
-- El destino propio es local por defecto (`127.0.0.1`), y el texto de prompts solo se guarda si se
-  activa explícitamente.
+## 9. Privacidad y cumplimiento
 
-## 8. Riesgos
+- A un receptor corporativo nunca va más de lo que enviaría Claude Code con la misma configuración:
+  ni prompts, ni comandos, ni rutas, ni nombres de modelos o cuentas ajenas, ni la identidad de otra
+  cuenta.
+- Tampoco va menos: todo uso de una cuenta corporativa, incluidos los subagentes enrutados desde
+  otras cuentas, llega a su receptor. Sus políticas se aplican mientras esa cuenta esté en uso.
+- Cada cuenta del arnés pertenece a su titular y se usa según los términos de su plan. Tener varias
+  cuentas en el mismo arnés es para la misma persona con identidades distintas (trabajo y personal,
+  o varios clientes), no para compartir suscripciones entre personas.
+- Nuestro receptor es local por defecto. El texto de los prompts solo se guarda si se activa en ese
+  receptor.
 
-- **Cardinalidad** en el propio (modelo × cuenta × sesión): se acepta en local; en Datadog,
-  `session.id` sigue la configuración de IT.
-- **Desajuste de esquema** con Claude Code oficial: lo cubre la captura de referencia de la fase 0.
-- **Coste fantasma**: `calculateUSDCost` en cuentas sin precio da 0; en el propio se marca
-  `cost_known=false` para no confundir 0 con gratis.
-- **Rendimiento**: el `add()` dual llama a `resolveTelemetryCtx` en cada punto; es O(1) y lee
-  AsyncLocalStorage. Medir con `bun run dev` en una sesión larga.
-- **Upstream**: si se sincroniza con Claude Code oficial, `instrumentation.ts` puede chocar. Mantener
-  el código nuevo en ficheros nuevos y dejar `instrumentation.ts` como un despachador fino.
+## 10. Riesgos
 
-## 9. Decisiones abiertas
+- **Superficie de credenciales**: N carpetas con tokens OAuth. Todas en 0600, con refresco aislado
+  por cerrojo; `fn doctor` (o `/account doctor`) comprueba permisos.
+- **Fuga de identidad entre cuentas** (correo de una en el receptor de otra): lo cubren el test de
+  identidad por cuenta y el e2e.
+- **Políticas combinadas** demasiado restrictivas en sesiones mixtas: se acepta (D7). `/account`
+  dice qué cuenta impone cada restricción.
+- **Desajuste de esquema** con Claude Code oficial: captura de la fase 0.
+- **Cardinalidad** en `enriched`: se acepta en local.
+- **Upstream**: el código nuevo va en ficheros nuevos (`context.ts`, `sinks.ts`,
+  `anthropicAccounts.ts`); `instrumentation.ts` y `auth.ts` quedan como despachadores finos.
+
+## 11. Decisiones abiertas
 
 | Id | Pregunta | Opción por defecto propuesta |
 |---|---|---|
-| D1 | Qué cuentas van al corporativo | Solo `claude` (`corpAccounts=["claude"]`, configurable) |
-| D2 | Métricas de sesión en el corporativo | Si la sesión es `claude` o ha tocado `claude` alguna vez |
-| D3 | Dónde vive la configuración propia | `env` del `settings.json` de usuario del perfil (`~/.fnharness-work/settings.json`) |
-| D4 | Backend propio | `otel_sink` local con SQLite, sumando `llm_usage`; alternativa: backend ya existente en el VPS |
-| D5 | Prompts en el propio | Apagado por defecto (`FNHARNESS_OTEL_LOG_USER_PROMPTS=0`) |
-| D6 | Trazas (`OTEL_TRACES_EXPORTER`, `sessionTracing.ts`) | Fuera de alcance en esta versión |
+| D1 | Qué cuentas van a cada receptor corporativo | Solo la cuenta dueña de esas `remote-settings` |
+| D2 | Métricas de sesión | A los receptores de todas las cuentas que la sesión ha usado |
+| D3 | Dónde se configuran los receptores propios | `<config>/telemetry.json` (0600) con `/telemetry` |
+| D4 | Nuestro receptor | `otel_sink` local con SQLite, sumando `llm_usage`; alternativa: backend existente en el VPS |
+| D5 | Prompts en el receptor propio | Apagado por defecto, activable por receptor |
+| D6 | Trazas (`sessionTracing.ts`) | Fuera de alcance en esta versión |
+| D7 | Políticas corporativas en sesiones mixtas | Lo más restrictivo de todas las cuentas usadas en la sesión |
+| D8 | ¿Se unifican `~/.fnharness` y `~/.fnharness-work`? | Sí, con `/account import`, pero sin borrar los directorios viejos hasta validarlo |
