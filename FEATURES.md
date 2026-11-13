@@ -123,10 +123,14 @@ externalized `@ant/*` packages.
   log (no live takeover); a headless run cannot answer permission prompts, so it
   needs a permission mode that pre-approves its tools; no `respawn` or agent
   live view yet. Code: `src/cli/bgCore.ts` (pure) and `src/cli/bg.ts` (effects).
-  **Agents view**: `←` on an empty prompt opens `BgSessionsDialog`
-  (`src/components/tasks/BgSessionsDialog.tsx`), a list of every background
-  session refreshed every 1.5 s; `Enter` shows the tail of its log, `x` stops a
-  running one, `←`/`Esc` closes. Rebind with the `chat:agentsView` action.
+  **Session switcher**: `←` on an empty prompt (or `ctrl+x ctrl+w`, any prompt)
+  opens `SessionSwitcher` (`src/components/sessions/`), every session on the
+  machine (fnharness and Claude Code registries, bg, Element rooms in tmux,
+  kitty windows) grouped by state and refreshed every 1.5 s; typing filters,
+  `Enter` jumps (focus the kitty window, attach the tmux), `→` opens the detail
+  (resume or fork here, message, stop a bg), `←`/`Esc` closes. `/sesiones
+  [--json] [--todas]` prints the same list. Rebind with `chat:agentsView` and
+  `chat:sessionSwitcher`.
 
 - `UDS_INBOX` (on by default)
   Sessions on the same machine talk to each other. Each session listens on a

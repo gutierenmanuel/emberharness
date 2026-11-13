@@ -4,6 +4,7 @@
 
 ### Novedades
 
+- selector de sesiones de toda la máquina: `←` con el prompt vacío (o `ctrl+x ctrl+w`) abre una lista agrupada por estado de las sesiones de fnharness y de Claude Code, las bg, las salas de Element sobre tmux y las ventanas de kitty, con filtro por palabras; `Enter` salta (enfoca kitty o adjunta tmux), `→` abre el detalle con reanudar o bifurcar aquí, enviar mensaje y parar; nuevo comando `/sesiones [--json] [--todas]`; el lanzador acepta `--chdir` en el reinicio y `BgSessionsDialog` desaparece
 - perfiles de contexto: `/perfil` y `--perfil <nombre>` agrupan system prompt, herramientas y contexto (CLAUDE.md, memoria, hooks, MCP, skills) en un nombre, con cuenta y modelo opcionales; de fábrica `full`, `simple` y `minimo` (modelos locales de 16k), los tuyos en `<config>/profiles/<nombre>.json`; todo se aplica en caliente salvo cambiar `bare` o reactivar los hooks, que reinicia la sesión a través del lanzador; `/perfil nuevo <nombre>` guarda la sesión actual como perfil y la barra de estado muestra el perfil activo (`nombre*` si se tocó el scope)
 - la lista de to-dos (`TaskCreate`/`TaskList`) es por proyecto: el lanzador fija `CLAUDE_CODE_TASK_LIST_ID` desde el repo git principal del directorio de arranque (sus worktrees comparten lista) y sobrevive al cerrar la sesión; fuera de git o con `FNHARNESS_TASK_LIST_PER_SESSION=1` sigue siendo por sesión
 - cuentas, claves (`keyRef`), presets de proveedor, modelos Claude y tarifas salen de `accounts.json`, `providers.json` y `claude-models.json`, con recarga en caliente
