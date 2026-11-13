@@ -5,6 +5,7 @@
 #   fnharness --resume <session_id>    retoma una sesión
 #   fnharness --account llamacpp       arranca con una cuenta concreta (no se guarda)
 #   fnharness --account ollama --model qwen3:8b -p "resume este repo"
+#   fnharness --perfil minimo          arranca con un perfil de contexto (full, simple, minimo o uno propio en profiles/)
 #   fnharness --accounts               lista las cuentas, la predeterminada y la última usada
 #   fnharness --set-default qwen36 [modelo]   fija la cuenta (y modelo) con la que abre; "last" = volver a la última usada
 #
@@ -34,11 +35,15 @@ fi
 
 # --account se acepta en cualquier posición: el lanzador de las terminales de Matrix lo
 # añade detrás de --dangerously-skip-permissions, --session-id, etc., y el CLI no lo conoce.
+# --perfil se acepta igual y se reenvía al CLI (el lanzador lo recuerda para relanzarlo).
+perfil_arg=""
 rest=()
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --account)   export CLAUDE_MULTIMODEL_ACCOUNT="${2:?--account requiere valor}"; shift 2 ;;
     --account=*) export CLAUDE_MULTIMODEL_ACCOUNT="${1#--account=}"; shift ;;
+    --perfil)    perfil_arg="${2:?--perfil requiere valor}"; shift 2 ;;
+    --perfil=*)  perfil_arg="${1#--perfil=}"; shift ;;
     *)           rest+=("$1"); shift ;;
   esac
 done
@@ -102,7 +107,7 @@ while [[ $# -gt 0 ]]; do
       chmod 600 "$tmp" && mv "$tmp" "$accounts_file"
       echo "$msg"
       exit 0 ;;
-    -h|--help)     sed -n '2,12p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    -h|--help)     sed -n '2,13p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; exit 0 ;;
     *) break ;;
   esac
 done
@@ -133,4 +138,58 @@ if [[ "${FNHARNESS_NO_BYPASS:-}" != 1 ]]; then
   [[ " $* " == *" --permission-mode "* || " $* " == *" --permission-mode="* ]] ||
     extra+=(--permission-mode bypassPermissions)
 fi
-exec "$cli" "${extra[@]}" "$@"
+
+# Con -p, o con FNHARNESS_NO_RESTART=1, el CLI sustituye al lanzador (sin bucle ni señales de por medio).
+if [[ " $* " == *" -p "* || " $* " == *" --print "* || "${FNHARNESS_NO_RESTART:-}" == 1 ]]; then
+  [[ -n "$perfil_arg" ]] && extra+=(--perfil "$perfil_arg")
+  exec "$cli" "${extra[@]}" "$@"
+fi
+
+# Bucle de reinicio: /perfil escribe $CLAUDE_CONFIG_DIR/restart/<pid del lanzador>.args (un argumento
+# por línea) y sale con 75 cuando el perfil pedido no se puede aplicar en caliente (bare, hooks
+# apagados → encendidos). Con ese código y ese fichero se relanza el CLI con esos argumentos
+# (--resume <sesión> --perfil <x> [--account <c> --model <m>]); cualquier otra salida termina aquí.
+export FNHARNESS_LAUNCHER_PID=$$
+restart_file="$CLAUDE_CONFIG_DIR/restart/$$.args"
+child=0
+# Las señales dirigidas al lanzador (p. ej. un SIGTERM de la terminal) llegan al CLI.
+trap '[[ "$child" -gt 0 ]] && kill -TERM "$child" 2>/dev/null' TERM
+trap '[[ "$child" -gt 0 ]] && kill -HUP "$child" 2>/dev/null' HUP
+# Ctrl+C ya llega al CLI por el grupo de procesos de la terminal; el lanzador solo debe sobrevivirlo
+# (un manejador, no ignorarla: lo ignorado se hereda y el CLI dejaría de oír SIGINT).
+trap ':' INT
+while true; do
+  args=("${extra[@]}")
+  [[ -n "$perfil_arg" ]] && args+=(--perfil "$perfil_arg")
+  args+=("$@")
+  rm -f "$restart_file"
+  # Sin control de trabajos un proceso en segundo plano pierde la entrada estándar: <&0 la conserva.
+  "$cli" "${args[@]}" <&0 &
+  child=$!
+  # Un trap interrumpe wait: se repite hasta que el hijo termina de verdad.
+  rc=0
+  while :; do
+    wait "$child" && rc=0 || rc=$?
+    kill -0 "$child" 2>/dev/null || break
+  done
+  child=0
+  if [[ "$rc" -eq 75 && -f "$restart_file" ]]; then
+    mapfile -t restart_args < "$restart_file"
+    rm -f "$restart_file"
+    # Los argumentos del reinicio sustituyen a los de la sesión; --account, --model y --perfil
+    # se reaplican como al arrancar.
+    set --
+    i=0
+    while [[ $i -lt ${#restart_args[@]} ]]; do
+      case "${restart_args[$i]}" in
+        --account) export CLAUDE_MULTIMODEL_ACCOUNT="${restart_args[$((i + 1))]}"; i=$((i + 2)) ;;
+        --model)   export CLAUDE_MULTIMODEL_MODEL="${restart_args[$((i + 1))]}"; i=$((i + 2)) ;;
+        --perfil)  perfil_arg="${restart_args[$((i + 1))]}"; i=$((i + 2)) ;;
+        *)         set -- "$@" "${restart_args[$i]}"; i=$((i + 1)) ;;
+      esac
+    done
+    continue
+  fi
+  rm -f "$restart_file"
+  exit "$rc"
+done
