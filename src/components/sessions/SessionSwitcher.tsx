@@ -30,6 +30,21 @@ function statusColor(status: RowStatus): 'success' | 'error' | 'warning' | undef
   return undefined;
 }
 
+const NAMED_KEYS = new Set(['left', 'right', 'up', 'down', 'return', 'enter', 'escape', 'backspace', 'delete', 'tab', 'home', 'end', 'pageup', 'pagedown', 'insert', 'space', 'clear', 'f1', 'f2', 'f3', 'f4', 'f5', 'f6', 'f7', 'f8', 'f9', 'f10', 'f11', 'f12']);
+
+/**
+ * Texto que aporta una tecla: un carácter suelto o, si llegan varios de golpe (pegado,
+ * o escritura muy rápida), la cadena entera. Las teclas con nombre y las combinaciones
+ * con ctrl/meta no aportan texto.
+ */
+function typedText(e: KeyboardEvent): string | undefined {
+  if (e.ctrl || e.meta || e.superKey) return undefined;
+  if (e.key.length === 1) return e.key;
+  if (NAMED_KEYS.has(e.key)) return undefined;
+  const text = e.key.replace(/[\r\n\t]+/g, ' ');
+  return /[\x00-\x1f]/.test(text) ? undefined : text;
+}
+
 /** Ventana de `size` entradas que contiene el índice `focus`. */
 function windowOf(total: number, focus: number, size: number): [number, number] {
   if (total <= size) return [0, total];
@@ -137,9 +152,11 @@ export function SessionSwitcher({ onDone }: Props): React.ReactNode {
     } else if (e.key === 'backspace' || e.key === 'delete') {
       e.preventDefault();
       setQuery(q => q.slice(0, -1));
-    } else if (e.key.length === 1 && !e.ctrl && !e.meta) {
+    } else {
+      const text = typedText(e);
+      if (text === undefined) return;
       e.preventDefault();
-      setQuery(q => q + e.key);
+      setQuery(q => q + text);
     }
   };
 
@@ -150,7 +167,10 @@ export function SessionSwitcher({ onDone }: Props): React.ReactNode {
       if (e.key === 'escape') setComposing(undefined);
       else if (e.key === 'return') void exec(detailRow, 'send-message', composing);
       else if (e.key === 'backspace' || e.key === 'delete') setComposing(c => (c ?? '').slice(0, -1));
-      else if (e.key.length === 1 && !e.ctrl && !e.meta) setComposing(c => (c ?? '') + e.key);
+      else {
+        const text = typedText(e);
+        if (text !== undefined) setComposing(c => (c ?? '') + text);
+      }
       return;
     }
     if (e.key === 'left' || e.key === 'escape') {
