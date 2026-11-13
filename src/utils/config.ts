@@ -1686,8 +1686,18 @@ export function saveCurrentProjectConfig(
     Object.assign(TEST_PROJECT_CONFIG_FOR_TESTING, config)
     return
   }
-  const absolutePath = getProjectPathForConfig()
+  saveProjectConfigAt(getProjectPathForConfig(), updater)
+}
 
+/**
+ * Same write as saveCurrentProjectConfig, but for an explicit project key
+ * (a normalized absolute path) instead of the git root of the session.
+ * Used by --trust-workdir to trust exactly one folder.
+ */
+export function saveProjectConfigAt(
+  absolutePath: string,
+  updater: (currentConfig: ProjectConfig) => ProjectConfig,
+): void {
   let written: GlobalConfig | null = null
   try {
     const didWrite = saveConfigWithLock(

@@ -17,6 +17,9 @@ eventos solo cubrían lo que el transcript no registra. En v2 el evento `entry` 
 entrada del transcript principal, de modo que el puente no necesita localizar ni sondear el fichero JSONL
 (que cambia de nombre con `/clear` o `/resume`): el fichero de eventos es uno por proceso y no cambia.
 
+Una sala sin nadie delante tampoco debe quedarse esperando en el diálogo de confianza de la carpeta: el
+lanzador pasa siempre `--trust-workdir <workdir>` (contrato en `docs/trust_workdir.md`).
+
 Todo es opcional y está apagado por defecto: sin las variables de entorno de abajo, fnharness no escribe
 ni lee nada extra y se comporta exactamente igual que antes.
 
