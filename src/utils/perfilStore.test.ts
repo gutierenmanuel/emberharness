@@ -7,6 +7,8 @@ import {
   applyPerfilEnv,
   createPerfilFrom,
   getPerfil,
+  getSimpleModeExtraTools,
+  syncSimpleModeExtraTools,
   listPerfiles,
   loadPerfilState,
   perfilNameFromArgv,
@@ -113,5 +115,17 @@ describe('applyPerfilEnv', () => {
     applyPerfilEnv(full, env)
     expect(env.CLAUDE_CODE_DISABLE_AUTO_MEMORY).toBe('0')
     expect(env.FNHARNESS_PERFIL_NO_HOOKS).toBeUndefined()
+  })
+})
+
+describe('herramientas extra del modo bare', () => {
+  test('solo un perfil bare con lista las pide; cualquier otro las limpia', () => {
+    const env = sandbox()
+    syncSimpleModeExtraTools(getPerfil('minimo', env)!.perfil)
+    expect([...getSimpleModeExtraTools()].sort()).toEqual(['Edit', 'Glob', 'Read', 'Write'])
+    syncSimpleModeExtraTools(getPerfil('simple', env)!.perfil)
+    expect(getSimpleModeExtraTools().size).toBe(0)
+    syncSimpleModeExtraTools(undefined)
+    expect(getSimpleModeExtraTools().size).toBe(0)
   })
 })

@@ -136,6 +136,7 @@ const WorkflowTool = feature('WORKFLOW_SCRIPTS')
 /* eslint-enable custom-rules/no-process-env-top-level, @typescript-eslint/no-require-imports */
 import type { ToolPermissionContext } from './Tool.js'
 import { getDenyRuleForTool } from './utils/permissions/permissions.js'
+import { getSimpleModeExtraTools } from './utils/perfilStore.js'
 import { hasEmbeddedSearchTools } from './utils/embeddedTools.js'
 import { isEnvTruthy } from './utils/envUtils.js'
 import { isPowerShellToolEnabled } from './utils/shell/shellToolUtils.js'
@@ -286,6 +287,13 @@ export const getTools = (permissionContext: ToolPermissionContext): Tools => {
       return filterToolsByDenyRules(replSimple, permissionContext)
     }
     const simpleTools: Tool[] = [BashTool, FileReadTool, FileEditTool]
+    // FnHarness: un perfil bare con lista de herramientas (/perfil, --perfil) pide además las que nombra.
+    const extra = getSimpleModeExtraTools()
+    if (extra.size > 0) {
+      for (const t of getAllBaseTools()) {
+        if (extra.has(t.name) && !simpleTools.includes(t) && t.isEnabled()) simpleTools.push(t)
+      }
+    }
     // When coordinator mode is also active, include AgentTool and TaskStopTool
     // so the coordinator gets Task+TaskStop (via useMergedTools filtering) and
     // workers get Bash/Read/Edit (via filterToolsForAgent filtering).

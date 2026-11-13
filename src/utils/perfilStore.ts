@@ -232,6 +232,19 @@ export function applyPerfilEnv(p: Perfil, env: Env = process.env): void {
 
 let bootPerfilState: ActivePerfil | undefined
 
+// El modo bare (CLAUDE_CODE_SIMPLE) solo ofrece Bash, Read y Edit. Un perfil bare con una lista de
+// herramientas pide además las que nombra (p. ej. Write y Glob en `minimo`): tools.ts las suma.
+let simpleModeExtraTools: ReadonlySet<string> = new Set()
+
+/** Herramientas extra que el modo bare debe ofrecer según el perfil activo. */
+export function getSimpleModeExtraTools(): ReadonlySet<string> {
+  return simpleModeExtraTools
+}
+
+export function syncSimpleModeExtraTools(p: Perfil | undefined): void {
+  simpleModeExtraTools = new Set(p && p.context.bare && p.tools !== 'default' ? p.tools : [])
+}
+
 /**
  * Se llama una vez al arrancar (cli.tsx), antes de que nada lea el entorno: resuelve el
  * perfil, aplica su entorno (incluido bare) y, si el perfil trae cuenta o modelo y la
@@ -244,6 +257,7 @@ export function bootPerfil(argv: readonly string[], env: Env = process.env): str
   if (r.kind === 'none') return undefined
   const p = r.perfil
   bootPerfilState = { name: p.name, def: p, modified: false, source: r.source }
+  syncSimpleModeExtraTools(p)
   applyPerfilEnv(p, env)
   if (p.context.bare) env.CLAUDE_CODE_SIMPLE = '1'
   if (p.account && !env.CLAUDE_MULTIMODEL_ACCOUNT) {

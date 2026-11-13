@@ -7,7 +7,7 @@ import { clearSystemPromptSections } from '../constants/systemPromptSections.js'
 import { getUserContext } from '../context.js'
 import type { AppState } from '../state/AppStateStore.js'
 import { toScope, type Perfil } from './perfil.js'
-import { applyPerfilEnv } from './perfilStore.js'
+import { applyPerfilEnv, syncSimpleModeExtraTools } from './perfilStore.js'
 
 type SetAppState = (f: (prev: AppState) => AppState) => void
 
@@ -19,6 +19,7 @@ type SetAppState = (f: (prev: AppState) => AppState) => void
  */
 export function applyPerfilToSession(setAppState: SetAppState, p: Perfil): void {
   applyPerfilEnv(p)
+  syncSimpleModeExtraTools(p)
   setAppState(prev => ({
     ...prev,
     contextProfile: toScope(p),
