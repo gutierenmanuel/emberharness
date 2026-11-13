@@ -7,7 +7,7 @@
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
 import { mkdirSync, writeFileSync } from 'fs'
 import { join } from 'path'
-import { CLI, fakeEnv, hasCli, makeSandbox, startFakeOpenAI } from './harness.js'
+import { APP_DIR, CLI, fakeEnv, hasCli, makeSandbox, startFakeOpenAI } from './harness.js'
 
 const MINIMO_PROMPT =
   'Eres un agente que trabaja en el directorio actual. Para crear o cambiar ficheros llama SIEMPRE a la herramienta Write o Edit con ruta absoluta; nunca pegues el código en el chat. Responde en español, breve. Directorio actual: '
@@ -90,5 +90,90 @@ describe.skipIf(!hasCli)('--perfil', () => {
     expect(r.code).toBe(1)
     expect(r.err).toContain('Perfil desconocido "nada". Disponibles: full, simple, minimo')
     expect(fake.requests).toHaveLength(0)
+  }, 70_000)
+})
+
+/**
+ * La cuenta del perfil se aplica al arrancar con bin/fnharness. Precedencia:
+ * --account explícito > cuenta del perfil > predeterminada. Una cuenta heredada de una sesión
+ * fnharness padre (CLAUDE_MULTIMODEL_ACCOUNT y FNHARNESS_ACCOUNT iguales, sin --account) no es una
+ * elección: es lo que hace `fnh` desde un shell abierto dentro de otra sesión.
+ */
+describe.skipIf(!hasCli)('--perfil con cuenta', () => {
+  let a: ReturnType<typeof startFakeOpenAI>
+  let b: ReturnType<typeof startFakeOpenAI>
+  beforeAll(() => {
+    a = startFakeOpenAI('respuesta-del-perfil')
+    b = startFakeOpenAI('respuesta-otra-cuenta')
+  })
+  afterAll(() => {
+    a.stop()
+    b.stop()
+  })
+
+  async function launch(args: string[], extraEnv: Record<string, string> = {}) {
+    const { configDir, cwd } = makeSandbox()
+    writeFileSync(
+      join(configDir, 'accounts.json'),
+      JSON.stringify({
+        accounts: {
+          delperfil: { provider: 'custom', baseUrl: a.baseUrl, model: 'fake-model' },
+          otra: { provider: 'custom', baseUrl: b.baseUrl, model: 'fake-model' },
+        },
+      }),
+    )
+    mkdirSync(join(configDir, 'profiles'))
+    writeFileSync(join(configDir, 'profiles', 'conc.json'), JSON.stringify({ account: 'delperfil' }))
+    const env = { ...fakeEnv(a.baseUrl, configDir) } as Record<string, string | undefined>
+    for (const k of [
+      'CLAUDE_MULTIMODEL_PROVIDER',
+      'CLAUDE_MULTIMODEL_BASE_URL',
+      'CLAUDE_MULTIMODEL_MODEL',
+      'CLAUDE_MULTIMODEL_ACCOUNT',
+      'FNHARNESS_ACCOUNT',
+      'FNHARNESS_ACCOUNT_FLAG',
+    ]) delete env[k]
+    Object.assign(env, extraEnv)
+    const proc = Bun.spawn([join(APP_DIR, 'bin', 'fnharness'), ...args], {
+      cwd,
+      env,
+      stdin: 'ignore',
+      stdout: 'pipe',
+      stderr: 'pipe',
+      timeout: 60_000,
+    })
+    const [out, err] = await Promise.all([new Response(proc.stdout).text(), new Response(proc.stderr).text()])
+    return { out, err, code: await proc.exited }
+  }
+
+  test('sin --account, el perfil elige la cuenta', async () => {
+    const r = await launch(['--perfil', 'conc', '-p', 'di hola'])
+    expect(r.out).toContain('respuesta-del-perfil')
+  }, 70_000)
+
+  test('--account explícito gana al perfil', async () => {
+    const r = await launch(['--perfil', 'conc', '--account', 'otra', '-p', 'di hola'])
+    expect(r.out).toContain('respuesta-otra-cuenta')
+  }, 70_000)
+
+  test('la cuenta heredada de una sesión padre no gana al perfil', async () => {
+    const r = await launch(['--perfil', 'conc', '-p', 'di hola'], {
+      CLAUDE_MULTIMODEL_ACCOUNT: 'otra',
+      FNHARNESS_ACCOUNT: 'otra',
+    })
+    expect(r.out).toContain('respuesta-del-perfil')
+  }, 70_000)
+
+  test('--account explícito gana al perfil aunque coincida con la heredada', async () => {
+    const r = await launch(['--account', 'otra', '--perfil', 'conc', '-p', 'di hola'], {
+      CLAUDE_MULTIMODEL_ACCOUNT: 'otra',
+      FNHARNESS_ACCOUNT: 'otra',
+    })
+    expect(r.out).toContain('respuesta-otra-cuenta')
+  }, 70_000)
+
+  test('una variable puesta a mano gana al perfil', async () => {
+    const r = await launch(['--perfil', 'conc', '-p', 'di hola'], { CLAUDE_MULTIMODEL_ACCOUNT: 'otra' })
+    expect(r.out).toContain('respuesta-otra-cuenta')
   }, 70_000)
 })
