@@ -198,7 +198,8 @@ export function mergeSessions(input: DirectoryInput): SessionRow[] {
         : {}),
       ...(rec.account ? { account: rec.account } : {}),
       ...(rec.model ? { model: rec.model } : {}),
-      lastActivity: maxTime(rec.updatedAt, rec.startedAt, tr?.lastModified, parseTime(conv?.lastActivity)),
+      lastActivity:
+        maxTime(rec.updatedAt, tr?.lastModified, parseTime(conv?.lastActivity)) || (rec.startedAt ?? 0),
       pid,
       ...(sid ? { sessionId: sid } : {}),
       ...(rec.messagingSocketPath ? { socket: rec.messagingSocketPath } : {}),

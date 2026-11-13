@@ -345,7 +345,7 @@ describe('self, orden y descartes', () => {
     ])
   })
 
-  test('título: transcript, primer prompt, nombre del registro y por último pid', () => {
+  test('título: transcript, primer prompt, nombre del registro y por último el directorio', () => {
     const rows = mergeSessions(
       input({
         registry: [
@@ -361,7 +361,7 @@ describe('self, orden y descartes', () => {
       }),
     )
     expect(rows.map(r => [r.key, r.title]).sort()).toEqual([
-      ['t1', 'titulo'], ['t2', 'prompt'], ['t3', 'nombre'], ['t4', 'pid 4'],
+      ['t1', 'titulo'], ['t2', 'prompt'], ['t3', 'nombre'], ['t4', 'fn_registry'],
     ])
   })
 
