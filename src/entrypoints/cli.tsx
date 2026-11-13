@@ -1,8 +1,17 @@
 import { feature } from 'bun:bundle';
 import { applyMultimodelEnv } from '../services/api/openai-compat/profiles.js';
+import { bootPerfil } from '../utils/perfilStore.js';
 import { refreshCatalogInBackground } from '../services/api/openai-compat/catalogStore.js';
 import { primeConnectedSummary } from '../hooks/useConnectedSummary.js';
 
+// Perfil de contexto (--perfil, FNHARNESS_PROFILE, por defecto o el último): fija su entorno y,
+// si trae cuenta, la cuenta de arranque. Antes de applyMultimodelEnv y de cualquier lectura de bare.
+// eslint-disable-next-line custom-rules/no-top-level-side-effects
+const perfilError = bootPerfil(process.argv.slice(2));
+if (perfilError) {
+  process.stderr.write(`fnharness: ${perfilError}\n`);
+  process.exit(1);
+}
 // Must run before any module reads model/auth env vars.
 // eslint-disable-next-line custom-rules/no-top-level-side-effects
 applyMultimodelEnv();

@@ -195,7 +195,9 @@ import { createDirectConnectSession, DirectConnectError } from './server/createD
 import { initializeLspServerManager } from './services/lsp/manager.js';
 import { shouldEnablePromptSuggestion } from './services/PromptSuggestion/promptSuggestion.js';
 import { type AppState, getDefaultAppState, IDLE_SPECULATION_STATE } from './state/AppStateStore.js';
-import { resolveInitialContextProfile } from './utils/contextProfileStore.js';
+import { initialPerfilState } from './utils/perfilInitial.js';
+import { effectiveSystemPrompts } from './utils/perfil.js';
+import { getBootPerfil } from './utils/perfilStore.js';
 import { onChangeAppState } from './state/onChangeAppState.js';
 import { createStore } from './state/store.js';
 import { asSessionId } from './types/ids.js';
@@ -1018,7 +1020,7 @@ async function run(): Promise<CommanderCommand> {
   // `mcp` and `add` as paths, then choked on --transport as an unknown
   // top-level option. Single-value + collect accumulator means each
   // --plugin-dir takes exactly one arg; repeat the flag for multiple dirs.
-  .option('--plugin-dir <path>', 'Load plugins from a directory for this session only (repeatable: --plugin-dir A --plugin-dir B)', (val: string, prev: string[]) => [...prev, val], [] as string[]).option('--disable-slash-commands', 'Disable all skills', () => true).option('--chrome', 'Enable Claude in Chrome integration').option('--no-chrome', 'Disable Claude in Chrome integration').option('--file <specs...>', 'File resources to download at startup. Format: file_id:relative_path (e.g., --file file_abc:doc.txt file_def:img.png)').action(async (prompt, options) => {
+  .option('--plugin-dir <path>', 'Load plugins from a directory for this session only (repeatable: --plugin-dir A --plugin-dir B)', (val: string, prev: string[]) => [...prev, val], [] as string[]).option('--disable-slash-commands', 'Disable all skills', () => true).option('--perfil <name>', 'Context profile: system prompt, tools and context (CLAUDE.md, memory, hooks, MCP, skills) as one named preset. Built-in: full, simple, minimo; yours live in <config dir>/profiles/<name>.json. Switch live with /perfil.').option('--chrome', 'Enable Claude in Chrome integration').option('--no-chrome', 'Disable Claude in Chrome integration').option('--file <specs...>', 'File resources to download at startup. Format: file_id:relative_path (e.g., --file file_abc:doc.txt file_def:img.png)').action(async (prompt, options) => {
     profileCheckpoint('action_handler_start');
 
     // --bare = one-switch minimal mode. Sets SIMPLE so all the existing
@@ -1422,6 +1424,29 @@ async function run(): Promise<CommanderCommand> {
     if (isAgentSwarmsEnabled() && storedTeammateOpts?.agentId && storedTeammateOpts?.agentName && storedTeammateOpts?.teamName) {
       const addendum = getTeammatePromptAddendum().TEAMMATE_SYSTEM_PROMPT_ADDENDUM;
       appendSystemPrompt = appendSystemPrompt ? `${appendSystemPrompt}\n\n${addendum}` : addendum;
+    }
+
+    // FnHarness: perfil de contexto. En modo interactivo el REPL lee el system prompt del perfil
+    // de la sesión en cada turno (así /perfil lo cambia en caliente); en -p no hay REPL, así que
+    // se aplica aquí. Un --system-prompt explícito gana al del perfil.
+    {
+      const bootPerfil = getBootPerfil();
+      if (bootPerfil) {
+        if (isNonInteractiveSession) {
+          const eff = effectiveSystemPrompts({
+            customSystemPrompt: systemPrompt,
+            appendSystemPrompt
+          }, bootPerfil.def, {
+            cwd: getCwd()
+          });
+          systemPrompt = eff.customSystemPrompt;
+          appendSystemPrompt = eff.appendSystemPrompt;
+        }
+        // El modelo de un perfil solo vale con la cuenta claude; en las demás va por CLAUDE_MULTIMODEL_MODEL.
+        if (bootPerfil.def.model && bootPerfil.def.account === 'claude' && !options.model) {
+          options.model = bootPerfil.def.model;
+        }
+      }
     }
     const {
       mode: permissionMode,
@@ -3039,7 +3064,7 @@ async function run(): Promise<CommanderCommand> {
       },
       attribution: createEmptyAttributionState(),
       thinkingEnabled,
-      contextProfile: resolveInitialContextProfile(),
+      ...initialPerfilState(),
       promptSuggestionEnabled: shouldEnablePromptSuggestion(),
       sessionHooks: new Map(),
       inbox: {

@@ -59,7 +59,9 @@ export function resolveInitialContextProfile(env: Env = process.env): ContextPro
   return forced ?? loadContextProfileForAccount(currentAccountId(env), env)
 }
 
-export function saveContextProfileForAccount(id: string, profile: ContextProfile, env: Env = process.env): void {
+export function saveContextProfileForAccount(id: string, full: ContextProfile, env: Env = process.env): void {
+  // Solo los tres ejes: las listas (toolNames, mcpServers) son de un perfil, no de la cuenta.
+  const profile: ContextProfile = { mcp: full.mcp, skill: full.skill, tools: full.tools }
   try {
     if (id === CLAUDE_ACCOUNT_ID) {
       saveGlobalConfig(c => ({ ...c, contextProfile: { ...profile } }))
@@ -86,7 +88,12 @@ export function applyContextProfile(
   profile: ContextProfile,
   env: Env = process.env,
 ): void {
-  setAppState(prev => ({ ...prev, contextProfile: profile }))
+  // Tocar el scope a mano deja el perfil activo marcado como modificado.
+  setAppState(prev => ({
+    ...prev,
+    contextProfile: profile,
+    perfil: prev.perfil ? { ...prev.perfil, modified: true } : prev.perfil,
+  }))
   // Cached prompt sections (tool guidance, skills) depend on the tool set.
   clearSystemPromptSections()
   saveContextProfileForAccount(currentAccountId(env), profile, env)

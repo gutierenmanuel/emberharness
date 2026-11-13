@@ -34,6 +34,7 @@ fnharness --resume <session_id>    # retomar sesión
 fnharness --account llamacpp       # arrancar con una cuenta concreta (no se guarda)
 fnharness --account ollama --model qwen3:8b -p "..."
 fnharness --accounts               # cuentas disponibles
+fnharness --perfil minimo          # perfil de contexto (full, simple, minimo o uno propio)
 ```
 
 ## /account
@@ -49,10 +50,21 @@ fnharness --accounts               # cuentas disponibles
 
 La cuenta `claude` usa la API nativa de Anthropic; el login es propio de fnharness (`/login` la primera vez), no se comparte con `~/.claude`.
 
+## /perfil
+
+| Comando | Efecto |
+|---|---|
+| `/perfil` | selector con descripción y coste aproximado en tokens de cada perfil |
+| `/perfil <nombre>` | aplica el perfil (en caliente; con bare o hooks apagados → encendidos reinicia la sesión vía el lanzador) |
+| `/perfil nuevo <nombre>` | guarda lo que tiene la sesión como `<config>/profiles/<nombre>.json` y muestra la ruta |
+
+Un perfil agrupa system prompt, herramientas y contexto (CLAUDE.md, memoria, hooks, MCP, skills), más cuenta y modelo opcionales. Fábrica: `full`, `simple`, `minimo`. Detalle y formato: `docs/COMMANDS.md` sección 2.14.
+
 ## Piezas
 
 - `src/services/api/openai-compat/`: `profiles.ts` (presets y perfil activo), `accounts.ts` (almacén de cuentas), `translate.ts`, `stream.ts`, `adapter.ts`.
 - `src/commands/account/`: el comando `/account`.
+- `src/utils/perfil.ts` (modelo puro), `perfilStore.ts` (fábrica, usuario y estado), `perfilRuntime.ts` (aplicar en caliente), `perfilRestart.ts` y `src/commands/perfil/`: los perfiles de contexto.
 - `statusline.sh`: statusbar propio (copia adaptada del de Claude Code; sin sidecars de agentsadmin; muestra `[cuenta]`).
 - `docs/COMMANDS.md` y `docs/EDITING.md`: catálogo de comandos y guía para modificar el sistema.
 

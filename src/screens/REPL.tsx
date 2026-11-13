@@ -168,6 +168,8 @@ import { executeSessionEndHooks, getSessionEndHookTimeoutMs } from '../utils/hoo
 import { type IDESelection, useIdeSelection } from '../hooks/useIdeSelection.js';
 import { getTools, assembleToolPool } from '../tools.js';
 import { filterMcpClientsByProfile, filterToolsByProfile, scopeLookup } from '../utils/contextProfile.js';
+import { effectiveSystemPrompts } from '../utils/perfil.js';
+import { getCwd } from '../utils/cwd.js';
 import type { AgentDefinition } from '../tools/AgentTool/loadAgentsDir.js';
 import { resolveAgentTools } from '../tools/AgentTool/agentToolUtils.js';
 import { resumeAgentBackground } from '../tools/AgentTool/resumeAgent.js';
@@ -2420,6 +2422,14 @@ export function REPL({
     // FnHarness: the context profile is read once per turn so a change made
     // mid-turn (Ctrl+Tab, /scope) only applies from the next one.
     const contextProfile = s.contextProfile;
+    // FnHarness: el system prompt del perfil activo también se lee por turno (customSystemPrompt y
+    // appendSystemPrompt son props fijas; un flag de CLI explícito gana al perfil).
+    const perfilPrompts = effectiveSystemPrompts({
+      customSystemPrompt,
+      appendSystemPrompt
+    }, s.perfil?.def, {
+      cwd: getCwd()
+    });
     const computeTools = () => {
       const state = store.getState();
       const assembled = assembleToolPool(state.toolPermissionContext, state.mcp.tools);
@@ -2451,8 +2461,8 @@ export function REPL({
           ...s.agentDefinitions,
           allowedAgentTypes
         } : s.agentDefinitions,
-        customSystemPrompt,
-        appendSystemPrompt,
+        customSystemPrompt: perfilPrompts.customSystemPrompt,
+        appendSystemPrompt: perfilPrompts.appendSystemPrompt,
         refreshTools: computeTools
       },
       getAppState: () => store.getState(),
@@ -2554,12 +2564,18 @@ export function REPL({
     void (async () => {
       const toolUseContext = getToolUseContext(messagesRef.current, [], new AbortController(), mainLoopModel);
       const [defaultSystemPrompt, userContext, systemContext] = await Promise.all([getSystemPrompt(toolUseContext.options.tools, mainLoopModel, Array.from(toolPermissionContext.additionalWorkingDirectories.keys()), toolUseContext.options.mcpClients), getUserContext(), getSystemContext()]);
+      const perfilPrompts = effectiveSystemPrompts({
+        customSystemPrompt,
+        appendSystemPrompt
+      }, store.getState().perfil?.def, {
+        cwd: getCwd()
+      });
       const systemPrompt = buildEffectiveSystemPrompt({
         mainThreadAgentDefinition,
         toolUseContext,
-        customSystemPrompt,
+        customSystemPrompt: perfilPrompts.customSystemPrompt,
         defaultSystemPrompt,
-        appendSystemPrompt
+        appendSystemPrompt: perfilPrompts.appendSystemPrompt
       });
       toolUseContext.renderedSystemPrompt = systemPrompt;
       const notificationAttachments = await getQueuedCommandAttachments(removedNotifications).catch(() => []);
@@ -2800,12 +2816,18 @@ export function REPL({
       } : {})
     };
     queryCheckpoint('query_context_loading_end');
+    const perfilPrompts = effectiveSystemPrompts({
+      customSystemPrompt,
+      appendSystemPrompt
+    }, store.getState().perfil?.def, {
+        cwd: getCwd()
+      });
     const systemPrompt = buildEffectiveSystemPrompt({
       mainThreadAgentDefinition,
       toolUseContext,
-      customSystemPrompt,
+      customSystemPrompt: perfilPrompts.customSystemPrompt,
       defaultSystemPrompt,
-      appendSystemPrompt
+      appendSystemPrompt: perfilPrompts.appendSystemPrompt
     });
     toolUseContext.renderedSystemPrompt = systemPrompt;
     queryCheckpoint('query_query_start');
