@@ -240,6 +240,8 @@ async function collect(opts: SourceOptions): Promise<DirectoryInput> {
   ])
 
   // Fase 2: tmux (necesita los sockets de Element y de los registros), procesos y transcripts.
+  // El entorno de cada proceso se lee siempre, aunque el registro traiga `origin`: el
+  // fundidor usa CLAUDE_TERM_SESSION y KITTY_* de ahí, y leerlo cuesta microsegundos.
   const sockets = new Set<string>()
   for (const s of element.states) sockets.add(s.socket)
   for (const e of registry) if (e.record.origin?.tmuxSocket) sockets.add(e.record.origin.tmuxSocket)
@@ -255,7 +257,7 @@ async function collect(opts: SourceOptions): Promise<DirectoryInput> {
   ]
   const extraConfigDirs = element.states.flatMap(s => (s.configDir ? [s.configDir] : []))
   const [procs, transcripts] = await Promise.all([
-    guard(readProcs(startPids, new Set(registry.filter(e => e.record.origin !== undefined).map(e => e.record.pid))), ms, {}),
+    guard(readProcs(startPids), ms, {}),
     guard(readTranscripts(wanted, extraConfigDirs), ms, {}),
   ])
 
