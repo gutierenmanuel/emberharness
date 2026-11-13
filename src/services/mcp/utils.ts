@@ -1,4 +1,5 @@
 import { createHash } from 'crypto'
+import { isTrustWorkdirActive } from '../../utils/trustWorkdir.js'
 import { join } from 'path'
 import { getIsNonInteractiveSession } from '../../bootstrap/state.js'
 import type { Command } from '../../commands.js'
@@ -414,7 +415,7 @@ export function getProjectMcpServerStatus(
   // sessionBypassPermissionsMode can be set from project settings before the dialog is shown,
   // which would allow RCE attacks via malicious project settings.
   if (
-    hasSkipDangerousModePermissionPrompt() &&
+    (hasSkipDangerousModePermissionPrompt() || isTrustWorkdirActive()) &&
     isSettingSourceEnabled('projectSettings')
   ) {
     return 'approved'

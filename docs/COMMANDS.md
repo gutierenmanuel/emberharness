@@ -391,6 +391,7 @@ Permisos y herramientas:
 | `--permission-mode <acceptEdits\|bypassPermissions\|default\|dontAsk\|plan>` | Modo de permisos. |
 | `--dangerously-skip-permissions` | Salta todas las comprobaciones de permisos; solo en sandboxes sin Internet. |
 | `--allow-dangerously-skip-permissions` | Habilita la opción de saltar permisos sin activarla por defecto. |
+| `--trust-workdir <dir>` | Sesiones sin humano (salas de Matrix en tmux): confía en `<dir>` (debe ser el cwd) sin mostrar el diálogo de confianza y contesta «sí», solo en esa sesión, al aviso de bypass, a los `.mcp.json` pendientes y a los includes externos de `CLAUDE.md`. Solo flag, nunca variable de entorno. Ver `docs/trust_workdir.md`. |
 | `--allowedTools, --allowed-tools <tools...>` | Herramientas permitidas (ej. `"Bash(git:*) Edit"`). |
 | `--disallowedTools, --disallowed-tools <tools...>` | Herramientas denegadas. |
 | `--tools <tools...>` | Conjunto de herramientas incorporadas (`""` las desactiva, `default` todas). |
