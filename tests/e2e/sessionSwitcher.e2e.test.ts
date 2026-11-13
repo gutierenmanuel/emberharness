@@ -14,11 +14,12 @@
  */
 
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'fs'
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'fs'
 import { createServer, type Server } from 'net'
 import { tmpdir } from 'os'
 import { dirname, join } from 'path'
-import { CLI, hasCli, makeSandbox } from './harness.js'
+import { APP_DIR, CLI, findTranscript, hasCli, makeSandbox } from './harness.js'
+import { startTui, type Tui } from './tui.js'
 
 type Row = {
   key: string
@@ -52,6 +53,8 @@ function sse(model: string, delta: object, finish: string): string {
 }
 
 /** Backend OpenAI falso mínimo: la sesión headless solo necesita existir. */
+const backendRequests: string[] = []
+
 function fakeServer(model: string, reply: Sse) {
   const server = Bun.serve({
     port: 0,
@@ -60,6 +63,7 @@ function fakeServer(model: string, reply: Sse) {
       const url = new URL(req.url)
       if (url.pathname.endsWith('/models')) return Response.json({ object: 'list', data: [{ id: model, object: 'model' }] })
       if (!url.pathname.endsWith('/chat/completions')) return new Response('not found', { status: 404 })
+      backendRequests.push(await req.text())
       return new Response(sse(model, { content: reply.text }, 'stop'), { headers: { 'content-type': 'text/event-stream' } })
     },
   })
@@ -324,4 +328,287 @@ describe.skipIf(!hasCli)('sessionSwitcher e2e', () => {
     const r = await runCli('/sesiones --nada')
     expect(r.out).toContain('Uso: /sesiones')
   }, 60_000)
+})
+
+// ---------------------------------------------------------------------------------------------
+// El selector en la TUI real (pseudo-terminal) y los saltos. Nada de esto toca el display real:
+// kitty es el falso del PATH y tmux un servidor propio.
+// ---------------------------------------------------------------------------------------------
+
+const LEFT = '\x1b[D'
+const ESC = '\x1b'
+const CHORD_SWITCHER = '\x18\x17' // ctrl+x ctrl+w
+const LAUNCHER = join(APP_DIR, 'bin', 'fnharness')
+
+/** Espera a que aparezca `re` en lo impreso DESPUÉS de `mark` (la TUI repinta, el buffer es acumulado). */
+async function waitSince(tui: Tui, mark: number, re: RegExp | string, ms = 20_000) {
+  const end = Date.now() + ms
+  const flat = (t: string) => t.replace(/\s+/g, '')
+  while (Date.now() < end) {
+    const t = tui.text().slice(mark)
+    if (typeof re === 'string' ? flat(t).includes(flat(re)) : re.test(t)) return
+    await Bun.sleep(100)
+  }
+  throw new Error(`timeout waiting for ${re} after mark; tail:\n${tui.text().slice(mark).slice(-1500)}`)
+}
+
+async function ready(tui: Tui) {
+  await tui.waitFor(/for shortcuts|bypass|simple mode|❯|>/i, 30_000)
+  await Bun.sleep(2000)
+}
+
+function trustDir(dir: string) {
+  const f = join(configDir, '.claude.json')
+  const cfg = JSON.parse(readFileSync(f, 'utf8'))
+  cfg.projects[dir] = { hasTrustDialogAccepted: true, allowedTools: [] }
+  writeFileSync(f, JSON.stringify(cfg))
+}
+
+function otherDir(name: string): string {
+  const d = join(scratch, name)
+  mkdirSync(d, { recursive: true })
+  trustDir(d)
+  return d
+}
+
+/** Registros `<config>/sessions/<pid>.json` que cumplen `pred`. */
+function sessionRecords(pred: (r: { pid: number; sessionId?: string; cwd?: string }) => boolean) {
+  const dir = join(configDir, 'sessions')
+  const out: Array<{ pid: number; sessionId?: string; cwd?: string }> = []
+  for (const f of existsSync(dir) ? readdirSync(dir) : []) {
+    try {
+      const r = JSON.parse(readFileSync(join(dir, f), 'utf8'))
+      if (pred(r)) out.push(r)
+    } catch {}
+  }
+  return out
+}
+
+function launchBg(cwd: string, prompt: string): { id: string; sessionId: string } {
+  const r = Bun.spawnSync([CLI, '--bg', prompt], { cwd, env, stdin: 'ignore' })
+  const id = /Sesión en segundo plano (\w{8})/.exec(r.stdout.toString())?.[1] ?? ''
+  const meta = JSON.parse(readFileSync(join(configDir, 'bg', id, 'meta.json'), 'utf8')) as { sessionId: string }
+  return { id, sessionId: meta.sessionId }
+}
+
+async function bgDone(id: string) {
+  return waitFor(() => existsSync(join(configDir, 'bg', id, 'exit')), 60_000)
+}
+
+/** Teclea una cadena y deja respirar a la TUI (Ink repinta solo lo que cambia: se comprueban efectos, no pantallas). */
+async function typeSlow(tui: Tui, text: string, gap = 60) {
+  for (const ch of text) {
+    tui.type(ch)
+    await Bun.sleep(gap)
+  }
+  await Bun.sleep(500)
+}
+
+async function openSwitcher(tui: Tui) {
+  const mark = tui.text().length
+  tui.type(LEFT)
+  await waitSince(tui, mark, 'Sesiones')
+  await waitSince(tui, mark, 'Sala de prueba E2E')
+}
+
+const focusCalls = () => (existsSync(kittyLog) ? readFileSync(kittyLog, 'utf8').split('\n').filter(l => l.includes('focus-window')).length : 0)
+
+describe.skipIf(!hasCli)('sessionSwitcher TUI', () => {
+  test('← con el prompt vacío abre el selector; el filtro elige la fila, Esc lo borra y Esc cierra', async () => {
+    const bg = launchBg(workDir, 'TAREA_BG_VISTA')
+    expect(await bgDone(bg.id)).toBe(true)
+    const tui = startTui(env, workDir)
+    try {
+      await ready(tui)
+      const mark = tui.text().length
+      tui.type(LEFT)
+      await waitSince(tui, mark, 'Sesiones')
+      await waitSince(tui, mark, 'Sala de prueba E2E')
+      await waitSince(tui, mark, 'Segundo plano')
+      await waitSince(tui, mark, 'TAREA_BG_VISTA')
+      const frame = tui.text().slice(mark)
+      expect(frame).toContain('kitty')
+      expect(frame).toContain('element')
+
+      // Con el filtro "sala" la única fila es la de Element: Enter adjunta su tmux (sin filtro sería la de kitty).
+      tui.type('sala') // varias teclas de golpe: se trata como pegado
+      await Bun.sleep(800)
+      const m2 = tui.text().length
+      tui.type('\r')
+      await waitSince(tui, m2, 'MARCA', 20_000)
+      expect(focusCalls()).toBe(0)
+      await Bun.sleep(500)
+      tui.type('\x02')
+      await Bun.sleep(150)
+      tui.type('d')
+      await Bun.sleep(1500)
+
+      // Esc borra el filtro (el selector sigue abierto): Enter vuelve a actuar sobre la primera fila, la de kitty.
+      tui.type(ESC)
+      await Bun.sleep(1000)
+      tui.type('\r')
+      expect(await waitFor(() => focusCalls() === 1, 15_000)).toBe(true)
+
+      // Enfocar cierra el selector: lo que se teclea ahora llega al prompt y de ahí al backend.
+      await Bun.sleep(1500)
+      tui.type('CIERRA_OK')
+      await Bun.sleep(500)
+      tui.type('\r')
+      expect(await waitFor(() => backendRequests.some(b => b.includes('CIERRA_OK')), 30_000)).toBe(true)
+    } finally {
+      await tui.stop()
+    }
+  }, 150_000)
+
+  test('con texto en el prompt ← mueve el cursor y no abre nada; ctrl+x ctrl+w sí lo abre', async () => {
+    const tui = startTui(env, workDir)
+    try {
+      await ready(tui)
+      tui.type('hola')
+      await tui.waitFor('hola', 10_000)
+      let mark = tui.text().length
+      tui.type(LEFT)
+      await Bun.sleep(600)
+      tui.type('X')
+      await Bun.sleep(800)
+      expect(tui.text().slice(mark)).not.toContain('Sesiones')
+
+      mark = tui.text().length
+      tui.type('\x18')
+      await Bun.sleep(300)
+      tui.type('\x17') // ctrl+x ctrl+w
+      await waitSince(tui, mark, 'Sesiones')
+      await waitSince(tui, mark, 'Sala de prueba E2E')
+      tui.type(ESC)
+      await Bun.sleep(1200)
+      // El prompt conserva su texto: el cursor se movió un lugar a la izquierda y la X entró ahí.
+      tui.type('\r')
+      expect(await waitFor(() => backendRequests.some(b => b.includes('holXa')), 30_000)).toBe(true)
+    } finally {
+      await tui.stop()
+    }
+  }, 120_000)
+
+  test('Enter sobre una fila kitty enfoca su ventana con kitty @ focus-window', async () => {
+    const tui = startTui(env, workDir)
+    try {
+      await ready(tui)
+      await openSwitcher(tui)
+      const before = focusCalls()
+      await typeSlow(tui, 'kitty')
+      tui.type('\r')
+      expect(await waitFor(() => focusCalls() === before + 1, 15_000)).toBe(true)
+      expect(readFileSync(kittyLog, 'utf8')).toContain(`@ --to unix:${kittySockPath} focus-window --match id:${KITTY_WINDOW_ID}`)
+    } finally {
+      await tui.stop()
+    }
+  }, 120_000)
+
+  test('Enter sobre la sala de Element adjunta su tmux; Ctrl+B d vuelve y la sesión tmux sigue viva', async () => {
+    const tui = startTui(env, workDir)
+    try {
+      await ready(tui)
+      await openSwitcher(tui)
+      await typeSlow(tui, 'element')
+      const mark = tui.text().length
+      tui.type('\r')
+      await waitSince(tui, mark, 'MARCA', 20_000)
+      await Bun.sleep(500)
+      tui.type('\x02') // prefix de tmux
+      await Bun.sleep(150)
+      tui.type('d')
+      await Bun.sleep(2000)
+      expect((await sh(['tmux', '-L', TMUX_SOCKET, 'list-sessions', '-F', '#{session_name}'])).trim()).toBe(TMUX_SESSION)
+      // De vuelta en fnharness: el selector sigue ahí y responde (Esc lo cierra y el prompt acepta texto).
+      tui.type(ESC)
+      await Bun.sleep(300)
+      tui.type(ESC)
+      await Bun.sleep(1000)
+      tui.type('VUELVE_TMUX')
+      await Bun.sleep(500)
+      tui.type('\r')
+      expect(await waitFor(() => backendRequests.some(b => b.includes('VUELVE_TMUX')), 30_000)).toBe(true)
+    } finally {
+      await tui.stop()
+    }
+  }, 120_000)
+
+  test('reanudar aquí una bg terminada nacida en otro directorio relanza el CLI con --resume y en ese directorio', async () => {
+    const cwd2 = otherDir('cwd2-bg')
+    const bg = launchBg(cwd2, 'TAREA_BG_REANUDAR')
+    expect(await bgDone(bg.id)).toBe(true)
+    const tui = startTui({ ...env, FNHARNESS_NO_BYPASS: '1' }, workDir, 140, LAUNCHER)
+    try {
+      await ready(tui)
+      let mark = tui.text().length
+      tui.type(LEFT)
+      await waitSince(tui, mark, 'Sesiones')
+      tui.type('TAREA_BG_REANUDAR')
+      await Bun.sleep(1000)
+      mark = tui.text().length
+      tui.type('\r') // abre el detalle con "Reanudar aquí" preseleccionado
+      await waitSince(tui, mark, 'Reanudar aquí')
+      tui.type('\r') // pide confirmación
+      await waitSince(tui, mark, 'confirmar')
+      tui.type('\r') // confirma: sale con 75 y el lanzador relanza
+      expect(await waitFor(() => sessionRecords(r => r.sessionId === bg.sessionId && r.cwd === cwd2).length > 0, 60_000)).toBe(true)
+    } finally {
+      await tui.stop()
+    }
+  }, 150_000)
+
+  test('una sesión viva solo se bifurca: sessionId nuevo y el transcript original no crece', async () => {
+    const cwd3 = otherDir('cwd3-viva')
+    const live = Bun.spawn([CLI, '-p', '--input-format', 'stream-json', '--output-format', 'stream-json', '--verbose'], {
+      cwd: cwd3,
+      env,
+      stdin: 'pipe',
+      stdout: 'pipe',
+      stderr: 'ignore',
+    })
+    let out = ''
+    void (async () => {
+      const reader = live.stdout.getReader()
+      const dec = new TextDecoder()
+      for (;;) {
+        const { value, done } = await reader.read()
+        if (done) break
+        out += dec.decode(value)
+      }
+    })()
+    let tui: Tui | undefined
+    try {
+      live.stdin.write(JSON.stringify({ type: 'user', message: { role: 'user', content: 'MENSAJE_VIVA_BIFURCAR' } }) + '\n')
+      live.stdin.flush()
+      expect(await waitFor(() => out.includes('"type":"result"'), 60_000)).toBe(true)
+      const rec = sessionRecords(r => r.pid === live.pid)[0]!
+      const sid = rec.sessionId!
+      expect(await waitFor(() => findTranscript(configDir, sid) !== null, 30_000)).toBe(true)
+      const transcript = findTranscript(configDir, sid)!
+      await Bun.sleep(1500) // deja que termine de escribirse antes de medir
+      const sizeBefore = statSync(transcript).size
+
+      tui = startTui({ ...env, FNHARNESS_NO_BYPASS: '1' }, workDir, 140, LAUNCHER)
+      await ready(tui)
+      let mark = tui.text().length
+      tui.type(LEFT)
+      await waitSince(tui, mark, 'Sesiones')
+      tui.type('MENSAJE_VIVA')
+      await Bun.sleep(1000)
+      mark = tui.text().length
+      tui.type('\r')
+      await waitSince(tui, mark, 'Bifurcar aquí')
+      // Una sesión viva no ofrece "Reanudar aquí".
+      expect(tui.text().slice(mark)).not.toContain('Reanudar aquí')
+      tui.type('\r')
+      await waitSince(tui, mark, 'confirmar')
+      tui.type('\r')
+      expect(await waitFor(() => sessionRecords(r => r.cwd === cwd3 && r.pid !== live.pid && r.sessionId !== undefined && r.sessionId !== sid).length > 0, 60_000)).toBe(true)
+      expect(statSync(transcript).size).toBe(sizeBefore)
+    } finally {
+      await tui?.stop()
+      live.kill()
+      await live.exited
+    }
+  }, 180_000)
 })
