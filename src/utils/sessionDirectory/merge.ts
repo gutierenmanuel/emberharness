@@ -7,6 +7,7 @@
  * No toca disco, red ni procesos: todo llega en el `DirectoryInput`.
  */
 
+import { basename } from 'path'
 import { actionsFor } from './actions.js'
 import {
   ancestorChain,
@@ -190,14 +191,14 @@ export function mergeSessions(input: DirectoryInput): SessionRow[] {
       status,
       ...(rec.waitingFor ? { waitingFor: rec.waitingFor } : {}),
       title:
-        firstText(conv?.title, tr?.title, tr?.firstPrompt, rec.name, bg?.meta.prompt, tmux?.session) ??
+        firstText(conv?.title, tr?.title, tr?.firstPrompt, rec.name, bg?.meta.prompt, origin === 'element' ? tmux?.session : undefined, rec.cwd ? basename(rec.cwd) : undefined, tmux?.session) ??
         `pid ${pid}`,
       ...(firstText(rec.cwd, state?.workdir, conv?.workdir) !== undefined
         ? { cwd: rec.cwd ?? state?.workdir ?? conv?.workdir }
         : {}),
       ...(rec.account ? { account: rec.account } : {}),
       ...(rec.model ? { model: rec.model } : {}),
-      lastActivity: maxTime(rec.updatedAt, tr?.lastModified, parseTime(conv?.lastActivity)),
+      lastActivity: maxTime(rec.updatedAt, rec.startedAt, tr?.lastModified, parseTime(conv?.lastActivity)),
       pid,
       ...(sid ? { sessionId: sid } : {}),
       ...(rec.messagingSocketPath ? { socket: rec.messagingSocketPath } : {}),
@@ -281,6 +282,8 @@ export function mergeSessions(input: DirectoryInput): SessionRow[] {
   const seenRecent = new Set<string>()
   const recents = [...input.recent]
     .filter(r => !liveSids.has(r.sessionId) && r.sessionId !== input.selfSessionId)
+    // Las pasadas de un comando suelto (`-p "/sesiones"`) no son conversaciones que reanudar.
+    .filter(r => !(r.title ?? transcripts[r.sessionId]?.title ?? '').startsWith('/'))
     .sort((a, b) => b.lastModified - a.lastModified)
     .filter(r => !seenRecent.has(r.sessionId) && !!seenRecent.add(r.sessionId))
     .slice(0, MAX_RECENT)
