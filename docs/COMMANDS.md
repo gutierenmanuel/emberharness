@@ -264,17 +264,50 @@ Formato (JSON en `<CLAUDE_CONFIG_DIR>/profiles/<nombre>.json`; el del usuario su
 
 En caliente (desde el siguiente turno): herramientas, MCP (todos, ninguno o una lista), skills, system prompt (un `--system-prompt` explícito gana al del perfil; `append` se suma detrás), memoria y CLAUDE.md. Con reinicio: cambiar `bare` en cualquier sentido y pasar los hooks de apagados a encendidos. El reinicio lo hace el lanzador: el CLI escribe `restart/<pid del lanzador>.args` y sale con 75, y `bin/fnharness` relanza con `--resume <sesión> --perfil <x>` conservando `--account` y `--model`. Con `-p`, con `FNHARNESS_NO_RESTART=1` o ejecutando `./cli` directamente no hay bucle: `/perfil` imprime el comando a escribir. El modelo de un perfil solo se aplica con su cuenta; un perfil con `account` bare añade a Bash/Read/Edit las herramientas que nombra. `/scope` y Ctrl+Tab ajustan el scope encima y marcan el perfil como modificado (`nombre*` en la barra de estado). `/account` ya no pisa el scope de un perfil activo.
 
-### 2.15 `/otel` (informe de telemetría)
+### 2.15 `/otel` y `/telemetry` (telemetría OpenTelemetry por cuenta)
 
-Comando integrado de solo lectura (tipo `local`, funciona también con `-p "/otel"`). Alias: `/opentelemetry` y `/telemetry`. Responde a qué pasa ahora con la telemetría y a dónde se enviaría, sin enviar nada:
+Telemetría OTLP real, con receptores ligados a cuentas. Comando integrado (tipo `local`, funciona también con `-p "/otel"`). Alias: `/opentelemetry` y `/telemetry`.
 
-- el estado real: si el build tiene la telemetría activa (`isTelemetryEnabled()`; en el build OSS es `false`, así que dice «No se envía nada: telemetría desactivada en este build» y, si los ajustes la piden, a dónde iría);
-- la cuenta en uso (id, etiqueta, correo y organización cuando el proveedor los expone);
-- las variables `CLAUDE_CODE_ENABLE_TELEMETRY`, `DISABLE_TELEMETRY` y `OTEL_*` efectivas con su origen: remote-settings de la organización (o managed-settings), `settings.json` (`env`), `.claude.json` (`env`), perfil de cuenta o entorno del proceso; gana la capa de mayor precedencia, como al construir el entorno;
-- los destinos por señal (metrics, logs, traces): exportadores, endpoint, protocolo, intervalo y atributos de recurso;
-- los receptores propios de `<CLAUDE_CONFIG_DIR>/telemetry.json`, o que no hay ninguno.
+**Qué se envía y a dónde.** Cada medición pertenece a una cuenta: la que sirvió la petición (el ámbito de `claude-work:sonnet`, por ejemplo) o, fuera de un ámbito, la de la sesión. `sinksFor(cuenta)` decide qué receptores la ven:
 
-Las cabeceras salen siempre enmascaradas (`dd-api-key=***`): solo se muestra su nombre, nunca el valor; lo mismo vale para credenciales en URLs y para variables con `key`, `token` o `secret` en el nombre. `/otel --json` devuelve el mismo informe como JSON. La lógica pura (origen, destinos, enmascarado) está en `src/utils/telemetry/otelReport.ts`; el comando, en `src/commands/otel/`. El envío real de telemetría no está implementado: ver `docs/plans/otel_telemetry.md`.
+- receptor **de una organización** (`managed`): sale de los `OTEL_*` de las remote-settings de una cuenta Claude (p. ej. Datadog EU de `claude-work`). Solo recibe las mediciones de esa cuenta, siempre con el esquema `official` (el de Claude Code, sin atributos `fnharness.*`) y con lo que dicte su organización (intervalos, `OTEL_LOG_USER_PROMPTS`, `OTEL_LOG_TOOL_DETAILS`, `OTEL_METRICS_INCLUDE_*`). Solo la organización lo apaga;
+- receptor **propio** (`user`): declarado en `<CLAUDE_CONFIG_DIR>/telemetry.json` (0600) con una lista **explícita** de cuentas (`"*"` incluiría también las cuentas de empresa, por eso no se usa). Esquema `official` o `enriched` (añade `fnharness.account`, `fnharness.account_kind`, `fnharness.backend`, `fnharness.routed`, `fnharness.session_account`, `agent.type`, `pc` y `session.id`). Prompts redactados y detalle de herramientas apagado salvo `logUserPrompts`/`logToolDetails` en ese receptor;
+- las métricas de sesión (`session.count`, `active_time`, `lines_of_code`, `commit`, `pull_request`, `code_edit_tool.decision`) van solo a los receptores de la cuenta de la **sesión**, aunque un subagente corra en otra cuenta; coste, tokens y eventos van a los de la cuenta que sirvió la petición;
+- la identidad (`user.email`, `organization.id`, `user.account_uuid`) es la de la cuenta que sirvió la petición: un receptor nunca ve la identidad de otra cuenta;
+- `DISABLE_TELEMETRY` puesto por la persona apaga los receptores propios, no los de una organización. Una cuenta OpenAI-compatible ya no pone `DISABLE_TELEMETRY`: pone `FNHARNESS_PROFILE_NO_TELEMETRY=1`, que solo mantiene apagada la analítica no esencial del proveedor;
+- el entorno del proceso (`OTEL_*` en el shell) no crea receptores; las trazas no se envían.
+
+Ejemplo de `telemetry.json`:
+
+```json
+{
+  "sinks": {
+    "otel-3amdata": {
+      "endpoint": "https://otel.3amdata.win",
+      "protocol": "http/json",
+      "headersRef": "pass:ionos/otel-token",
+      "headersAs": "bearer",
+      "accounts": ["claude", "qwen36", "ollama", "zcode", "venice"],
+      "schema": "enriched",
+      "logUserPrompts": false,
+      "logToolDetails": false,
+      "metricsIntervalMs": 60000
+    }
+  }
+}
+```
+
+`headersRef` es una referencia del gestor de secretos (`pass:`, `env:`, `file:`, `keyring:`, `cmd:`, ver `/secrets`); `headersAs` dice cómo se lee: `bearer` (el secreto es un token que se envía como `Authorization: Bearer`) o `list` (el secreto es `nombre=valor,nombre2=valor2`). Las cabeceras nunca se escriben en claro, ni se imprimen, ni van al log. Protocolos: `http/json` y `http/protobuf` (gRPC no). Otros campos: `enabled`, `metrics`/`logs` (`false` para apagar una señal), `logsIntervalMs`, `temporality` (`delta` por defecto) y `resourceAttributes`.
+
+**Subcomandos.**
+
+- `/otel` (o `/telemetry`): informe de solo lectura. Dice si algo sale para la cuenta de la sesión y lista los receptores con su origen, endpoint, protocolo, esquema, señales, cuentas ligadas, si prompts y detalle de herramientas están permitidos, si llevan credenciales (ocultas), el último envío correcto y el último error de esta sesión; después las variables `OTEL_*` vistas con su origen y los destinos que dicta la organización de la cuenta activa. `--json` devuelve lo mismo como JSON.
+- `/telemetry test <id>`: envía un punto de prueba (`fnharness.telemetry.test`, sin identidad) a un receptor propio y dice si lo aceptó (`OK ... (HTTP 200)`) o por qué falló. A un receptor de organización no se le envían puntos de prueba.
+- `/telemetry add <id> <endpoint> --accounts <a,b|*> [--protocol http/json|http/protobuf] [--schema official|enriched] [--headers-ref <gestor:ref>] [--bearer]`: añade o reemplaza un receptor en `telemetry.json` (se valida con el mismo lector que usa el envío, se escribe en 0600 y se guarda una copia fechada del fichero anterior). `--accounts` es obligatorio.
+
+**Reparto y salida.** Cada receptor tiene su propio `MeterProvider`/`LoggerProvider` (se crean al primer uso, así que un receptor nuevo no hace falta reiniciarlo) y su propio recurso. Al salir se envía lo pendiente con un tope de 2 s por receptor, en paralelo: `-p "hola"` termina en menos de 3 s aunque todos los receptores estén caídos. Un receptor caído solo deja una línea `[telemetry] ...` en el log de depuración (`--debug-file`).
+
+La lógica pura está en `src/utils/telemetry/` (`context.ts`, `sinks.ts`, `otelReport.ts`); el envío en `sinkRuntime.ts` (estado vivo) y `sinkProviders.ts` (SDK, carga perezosa); `instrumentation.ts` y `events.ts` son los puntos de entrada; el comando, en `src/commands/otel/`. Diseño: `docs/plans/otel_telemetry.md`.
 
 ### 2.16 Varias cuentas Claude en un arnés (`/account` con OAuth de Anthropic)
 
@@ -301,7 +334,7 @@ La primera vez que se usa `/account` en un directorio con `.credentials.json` en
 
 Enrutado: `claude-work:sonnet` (agente, frontmatter, `/model`) usa el token de `claude-work` solo para esa petición; dentro de ese ámbito `getOauthAccountInfo()` y `getClaudeAIOAuthTokens()` responden por esa cuenta. Cada cuenta renueva su token con su propio cerrojo (`accounts/<id>.lock`). Una cuenta Claude puede declarar `baseUrl` (un proxy o un servidor de pruebas): sus peticiones y sus ajustes gestionados van ahí.
 
-Ajustes gestionados y políticas (decisión D7): aplican los de todas las cuentas Claude en uso en la sesión (la de la sesión y cada una que haya servido una petición), combinados con lo más restrictivo (`deny` se une, `allow` se interseca, una política está permitida solo si todas la permiten). La telemetría de una cuenta (`OTEL_*`, `CLAUDE_CODE_ENABLE_TELEMETRY`, `otelHeadersHelper`) ya no se escribe en `process.env`: es de esa cuenta (receptor futuro, fases 5-7 del plan) y `/otel` la muestra como tal. La primera petición de una cuenta que no es la de la sesión espera a sus ajustes; si trae ajustes peligrosos nuevos, la cuenta queda desactivada hasta `/account approve <id>`.
+Ajustes gestionados y políticas (decisión D7): aplican los de todas las cuentas Claude en uso en la sesión (la de la sesión y cada una que haya servido una petición), combinados con lo más restrictivo (`deny` se une, `allow` se interseca, una política está permitida solo si todas la permiten). La telemetría de una cuenta (`OTEL_*`, `CLAUDE_CODE_ENABLE_TELEMETRY`, `otelHeadersHelper`) ya no se escribe en `process.env`: es de esa cuenta (su receptor, ver 2.15) y `/otel` la muestra como tal. La primera petición de una cuenta que no es la de la sesión espera a sus ajustes; si trae ajustes peligrosos nuevos, la cuenta queda desactivada hasta `/account approve <id>`.
 
 Diseño: `docs/plans/otel_telemetry.md` (secciones 2 y 3); código en `src/services/accounts/`.
 
@@ -517,7 +550,7 @@ Un error de configuración se imprime como `claude-multimodel: <mensaje>` y sale
 - `ANTHROPIC_MODEL` y `ANTHROPIC_DEFAULT_OPUS_MODEL` y `ANTHROPIC_DEFAULT_SONNET_MODEL` = modelo principal.
 - `ANTHROPIC_SMALL_FAST_MODEL` y `ANTHROPIC_DEFAULT_HAIKU_MODEL` = modelo pequeño.
 - `ANTHROPIC_API_KEY` = `claude-multimodel-placeholder` si no estaba definida (evita el login de claude.ai; el adaptador la ignora).
-- `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1` y `DISABLE_TELEMETRY=1` si no estaban definidas.
+- `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1` si no estaba definida y `FNHARNESS_PROFILE_NO_TELEMETRY=1` (la analítica no esencial del proveedor se queda apagada; no es `DISABLE_TELEMETRY`, que es solo de la persona y apaga los receptores propios de `/telemetry`).
 
 Otros puntos de integración: `src/services/api/client.ts` enruta las peticiones por el adaptador OpenAI-compatible, `validateModel.ts` omite la validación de modelos y `logoV2Utils.ts` muestra el preset y la URL en la cabecera.
 

@@ -5,15 +5,33 @@ import {
   formatOtelReport,
   maskOtelHeaders,
   maskUrl,
-  parseOwnSinks,
   type EnvLayer,
   type OtelReportInput,
+  type SinksBlock,
 } from './otelReport.js'
+import type { SinkInfo } from './sinks.js'
 
 const SECRET = 'SECRETO-1234'
 
 const account = { id: 'claude', label: 'Claude', provider: null, email: 'persona@example.com', org: 'Acme' }
-const noSinks = parseOwnSinks('/cfg/telemetry.json', null)
+const noSinks: SinksBlock = { path: '/cfg/telemetry.json', present: false, errors: [], sinks: [], humanDisabled: false }
+const sink = (over: Partial<SinkInfo> = {}): SinkInfo => ({
+  id: 'otel-3amdata',
+  origin: 'user',
+  endpoint: 'https://otel.3amdata.win',
+  protocol: 'http/json',
+  schema: 'enriched',
+  accounts: ['claude', 'qwen36'],
+  enabled: true,
+  disabledReason: null,
+  activeForSession: true,
+  signals: ['metrics', 'logs'],
+  prompts: false,
+  toolDetails: false,
+  hasCredentials: true,
+  status: null,
+  ...over,
+})
 
 const remote: EnvLayer = {
   origin: 'remote-settings',
@@ -31,7 +49,7 @@ const remote: EnvLayer = {
 const userSettings: EnvLayer = { origin: 'settings', label: 'settings.json (env)', env: { OTEL_METRIC_EXPORT_INTERVAL: '15000' } }
 
 function input(over: Partial<OtelReportInput> = {}): OtelReportInput {
-  return { buildEnabled: false, account, layers: [remote, userSettings], processEnv: {}, ownSinks: noSinks, ...over }
+  return { buildEnabled: false, account, layers: [remote, userSettings], processEnv: {}, sinksBlock: noSinks, ...over }
 }
 
 describe('enmascarado', () => {
@@ -76,41 +94,48 @@ describe('origen de cada variable', () => {
     expect(by('OTEL_TRACES_EXPORTER').origin).toBe('process-env')
   })
 
-  test('el perfil de cuenta pone DISABLE_TELEMETRY solo si nadie más lo define', () => {
-    const profile = { profileEnv: { DISABLE_TELEMETRY: '1' }, profileLabel: 'perfil de la cuenta qwen36', processEnv: { DISABLE_TELEMETRY: '1' } }
+  test('el perfil de cuenta marca FNHARNESS_PROFILE_NO_TELEMETRY y no toca DISABLE_TELEMETRY', () => {
+    const profile = { profileEnv: { FNHARNESS_PROFILE_NO_TELEMETRY: '1' }, profileLabel: 'perfil de la cuenta qwen36', processEnv: { FNHARNESS_PROFILE_NO_TELEMETRY: '1' } }
     const r = buildOtelReport(input({ layers: [], ...profile }))
-    expect(r.vars.find(v => v.name === 'DISABLE_TELEMETRY')).toMatchObject({ origin: 'account-profile', originLabel: 'perfil de la cuenta qwen36' })
-    const over = buildOtelReport(input({ layers: [{ origin: 'settings', label: 'settings.json (env)', env: { DISABLE_TELEMETRY: '1' } }], ...profile }))
-    expect(over.vars.find(v => v.name === 'DISABLE_TELEMETRY')!.origin).toBe('settings')
+    expect(r.vars.find(v => v.name === 'FNHARNESS_PROFILE_NO_TELEMETRY')).toMatchObject({ origin: 'account-profile', originLabel: 'perfil de la cuenta qwen36' })
+    expect(r.vars.find(v => v.name === 'DISABLE_TELEMETRY')).toBeUndefined()
+    expect(r.sends).toBe(false)
   })
 })
 
-describe('build apagado frente a encendido', () => {
-  test('build apagado: no se envía nada, pero dice a dónde iría', () => {
-    const r = buildOtelReport(input({ buildEnabled: false }))
-    expect(r.requested).toBe(true)
-    expect(r.sends).toBe(false)
-    expect(r.verdict).toContain('No se envía nada: telemetría desactivada en este build')
-    expect(r.verdict).toContain('https://otlp.datadoghq.eu')
-  })
-
-  test('build encendido con la config de empresa: se envía', () => {
+describe('veredicto según los receptores ligados', () => {
+  test('sin receptores ligados a la cuenta: no se envía nada', () => {
     const r = buildOtelReport(input({ buildEnabled: true }))
-    expect(r.sends).toBe(true)
-    expect(r.verdict).toBe('Se envía telemetría OTLP a https://otlp.datadoghq.eu.')
+    expect(r.sends).toBe(false)
+    expect(r.verdict).toBe('No se envía nada: ningún receptor está ligado a la cuenta claude.')
   })
 
-  test('DISABLE_TELEMETRY apaga aunque el build y la empresa pidan enviar', () => {
-    const r = buildOtelReport(input({ buildEnabled: true, processEnv: { DISABLE_TELEMETRY: '1' } }))
+  test('un receptor ligado a la cuenta de la sesión: se envía', () => {
+    const r = buildOtelReport(input({ buildEnabled: true, sinksBlock: { ...noSinks, present: true, sinks: [sink()] } }))
+    expect(r.sends).toBe(true)
+    expect(r.verdict).toBe('Se envía telemetría de la cuenta claude a: otel-3amdata (https://otel.3amdata.win).')
+  })
+
+  test('un receptor ligado a otra cuenta no cuenta para esta sesión', () => {
+    const r = buildOtelReport(input({ buildEnabled: true, sinksBlock: { ...noSinks, sinks: [sink({ activeForSession: false })] } }))
+    expect(r.sends).toBe(false)
+  })
+
+  test('DISABLE_TELEMETRY de la persona apaga los propios y lo dice', () => {
+    const r = buildOtelReport(input({ buildEnabled: true, sinksBlock: { ...noSinks, humanDisabled: true, sinks: [sink({ enabled: false, activeForSession: false, disabledReason: 'DISABLE_TELEMETRY activo' })] } }))
     expect(r.sends).toBe(false)
     expect(r.verdict).toContain('DISABLE_TELEMETRY')
   })
 
+  test('los ajustes de la organización piden telemetría pero no hay receptor: solo informa', () => {
+    const r = buildOtelReport(input({ buildEnabled: true }))
+    expect(r.requested).toBe(true)
+    expect(r.destinations.find(d => d.signal === 'metrics')!.otlp).toBe(true)
+  })
+
   test('sin CLAUDE_CODE_ENABLE_TELEMETRY ni exportadores no hay destino', () => {
     const r = buildOtelReport(input({ buildEnabled: true, layers: [] }))
-    expect(r.sends).toBe(false)
     expect(r.destinations.every(d => !d.otlp)).toBe(true)
-    expect(r.verdict).toContain('CLAUDE_CODE_ENABLE_TELEMETRY no está activo')
   })
 })
 
@@ -132,23 +157,28 @@ describe('destinos', () => {
   })
 })
 
-describe('receptores propios', () => {
-  test('sin fichero lo dice', () => {
-    expect(formatOtelReport(buildOtelReport(input()))).toContain('no hay ninguno configurado')
+describe('bloque de receptores', () => {
+  test('sin ninguno lo dice y señala el fichero', () => {
+    expect(formatOtelReport(buildOtelReport(input()))).toContain('(ninguno; los propios se declaran en /cfg/telemetry.json, que no existe)')
   })
 
-  test('lista los receptores sin mostrar la referencia de cabeceras', () => {
-    const text = JSON.stringify({ sinks: { propio: { endpoint: 'http://127.0.0.1:4318', protocol: 'http/json', accounts: '*', schema: 'enriched' }, x: { endpoint: 'https://o.example', headersRef: 'pass:apis/secreto', accounts: ['a', 'b'] } } })
-    const own = parseOwnSinks('/cfg/telemetry.json', text)
-    expect(own.sinks.map(s => s.id)).toEqual(['propio', 'x'])
-    expect(own.sinks[1]).toMatchObject({ accounts: 'a, b', hasHeaders: true })
-    const out = formatOtelReport(buildOtelReport(input({ ownSinks: own })))
-    expect(out).toContain('propio: http://127.0.0.1:4318')
-    expect(out).not.toContain('apis/secreto')
+  test('lista receptores con cuentas ligadas, último envío y error, sin credenciales', () => {
+    const when = Date.UTC(2026, 10, 13, 10, 20, 30)
+    const sinks = [
+      sink({ status: { lastOkAt: when, lastError: null, lastErrorAt: null, ok: 3, failed: 0, blocked: null } }),
+      sink({ id: 'claude-work:otlp.datadoghq.eu', origin: 'managed', endpoint: 'https://otlp.datadoghq.eu', protocol: 'http/protobuf', schema: 'official', accounts: ['claude-work'], activeForSession: false, status: { lastOkAt: null, lastError: 'metrics: connect ECONNREFUSED', lastErrorAt: when, ok: 0, failed: 1, blocked: null } }),
+    ]
+    const out = formatOtelReport(buildOtelReport(input({ buildEnabled: true, sinksBlock: { ...noSinks, present: true, sinks } })))
+    expect(out).toContain('otel-3amdata [propio · recibe esta sesión]')
+    expect(out).toContain('cuentas ligadas: claude, qwen36')
+    expect(out).toContain('último envío correcto: 10:20:30 UTC')
+    expect(out).toContain('claude-work:otlp.datadoghq.eu [organización · ligado, no recibe esta sesión]')
+    expect(out).toContain('último error: metrics: connect ECONNREFUSED')
+    expect(out).toContain('credenciales: sí (ocultas)')
   })
 
-  test('JSON roto se informa, no revienta', () => {
-    expect(parseOwnSinks('/c/telemetry.json', '{nope').error).toContain('JSON inválido')
-    expect(parseOwnSinks('/c/telemetry.json', '{}').error).toContain('sinks')
+  test('un aviso de telemetry.json se muestra, no revienta', () => {
+    const out = formatOtelReport(buildOtelReport(input({ sinksBlock: { ...noSinks, present: true, errors: ['x: falta "accounts"'] } })))
+    expect(out).toContain('aviso en /cfg/telemetry.json: x: falta "accounts"')
   })
 })

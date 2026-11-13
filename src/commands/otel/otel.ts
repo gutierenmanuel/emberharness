@@ -1,5 +1,5 @@
-import { readFileSync } from 'fs'
-import { join } from 'path'
+import { chmodSync, copyFileSync, existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'fs'
+import { dirname } from 'path'
 import { getMultimodelProfile } from '../../services/api/openai-compat/profiles.js'
 import { getAccountRemoteSettings, getSettingsPath as getRemoteSettingsPath } from '../../services/remoteManagedSettings/syncCacheState.js'
 import { activeAnthropicAccountId } from '../../services/accounts/sessionAccounts.js'
@@ -7,21 +7,21 @@ import { telemetryEnvOf } from '../../services/accounts/managedPolicy.js'
 import type { LocalCommandCall } from '../../types/command.js'
 import { getOauthAccountInfo } from '../../utils/auth.js'
 import { getGlobalConfig } from '../../utils/config.js'
-import { getClaudeConfigHomeDir } from '../../utils/envUtils.js'
 import { getSettingsForSource } from '../../utils/settings/settings.js'
 import { isSettingSourceEnabled } from '../../utils/settings/constants.js'
 import { isTelemetryEnabled } from '../../utils/telemetry/instrumentation.js'
+import { humanDisabledTelemetry, invalidateUserSinks, loadUserSinks, sinkInfos, testSink, userSinksPath } from '../../utils/telemetry/sinkRuntime.js'
+import { addUserSinkToText, parseAddArgs } from '../../utils/telemetry/sinks.js'
 import {
   buildOtelReport,
   formatOtelReport,
-  parseOwnSinks,
   type EnvLayer,
 } from '../../utils/telemetry/otelReport.js'
 
-/** What profiles.ts setActiveProfile() sets by default on a non-Claude account (`||=`). */
+/** What profiles.ts setActiveProfile() sets on a non-Claude account. */
 const PROFILE_DEFAULT_ENV = {
   CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: '1',
-  DISABLE_TELEMETRY: '1',
+  FNHARNESS_PROFILE_NO_TELEMETRY: '1',
 }
 
 function readText(path: string): string | null {
@@ -79,8 +79,7 @@ export function collectOtelReportInput() {
     { origin: 'global-config', label: '.claude.json (env)', env: getGlobalConfig().env },
   ]
 
-  const dir = getClaudeConfigHomeDir()
-  const sinksPath = join(dir, 'telemetry.json')
+  const user = loadUserSinks()
   return {
     buildEnabled: isTelemetryEnabled(),
     account: {
@@ -95,12 +94,51 @@ export function collectOtelReportInput() {
     processEnv: process.env,
     profileEnv: profile ? PROFILE_DEFAULT_ENV : {},
     profileLabel: profile ? `perfil de la cuenta ${accountId}` : undefined,
-    ownSinks: parseOwnSinks(sinksPath, readText(sinksPath)),
+    sinksBlock: {
+      path: user.path,
+      present: user.present,
+      errors: user.errors,
+      sinks: sinkInfos(),
+      humanDisabled: humanDisabledTelemetry(),
+    },
   }
 }
 
+/** Writes telemetry.json (0600, atomic), keeping a dated backup of the previous one. */
+function writeUserSinks(text: string): { path: string; backup: string | null } {
+  const path = userSinksPath()
+  mkdirSync(dirname(path), { recursive: true })
+  let backup: string | null = null
+  if (existsSync(path)) {
+    backup = `${path}.bak-${new Date().toISOString().replace(/[:.]/g, '-')}`
+    copyFileSync(path, backup)
+    chmodSync(backup, 0o600)
+  }
+  const tmp = `${path}.tmp-${process.pid}`
+  writeFileSync(tmp, text, { mode: 0o600 })
+  renameSync(tmp, path)
+  chmodSync(path, 0o600)
+  invalidateUserSinks()
+  return { path, backup }
+}
+
 export const call: LocalCommandCall = async args => {
+  const tokens = args.trim().split(/\s+/).filter(Boolean)
+  const [sub, ...rest] = tokens
+  if (sub === 'test') {
+    if (!rest[0]) return { type: 'text', value: 'uso: /telemetry test <id-del-receptor>' }
+    const r = await testSink(rest[0])
+    return { type: 'text', value: `${r.ok ? 'OK' : 'FALLO'}: ${r.detail}` }
+  }
+  if (sub === 'add') {
+    const { spec, error } = parseAddArgs(rest)
+    if (!spec) return { type: 'text', value: error ?? 'argumentos no válidos' }
+    const { text, error: err } = addUserSinkToText(readText(userSinksPath()), spec)
+    if (!text) return { type: 'text', value: `No se añadió: ${err}` }
+    const { path, backup } = writeUserSinks(text)
+    return { type: 'text', value: `Receptor "${spec.id}" guardado en ${path}${backup ? ` (copia previa: ${backup})` : ''}. Pruébalo con /telemetry test ${spec.id}.` }
+  }
   const report = buildOtelReport(collectOtelReportInput())
-  const json = args.split(/\s+/).includes('--json')
+  const json = tokens.includes('--json')
   return { type: 'text', value: json ? JSON.stringify(report, null, 2) : formatOtelReport(report) }
 }

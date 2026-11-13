@@ -1,5 +1,5 @@
 import type { BetaMessageStreamParams } from '@anthropic-ai/sdk/resources/beta/messages/messages.mjs'
-import type { Attributes, Meter, MetricOptions } from '@opentelemetry/api'
+import type { Attributes, MetricOptions } from '@opentelemetry/api'
 import type { logs } from '@opentelemetry/api-logs'
 import type { LoggerProvider } from '@opentelemetry/sdk-logs'
 import type { MeterProvider } from '@opentelemetry/sdk-metrics'
@@ -87,7 +87,6 @@ type State = {
   oauthTokenFromFd: string | null | undefined
   apiKeyFromFd: string | null | undefined
   // Telemetry state
-  meter: Meter | null
   sessionCounter: AttributedCounter | null
   locCounter: AttributedCounter | null
   prCounter: AttributedCounter | null
@@ -318,7 +317,6 @@ function getInitialState(): State {
       'policySettings',
     ],
     // Telemetry state
-    meter: null,
     sessionCounter: null,
     locCounter: null,
     prCounter: null,
@@ -958,12 +956,14 @@ export function resetModelStringsForTestingOnly() {
   STATE.modelStrings = null
 }
 
-export function setMeter(
-  meter: Meter,
+/**
+ * Creates every counter with the provided factory. A counter is not tied to
+ * one OTel meter: the factory (utils/telemetry/sinkRuntime.ts) hands back an
+ * object whose add() sends to the receivers of the right account.
+ */
+export function setCounters(
   createCounter: (name: string, options: MetricOptions) => AttributedCounter,
 ): void {
-  STATE.meter = meter
-
   // Initialize all counters using the provided factory
   STATE.sessionCounter = createCounter('claude_code.session.count', {
     description: 'Count of CLI sessions started',
@@ -997,10 +997,6 @@ export function setMeter(
     description: 'Total active time in seconds',
     unit: 's',
   })
-}
-
-export function getMeter(): Meter | null {
-  return STATE.meter
 }
 
 export function getSessionCounter(): AttributedCounter | null {

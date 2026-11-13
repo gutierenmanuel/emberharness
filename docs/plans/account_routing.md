@@ -57,8 +57,10 @@ El cliente no se cachea por cuenta: el código base ya crea un cliente por petic
 - `ANTHROPIC_MODEL`, `ANTHROPIC_SMALL_FAST_MODEL`, `ANTHROPIC_DEFAULT_{OPUS,SONNET,HAIKU}_MODEL` →
   el modelo de la cuenta. Por eso los alias de `claude:` se resuelven con `getOriginalModelEnv()`.
 - `FNHARNESS_ACCOUNT`, `FNHARNESS_ACCOUNT_LABEL`, `FNHARNESS_MODEL_BACKEND` (para la statusline).
-- `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1` y `DISABLE_TELEMETRY=1`: se quedan puestas; solo
-  apagan tráfico no esencial y telemetría, no la petición al modelo.
+- `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1` y `FNHARNESS_PROFILE_NO_TELEMETRY=1`: se quedan
+  puestas; solo apagan tráfico no esencial y la analítica del proveedor, no la petición al modelo. Ya
+  no se pone `DISABLE_TELEMETRY` (era la señal de la persona para los receptores OTLP; ver
+  `otel_telemetry.md`).
 - No inyecta ninguna `ANTHROPIC_API_KEY` (el texto antiguo de `COMMANDS.md` sobre un placeholder ya
   no describe el código: la clave de relleno vive solo dentro del cliente del adaptador).
 

@@ -1,8 +1,8 @@
 # Varias cuentas Claude en un mismo arnés y telemetría OTel por cuenta y receptor
 
 Plan ejecutable. Fecha: 11/11/2026 (v2: añade varias cuentas Claude en un arnés y receptores por
-cuenta). Estado (13/11/2026): **fases 1 a 4 hechas** (rama `quick/multi-claude`; ver «Estado de las
-fases 1-4» al final); fases 0 y 5 a 9 sin empezar. D7 y D8 se aplicaron con su opción por defecto. Las
+cuenta). Estado (13/11/2026): **fases 1 a 7 hechas** (ramas `quick/multi-claude` y `quick/otel-sinks`; ver
+«Estado de las fases 1-4» y «Estado de las fases 5-7» al final); fases 0, 8 y 9 sin empezar. D7 y D8 se aplicaron con su opción por defecto. Las
 decisiones abiertas están en la sección 11.
 
 Objetivo, en tres partes:
@@ -186,7 +186,7 @@ Ejemplo de `telemetry.json`:
       "endpoint": "http://127.0.0.1:4318",
       "protocol": "http/json",
       "headersRef": null,
-      "accounts": "*",
+      "accounts": ["claude", "qwen36", "ollama"],
       "schema": "enriched",
       "logUserPrompts": false,
       "logToolDetails": true,
@@ -205,7 +205,12 @@ Ejemplo de `telemetry.json`:
 
 - `headersRef` usa el mismo gestor de secretos que `apiKeyRef` (`services/secrets`). Las cabeceras
   nunca se escriben en claro ni se imprimen.
-- `accounts`: `"*"` o una lista de ids de cuenta.
+- `accounts`: lista **explícita** de ids de cuenta (obligatoria). `"*"` existe pero incluye también
+  las cuentas de empresa con receptor propio de su organización, así que no se usa en una instalación
+  que tenga una (decisión de aislamiento total, 13/11/2026: el receptor de una cuenta corporativa solo
+  recibe lo suyo, y los demás receptores solo reciben las cuentas que enumeran).
+- `headersAs`: `bearer` (el secreto de `headersRef` es un token que se envía como `Authorization:
+  Bearer`) o `list` (el secreto es `nombre=valor,...`).
 - `schema`:
   - `official`: solo el esquema de Claude Code, sin atributos `fnharness.*`.
   - `enriched`: añade los `fnharness.*` de la sección 4.3.
@@ -255,10 +260,10 @@ En el esquema `enriched` van como `fnharness.account`, `fnharness.account_kind`,
 ### 4.4 Métricas de sesión (sin modelo)
 
 `session.count`, `active_time`, `lines_of_code`, `commit`, `pull_request` y `code_edit_tool.decision`
-van a la unión de `sinksFor(a)` para cada cuenta `a` que la sesión ha usado hasta ese momento: la de
-la sesión más cada cuenta que haya servido una petición. Se lleva con `sessionAccountsTouched` en
-`bootstrap/state.ts`. Un receptor que entra a mitad de sesión recibe `session.count=1` en ese
-momento (decisión D2).
+van **solo a `sinksFor(cuenta de la sesión)`**, aunque un subagente corra en otra cuenta (decisión de
+aislamiento total, 13/11/2026; sustituye a la unión de cuentas usadas del diseño original y a la D2).
+Cuando la cuenta de la sesión cambia a mitad de sesión (`/account`), un receptor que entra recibe su
+`session.count=1` en ese momento. Coste, tokens y eventos van a `sinksFor(cuenta de la petición)`.
 
 ### 4.5 `DISABLE_TELEMETRY` y privacidad
 
@@ -302,9 +307,9 @@ App nueva `apps/otel_sink` (sub-repo `dataforge/otel_sink`): un receptor OTLP/HT
 | 2 | Enrutado `anthropicAccountId` en `ProfileScope`; `getOauthAccountInfo` por ámbito | e2e: sesión en A, subagente `B:sonnet` llega a B con el token de B |
 | 3 | Remote settings y políticas por cuenta; diálogo por cuenta; el `env` OTel deja de ir a `process.env` | Test: rechazar el diálogo de B desactiva B y no cierra la sesión de A |
 | 4 | `/account` con identidad, modelo y receptores; cabecera en `/model`; statusline | Captura en pseudo-terminal con 3 cuentas |
-| 5 | `context.ts`, `sinks.ts` (`sinksFor`, `telemetry.json`), contadores N-arios, `logOTelEvent` real | Unitarias verdes |
-| 6 | Reparto por cuenta + `sessionAccountsTouched` + `DISABLE_TELEMETRY` | e2e de la sección 7 |
-| 7 | `/telemetry` (list, add, test). **Ya existe en versión informe** (13/11/2026): `/otel`, alias `/opentelemetry` y `/telemetry`, solo lectura (estado del build, cuenta, `OTEL_*` con origen, destinos, `telemetry.json`); faltan `add`, `test` y el último envío/error | Captura en pseudo-terminal |
+| 5 | `context.ts`, `sinks.ts` (`sinksFor`, `telemetry.json`), contadores N-arios, `logOTelEvent` real | Unitarias verdes. **Hecha (13/11/2026)** |
+| 6 | Reparto por cuenta + `DISABLE_TELEMETRY` (sin `sessionAccountsTouched`: ver 4.4) | e2e de la sección 7. **Hecha (13/11/2026)** |
+| 7 | `/telemetry` (list, add, test). **Ya existe en versión informe** (13/11/2026): `/otel`, alias `/opentelemetry` y `/telemetry`, solo lectura (estado del build, cuenta, `OTEL_*` con origen, destinos, `telemetry.json`); ahora con `add`, `test` y el último envío/error | e2e `-p` (`otel.e2e.test.ts`). **Hecha (13/11/2026)** |
 | 8 | `otel_sink` + tab del dashboard (si D4) | Sesión real deja filas por cuenta y modelo |
 | 9 | Prueba real con la empresa | Sección 8 |
 
@@ -316,7 +321,7 @@ Las fases 1 a 4 (cuentas) y 5 a 7 (telemetría) se pueden hacer en ramas separad
 - **Unitarias**:
   - `context.test.ts`: sin ámbito, ámbito OpenAI-compatible, ámbito Anthropic B desde sesión A, local
     frente a hosted.
-  - `sinks.test.ts`: `sinksFor` con `"*"` y listas; atributos `official` sin `fnharness.*`; identidad
+  - `sinks.test.ts`: `sinksFor` con listas explícitas (y `"*"` solo para demostrar por qué no se usa); atributos `official` sin `fnharness.*`; identidad
     por cuenta; redacción; `DISABLE_TELEMETRY` humano frente al del perfil.
   - `accounts.test.ts`: migración por copia, idempotente; `kind` por defecto.
 - **e2e** (`tests/e2e/otel_multiaccount.e2e.test.ts`):
@@ -327,7 +332,7 @@ Las fases 1 a 4 (cuentas) y 5 a 7 (telemetría) se pueden hacer en ramas separad
   - Esperado:
     - `corpA` solo ve lo de A, con el correo de A;
     - `corpB` solo ve lo de B, con el correo de B;
-    - `propio` ve las tres cuentas, con `fnharness.routed=true` en A y B;
+    - `propio`, ligado a `acctc` y A, ve esas dos cuentas (A con `fnharness.routed=true`) y nunca B;
     - ninguna cabecera aparece en stdout ni en el log de depuración.
 - **Salida rápida**: `-p "hola"` termina en menos de 3 s con todos los receptores caídos.
 
@@ -370,7 +375,7 @@ Las fases 1 a 4 (cuentas) y 5 a 7 (telemetría) se pueden hacer en ramas separad
 | Id | Pregunta | Opción por defecto propuesta |
 |---|---|---|
 | D1 | Qué cuentas van a cada receptor corporativo | Solo la cuenta dueña de esas `remote-settings` |
-| D2 | Métricas de sesión | A los receptores de todas las cuentas que la sesión ha usado |
+| D2 | Métricas de sesión | **Resuelta (13/11/2026):** solo a los receptores de la cuenta de la sesión |
 | D3 | Dónde se configuran los receptores propios | `<config>/telemetry.json` (0600) con `/telemetry` |
 | D4 | Nuestro receptor | `otel_sink` local con SQLite, sumando `llm_usage`; alternativa: backend existente en el VPS |
 | D5 | Prompts en el receptor propio | Apagado por defecto, activable por receptor |
@@ -425,3 +430,48 @@ identidad sin fugas, permisos, D7, panel) y `tests/e2e/multiClaude.e2e.test.ts` 
 Anthropic falsos con tokens distintos: cada petición lleva el suyo y el subagente `claude-b:sonnet`
 llega a B con el token de B; panel de `/account list` con 3 cuentas en pseudo-terminal; ajustes
 peligrosos de B pendientes, `/account approve` rechazado y la sesión en A sigue).
+
+## 13. Estado de las fases 5-7 (13/11/2026)
+
+Hecho, con decisión de **aislamiento total** de la persona: `claude-work` envía solo a su receptor
+managed (esquema `official`, sin `fnharness.*`, nada de otras cuentas); `claude`, `qwen36`, `ollama`,
+`zcode` y `venice` envían solo a `otel-3amdata` (OTLP/HTTP JSON con token en `pass ionos/otel-token`,
+esquema `enriched`, prompts redactados).
+
+- Fase 5: `src/utils/telemetry/context.ts` (puro), `sinks.ts` (puro: `SinkDef`, `parseUserSinks`,
+  `managedSinkFromEnv`, `sinksFor`, `sinkAttributes`, `eventMetadataFor`, `/telemetry add`),
+  `sinkRuntime.ts` (estado vivo, contadores N-arios, `logOTelEvent`, vaciado, estado), `sinkProviders.ts`
+  (SDK, carga perezosa). `state.ts`: `setMeter` pasa a `setCounters` (un contador es un objeto cuyo
+  `add()` reparte). `instrumentation.ts` y `events.ts` quedan como despachadores finos;
+  `isTelemetryEnabled()` devuelve `true` y `initializeTelemetryAfterTrust()` instala los contadores.
+- Fase 6: reparto por cuenta de la petición (ámbito) o de la sesión (métricas de sesión), identidad por
+  cuenta, vaciado en `gracefulShutdown` con tope de 2 s por receptor, un receptor caído deja una línea de
+  depuración. `DISABLE_TELEMETRY` de la persona apaga solo los receptores `user`; los perfiles ponen
+  `FNHARNESS_PROFILE_NO_TELEMETRY=1` (que `privacyLevel` sigue tratando como `no-telemetry`).
+- Fase 7: `/otel` y `/telemetry` (informe con receptores, cuentas ligadas, último envío y error),
+  `/telemetry test <id>` (POST directo de un punto de prueba para `http/json`, con el código HTTP) y
+  `/telemetry add`.
+
+Desviaciones:
+
+- **Un receptor `user` exige `accounts`** (lista o `"*"`); sin él se descarta con un aviso, en vez de
+  asumir `"*"`.
+- **`headersAs`** (`bearer`/`list`) es nuevo: el secreto de `headersRef` es un token o una lista.
+- **Las `OTEL_*` del entorno del proceso no crean receptores** (solo las de las remote-settings de una
+  cuenta y `telemetry.json`).
+- **Detalle de herramientas y prompts por receptor**: `redactIfDisabled` marca el texto y cada receptor
+  lo deja o lo redacta; `isToolDetailsLoggingEnabled()` es cierto si algún receptor de la petición lo
+  quiere y `tool_parameters`/`tool_input` se quitan en los demás.
+- **A un receptor `managed` no se le manda `/telemetry test`**: es de la organización.
+- **Sin diálogo del receptor corporativo mientras no haya petición de su cuenta**: su receptor se crea
+  al primer uso, y el informe lo lista «ligado, no recibe esta sesión» mientras tanto.
+- **Reintentos del exportador**: contra un receptor caído el SDK reintenta; por eso el vaciado final
+  corta a los 2 s y lo anota como error de ese receptor.
+
+Pruebas: `context.test.ts`, `sinks.test.ts`, `sinkRuntime.test.ts`, `otelReport.test.ts` y
+`tests/e2e/otel_multiaccount.e2e.test.ts` (tres receptores falsos, dos servidores Anthropic falsos y uno
+OpenAI-compatible: cada receptor ve solo lo suyo; ninguna credencial en stdout, stderr ni log; `-p
+"hola"` en menos de 3 s con todo caído) y `tests/e2e/otel.e2e.test.ts`.
+
+Pendiente: fase 8 (`otel_sink` local con SQLite y el tab del dashboard) y verificación con la empresa
+(fase 9, Datadog vía IT).
