@@ -51,6 +51,8 @@ export type AccountStatusInput = {
   speed: SpeedSummary | null
   /** USD per Mtok in/out when the catalog prices the model. */
   pricePerMtok: { input: number; output: number } | null
+  /** Perfil de contexto activo (/perfil) y si se modificó a mano; null/ausente = ninguno. */
+  profile?: { name: string; modified: boolean } | null
   now: number
 }
 
@@ -75,6 +77,8 @@ export type AccountStatusJson = {
   speed: Record<string, unknown> | null
   /** 'subscription' (claude), 'priced' (catalog price), 'free' (local server), 'unpriced' (no known price). */
   cost: { kind: 'subscription' | 'priced' | 'free' | 'unpriced'; input_per_mtok?: number; output_per_mtok?: number }
+  /** Perfil de contexto activo, o null si nadie eligió uno. */
+  profile: { name: string; modified: boolean } | null
 }
 
 /** Pure: the `fnharness` object the status bar command receives. */
@@ -110,6 +114,7 @@ export function buildAccountStatus(i: AccountStatusInput): AccountStatusJson {
       : null,
     speed: i.speed ? speedSummaryToJson(i.speed) : null,
     cost,
+    profile: i.profile ? { name: i.profile.name, modified: i.profile.modified } : null,
   }
 }
 

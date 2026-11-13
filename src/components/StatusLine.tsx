@@ -37,7 +37,10 @@ import { buildAccountStatus, contextSource, getServerInfo, refreshServerInfo } f
 import { getModelMaxOutputTokens } from '../utils/context.js';
 
 /** The `fnharness` block of the status bar input: account, real window, server and speed. */
-function buildFnharnessStatus(runtimeModel: string, contextWindowSize: number) {
+function buildFnharnessStatus(runtimeModel: string, contextWindowSize: number, perfil?: {
+  name: string;
+  modified: boolean;
+}) {
   const profile = getMultimodelProfile();
   refreshServerInfo(profile?.baseUrl);
   const server = getServerInfo(profile?.baseUrl);
@@ -68,6 +71,7 @@ function buildFnharnessStatus(runtimeModel: string, contextWindowSize: number) {
     maxOutputTokens: maxOutput,
     server,
     speed: getLastSpeedSummary(),
+    profile: perfil ?? null,
     pricePerMtok: priced?.costInput !== undefined && priced.costOutput !== undefined ? { input: priced.costInput, output: priced.costOutput } : null,
     now: Date.now()
   });
@@ -78,7 +82,10 @@ export function statusLineShouldDisplay(settings: ReadonlySettings): boolean {
   if (feature('KAIROS') && getKairosActive()) return false;
   return settings?.statusLine !== undefined;
 }
-function buildStatusLineCommandInput(permissionMode: PermissionMode, exceeds200kTokens: boolean, settings: ReadonlySettings, messages: Message[], addedDirs: string[], mainLoopModel: ModelName, vimMode?: VimMode): StatusLineCommandInput {
+function buildStatusLineCommandInput(permissionMode: PermissionMode, exceeds200kTokens: boolean, settings: ReadonlySettings, messages: Message[], addedDirs: string[], mainLoopModel: ModelName, vimMode?: VimMode, perfil?: {
+  name: string;
+  modified: boolean;
+}): StatusLineCommandInput {
   const agentType = getMainThreadAgentType();
   const worktreeSession = getCurrentWorktreeSession();
   const runtimeModel = getRuntimeMainLoopModel({
@@ -141,7 +148,7 @@ function buildStatusLineCommandInput(permissionMode: PermissionMode, exceeds200k
       remaining_percentage: getMocks().contextPct != null ? 100 - getMocks().contextPct! : contextPercentages.remaining
     },
     exceeds_200k_tokens: exceeds200kTokens,
-    fnharness: buildFnharnessStatus(runtimeModel, contextWindowSize),
+    fnharness: buildFnharnessStatus(runtimeModel, contextWindowSize, perfil),
     ...((rateLimits.five_hour || rateLimits.seven_day) && {
       rate_limits: rateLimits
     }),
@@ -199,6 +206,18 @@ function StatusLineInner({
   // re-reads settings.json on every call, so another session's /model write
   // would leak into this session's statusline (anthropics/claude-code#37596).
   const mainLoopModel = useMainLoopModel();
+  // FnHarness: perfil activo (/perfil) y si se tocó el scope a mano; viaja en el bloque `fnharness`.
+  const perfilName = useAppState(s => s.perfil?.name);
+  const perfilModified = useAppState(s => s.perfil?.modified ?? false);
+  const perfilKey = perfilName === undefined ? '' : `${perfilName}${perfilModified ? '*' : ''}`;
+  const perfilRef = useRef(perfilName === undefined ? undefined : {
+    name: perfilName,
+    modified: perfilModified
+  });
+  perfilRef.current = perfilName === undefined ? undefined : {
+    name: perfilName,
+    modified: perfilModified
+  };
 
   // Keep latest values in refs for stable callback access
   const settingsRef = useRef(settings);
@@ -219,12 +238,14 @@ function StatusLineInner({
     permissionMode: PermissionMode;
     vimMode: VimMode | undefined;
     mainLoopModel: ModelName;
+    perfilKey: string;
   }>({
     messageId: null,
     exceeds200kTokens: false,
     permissionMode,
     vimMode,
-    mainLoopModel
+    mainLoopModel,
+    perfilKey
   });
 
   // Debounce timer ref
@@ -252,7 +273,7 @@ function StatusLineInner({
         previousStateRef.current.messageId = currentMessageId;
         previousStateRef.current.exceeds200kTokens = exceeds200kTokens;
       }
-      const statusInput = buildStatusLineCommandInput(permissionModeRef.current, exceeds200kTokens, settingsRef.current, msgs, Array.from(addedDirsRef.current.keys()), mainLoopModelRef.current, vimModeRef.current);
+      const statusInput = buildStatusLineCommandInput(permissionModeRef.current, exceeds200kTokens, settingsRef.current, msgs, Array.from(addedDirsRef.current.keys()), mainLoopModelRef.current, vimModeRef.current, perfilRef.current);
       const text = await executeStatusLineCommand(statusInput, controller.signal, undefined, logResult);
       if (!controller.signal.aborted) {
         setAppState(prev => {
@@ -281,15 +302,16 @@ function StatusLineInner({
 
   // Only trigger update when assistant message, permission mode, vim mode, or model actually changes
   useEffect(() => {
-    if (lastAssistantMessageId !== previousStateRef.current.messageId || permissionMode !== previousStateRef.current.permissionMode || vimMode !== previousStateRef.current.vimMode || mainLoopModel !== previousStateRef.current.mainLoopModel) {
+    if (lastAssistantMessageId !== previousStateRef.current.messageId || permissionMode !== previousStateRef.current.permissionMode || vimMode !== previousStateRef.current.vimMode || mainLoopModel !== previousStateRef.current.mainLoopModel || perfilKey !== previousStateRef.current.perfilKey) {
       // Don't update messageId here — let doUpdate handle it so
       // exceeds200kTokens is recalculated with the latest messages
       previousStateRef.current.permissionMode = permissionMode;
       previousStateRef.current.vimMode = vimMode;
       previousStateRef.current.mainLoopModel = mainLoopModel;
+      previousStateRef.current.perfilKey = perfilKey;
       scheduleUpdate();
     }
-  }, [lastAssistantMessageId, permissionMode, vimMode, mainLoopModel, scheduleUpdate]);
+  }, [lastAssistantMessageId, permissionMode, vimMode, mainLoopModel, perfilKey, scheduleUpdate]);
 
   // When the statusLine command changes (hot reload), log the next result
   const statusLineCommand = settings?.statusLine?.command;

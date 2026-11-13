@@ -34,7 +34,8 @@ SESSION_ID=$(echo "$INPUT" | jq -r '.session_id // ""')
 ACC_ID=""; ACC_LABEL=""; ACC_PROVIDER=""; ACC_URL=""; ACC_LOCAL=false; ACC_MODEL=""; ACC_SRV_MODEL=""
 WIN_SRC=""; COMPACT_AT=""; MAX_OUT=""; SRV_ONLINE=""; SRV_NCTX=""
 SPD_TTFT=""; SPD_GEN=""; SPD_PROMPT=""; SPD_DRAFT_N=""; SPD_DRAFT_OK=""; COST_KIND=""
-eval "$(echo "$INPUT" | jq -r '.fnharness // empty | @sh "ACC_ID=\(.account.id // "") ACC_LABEL=\(.account.label // "") ACC_PROVIDER=\(.account.provider // "") ACC_URL=\(.account.base_url // "") ACC_LOCAL=\(.account.local // false) ACC_MODEL=\(.account.model // "") ACC_SRV_MODEL=\(.account.server_model // "") WIN_SRC=\(.context.source // "") COMPACT_AT=\(.context.autocompact_at // "") MAX_OUT=\(.context.max_output_tokens // "") SRV_ONLINE=\(if .server then .server.online else "" end) SRV_NCTX=\(.server.n_ctx // "") SPD_TTFT=\(.speed.ttft_s // "") SPD_GEN=\(.speed.generation_tokens_per_second // "") SPD_PROMPT=\(.speed.prompt_tokens_per_second // "") SPD_DRAFT_N=\(.speed.draft_tokens // "") SPD_DRAFT_OK=\(.speed.draft_accepted_tokens // "") COST_KIND=\(.cost.kind // "")"' 2>/dev/null)"
+PERFIL_NAME=""; PERFIL_MOD=false
+eval "$(echo "$INPUT" | jq -r '.fnharness // empty | @sh "ACC_ID=\(.account.id // "") ACC_LABEL=\(.account.label // "") ACC_PROVIDER=\(.account.provider // "") ACC_URL=\(.account.base_url // "") ACC_LOCAL=\(.account.local // false) ACC_MODEL=\(.account.model // "") ACC_SRV_MODEL=\(.account.server_model // "") WIN_SRC=\(.context.source // "") COMPACT_AT=\(.context.autocompact_at // "") MAX_OUT=\(.context.max_output_tokens // "") SRV_ONLINE=\(if .server then .server.online else "" end) SRV_NCTX=\(.server.n_ctx // "") SPD_TTFT=\(.speed.ttft_s // "") SPD_GEN=\(.speed.generation_tokens_per_second // "") SPD_PROMPT=\(.speed.prompt_tokens_per_second // "") SPD_DRAFT_N=\(.speed.draft_tokens // "") SPD_DRAFT_OK=\(.speed.draft_accepted_tokens // "") COST_KIND=\(.cost.kind // "") PERFIL_NAME=\(.profile.name // "") PERFIL_MOD=\(.profile.modified // false)"' 2>/dev/null)"
 NOT_CLAUDE=0
 [ -n "$ACC_ID" ] && [ "$ACC_ID" != "claude" ] && NOT_CLAUDE=1
 # En cuentas que no son Claude el modelo real es el del servidor o el id, nunca un alias de Claude.
@@ -387,6 +388,11 @@ if [ -n "$ACC_ID" ]; then
     LINE1="${LINE1} ${DIM}[${ACC_ID}]${RESET}"
 elif [ -n "${FNHARNESS_ACCOUNT_LABEL:-}" ]; then
     LINE1="${LINE1} ${DIM}[${FNHARNESS_ACCOUNT_LABEL}]${RESET}"
+fi
+# Perfil de contexto activo (/perfil); el asterisco marca que se tocó el scope a mano.
+if [ -n "$PERFIL_NAME" ]; then
+    PERFIL_MARK=""; [ "$PERFIL_MOD" = "true" ] && PERFIL_MARK="*"
+    LINE1="${LINE1} ${DIM}{${PERFIL_NAME}${PERFIL_MARK}}${RESET}"
 fi
 
 # 2. Contexto con barra y usado/total

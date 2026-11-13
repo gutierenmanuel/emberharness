@@ -52,6 +52,11 @@ describe('buildAccountStatus', () => {
     expect(s.speed).toMatchObject({ ttft_s: 0.42, generation_tokens_per_second: 42, prompt_tokens_per_second: 1500 })
   })
 
+  test('el perfil activo viaja en el bloque, con su marca de modificado', () => {
+    expect(buildAccountStatus(base).profile).toBeNull()
+    expect(buildAccountStatus({ ...base, profile: { name: 'minimo', modified: true } }).profile).toEqual({ name: 'minimo', modified: true })
+  })
+
   test('native account is a subscription with no server block', () => {
     const s = buildAccountStatus({ ...base, accountId: 'claude', provider: null, baseUrl: null, contextSource: 'claude', server: null })
     expect(s.cost.kind).toBe('subscription')
