@@ -79,8 +79,10 @@ export const DEFAULT_BINDINGS: KeybindingBlock[] = [
       // kitty keyboard protocol; the chord works in any terminal.
       'ctrl+enter': 'chat:sendNow',
       'ctrl+x ctrl+n': 'chat:sendNow',
-      // FnHarness: ← on an empty prompt opens the background sessions view.
+      // FnHarness: ← on an empty prompt opens the session switcher (all sessions on the
+      // machine); the chord opens it from anywhere, also with text in the prompt.
       left: 'chat:agentsView',
+      'ctrl+x ctrl+w': 'chat:sessionSwitcher',
       up: 'history:previous',
       down: 'history:next',
       // Editing shortcuts (defined here, migration in progress)
