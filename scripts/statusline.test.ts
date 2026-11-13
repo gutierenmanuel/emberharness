@@ -93,6 +93,51 @@ describe('statusline.sh', () => {
     expect(l3).not.toContain('⚡')
   })
 
+  describe('correo de la cuenta', () => {
+    const withEmail = (email: string | null) => ({ ...claude, fnharness: { ...claude.fnharness, account: { ...claude.fnharness.account, email, org: null } } })
+    // Un config falso con .claude.json y TMPDIR propio para que la cache no cruce tests.
+    function fakeConfig(email: string): { CLAUDE_CONFIG_DIR: string; TMPDIR: string } {
+      const dir = mkdtempSync(join(tmpdir(), 'fnh-cfg-'))
+      writeFileSync(join(dir, '.claude.json'), JSON.stringify({ oauthAccount: { emailAddress: email, accessToken: 'SECRETO' } }))
+      return { CLAUDE_CONFIG_DIR: dir, TMPDIR: mkdtempSync(join(tmpdir(), 'fnh-tmp-')) }
+    }
+
+    test('el correo del JSON se pinta junto a la etiqueta de la cuenta', () => {
+      const l3 = render(withEmail('persona@example.com'))[2]!
+      expect(l3).toContain('claude Anthropic persona@example.com')
+      expect(l3).toContain('ventana 200k')
+    })
+
+    test('sin correo la linea queda como siempre', () => {
+      expect(render(withEmail(null))[2]).toContain('claude Anthropic │ ventana 200k')
+      expect(render(claude)[2]).toContain('claude Anthropic │ ventana 200k')
+    })
+
+    test('cuenta OpenAI-compatible con correo: va tras la etiqueta y antes de la URL', () => {
+      const l3 = render({ ...qwen, fnharness: { ...qwen.fnharness, account: { ...qwen.fnharness.account, email: 'dueno@ejemplo.com' } } })[2]!
+      expect(l3).toContain('Qwen3.6 35B heretic (local) dueno@ejemplo.com @ localhost:8090')
+    })
+
+    test('respaldo: sin correo en el JSON lo lee de <config>/.claude.json y nunca imprime el token', () => {
+      const env = fakeConfig('respaldo@example.com')
+      const out = render(claude, env).join('\n')
+      expect(out).toContain('claude Anthropic respaldo@example.com')
+      expect(out).not.toContain('SECRETO')
+      // segunda pasada: misma salida, ahora desde la cache
+      expect(render(claude, env).join('\n')).toContain('respaldo@example.com')
+    })
+
+    test('respaldo solo para la cuenta claude: una OpenAI-compatible no hereda el correo de Anthropic', () => {
+      const out = render(qwen, fakeConfig('ajeno@example.com')).join('\n')
+      expect(out).not.toContain('ajeno@example.com')
+    })
+
+    test('sin bloque .fnharness (binario oficial) y con correo en el config aparece la linea de cuenta', () => {
+      const lines = render({ ...common, model: { display_name: 'X' } }, fakeConfig('oficial@example.com'))
+      expect(lines.some(l => l.includes('claude Anthropic oficial@example.com'))).toBe(true)
+    })
+  })
+
   test('hosted unpriced account says so instead of showing a fake Claude cost', () => {
     const hosted = { ...qwen, fnharness: { ...qwen.fnharness, account: { ...qwen.fnharness.account, id: 'deepseek', local: false, base_url: 'https://api.deepseek.com/v1' }, server: null, speed: null, cost: { kind: 'unpriced' } } }
     const [, l2, l3] = render(hosted)

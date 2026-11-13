@@ -35,6 +35,7 @@ import { getModelLimits, getMultimodelProfile } from '../services/api/openai-com
 import { getLastSpeedSummary } from '../services/api/openai-compat/speedStats.js';
 import { buildAccountStatus, contextSource, getServerInfo, refreshServerInfo } from '../services/api/openai-compat/statusInfo.js';
 import { getModelMaxOutputTokens } from '../utils/context.js';
+import { getOauthAccountInfo } from '../utils/auth.js';
 
 /** The `fnharness` block of the status bar input: account, real window, server and speed. */
 function buildFnharnessStatus(runtimeModel: string, contextWindowSize: number, perfil?: {
@@ -54,7 +55,11 @@ function buildFnharnessStatus(runtimeModel: string, contextWindowSize: number, p
   try {
     autoCompactAt = isAutoCompactEnabled() ? getAutoCompactThreshold(runtimeModel) : null;
   } catch {}
+  // Titular de la cuenta: solo la cuenta Anthropic nativa (OAuth) lo expone; las OpenAI-compatibles no.
+  const holder = profile ? undefined : getOauthAccountInfo();
   return buildAccountStatus({
+    email: holder?.emailAddress ?? null,
+    org: holder?.organizationName ?? null,
     accountId: process.env.FNHARNESS_ACCOUNT ?? 'claude',
     accountLabel: profile?.label ?? 'Claude',
     provider: profile?.provider ?? null,
