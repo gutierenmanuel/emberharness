@@ -169,6 +169,7 @@ import { type IDESelection, useIdeSelection } from '../hooks/useIdeSelection.js'
 import { getTools, assembleToolPool } from '../tools.js';
 import { filterMcpClientsByProfile, filterToolsByProfile, scopeLookup } from '../utils/contextProfile.js';
 import { effectiveSystemPrompts } from '../utils/perfil.js';
+import { getCwd } from '../utils/cwd.js';
 import type { AgentDefinition } from '../tools/AgentTool/loadAgentsDir.js';
 import { resolveAgentTools } from '../tools/AgentTool/agentToolUtils.js';
 import { resumeAgentBackground } from '../tools/AgentTool/resumeAgent.js';
