@@ -6,6 +6,7 @@ import { getOriginalCwd, getSessionId } from '../bootstrap/state.js'
 import type { SessionKind, SessionStatus } from './concurrentSessions.js'
 import { getClaudeConfigHomeDir } from './envUtils.js'
 import { isProcessRunning } from './genericProcessUtils.js'
+import { isCyberSession } from './peerLog.js'
 
 export type LiveSession = {
   pid: number
@@ -136,6 +137,7 @@ export async function sendToUdsSocket(
     sessionId: getSessionId(),
     cwd: getOriginalCwd(),
     name: process.env.CLAUDE_CODE_SESSION_NAME,
+    cyber: isCyberSession(),
   }
   await new Promise<void>((resolve, reject) => {
     const conn = createConnection(socketPath)

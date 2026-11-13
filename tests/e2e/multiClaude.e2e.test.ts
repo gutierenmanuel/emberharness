@@ -201,6 +201,24 @@ describe.skipIf(!hasCli)('several Claude accounts e2e', () => {
     expect(out + err).not.toContain(TOKEN_B)
   }, 100_000)
 
+  test('--perfil with a Claude account and model starts on that account with that model', async () => {
+    const a = fakeAnthropic(TOKEN_A, () => ({ text: 'FROM_A' }))
+    const b = fakeAnthropic(TOKEN_B, () => ({ text: 'FROM_B' }))
+    servers.push(a, b)
+    const { configDir, cwd } = sandboxWithAccounts(a.baseUrl, b.baseUrl)
+    mkdirSync(join(configDir, 'profiles'))
+    writeFileSync(join(configDir, 'profiles', 'emp.json'), JSON.stringify({ account: 'claude-b', model: 'haiku' }))
+    const env = cleanEnv(configDir)
+    const proc = Bun.spawn([CLI, '--perfil', 'emp', '-p', 'di hola'], { cwd, env, stdin: 'ignore', stdout: 'pipe', stderr: 'pipe', timeout: 90_000 })
+    const out = await new Response(proc.stdout).text()
+    await proc.exited
+    const bMsgs = b.seen.filter(s => s.path.endsWith('/v1/messages') && s.text.includes('di hola'))
+    expect(out).toContain('FROM_B')
+    expect(bMsgs.length).toBeGreaterThan(0)
+    expect(bMsgs.every(s => s.tokenOk && /haiku/.test(s.model ?? ''))).toBe(true)
+    expect(a.seen.filter(s => s.path.endsWith('/v1/messages') && s.text.includes('di hola'))).toHaveLength(0)
+  }, 100_000)
+
   test('/account list shows who each of 3 accounts is (pseudo-terminal)', async () => {
     const a = fakeAnthropic(TOKEN_A, () => ({ text: 'ok' }))
     const b = fakeAnthropic(TOKEN_B, () => ({ text: 'ok' }))

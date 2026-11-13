@@ -5,9 +5,11 @@ import { join } from 'path'
 import { parsePerfil } from './perfil.js'
 import {
   applyPerfilEnv,
+  bootPerfil,
   createPerfilFrom,
   getPerfil,
   getSimpleModeExtraTools,
+  hasExplicitAccount,
   syncSimpleModeExtraTools,
   listPerfiles,
   loadPerfilState,
@@ -127,5 +129,54 @@ describe('herramientas extra del modo bare', () => {
     expect(getSimpleModeExtraTools().size).toBe(0)
     syncSimpleModeExtraTools(undefined)
     expect(getSimpleModeExtraTools().size).toBe(0)
+  })
+})
+
+describe('cuenta del perfil al arrancar (--account > perfil > predeterminada)', () => {
+  const withCuenta = (extra: E = {}): E => {
+    const env: E = { ...sandbox(), ...extra }
+    put(env, 'conc.json', JSON.stringify({ account: 'zcode', model: 'glm-5.3' }))
+    return env
+  }
+
+  test('sin cuenta en el entorno, la del perfil se aplica (y su modelo si no es claude)', () => {
+    const env = withCuenta()
+    expect(bootPerfil(['--perfil', 'conc'], env)).toBeUndefined()
+    expect(env.CLAUDE_MULTIMODEL_ACCOUNT).toBe('zcode')
+    expect(env.CLAUDE_MULTIMODEL_MODEL).toBe('glm-5.3')
+  })
+
+  test('--account explícito (marca del lanzador) gana al perfil, aunque coincida con FNHARNESS_ACCOUNT', () => {
+    const env = withCuenta({ CLAUDE_MULTIMODEL_ACCOUNT: 'claude', FNHARNESS_ACCOUNT: 'claude', FNHARNESS_ACCOUNT_FLAG: '1' })
+    bootPerfil(['--perfil', 'conc'], env)
+    expect(env.CLAUDE_MULTIMODEL_ACCOUNT).toBe('claude')
+  })
+
+  test('una variable puesta a mano (sin FNHARNESS_ACCOUNT igual) también gana al perfil', () => {
+    const env = withCuenta({ CLAUDE_MULTIMODEL_ACCOUNT: 'ollama' })
+    bootPerfil(['--perfil', 'conc'], env)
+    expect(env.CLAUDE_MULTIMODEL_ACCOUNT).toBe('ollama')
+  })
+
+  test('la cuenta heredada de una sesión fnharness padre no gana al perfil', () => {
+    const env = withCuenta({ CLAUDE_MULTIMODEL_ACCOUNT: 'claude', FNHARNESS_ACCOUNT: 'claude' })
+    bootPerfil(['--perfil', 'conc'], env)
+    expect(env.CLAUDE_MULTIMODEL_ACCOUNT).toBe('zcode')
+  })
+
+  test('el modelo del perfil no va a CLAUDE_MULTIMODEL_MODEL en una cuenta Claude (kind anthropic)', () => {
+    const env = sandbox()
+    writeFileSync(join(env.CLAUDE_CONFIG_DIR!, 'accounts.json'), JSON.stringify({ accounts: { empresa: { kind: 'anthropic' } } }))
+    put(env, 'emp.json', JSON.stringify({ account: 'empresa', model: 'sonnet' }))
+    bootPerfil(['--perfil', 'emp'], env)
+    expect(env.CLAUDE_MULTIMODEL_ACCOUNT).toBe('empresa')
+    expect(env.CLAUDE_MULTIMODEL_MODEL).toBeUndefined()
+  })
+
+  test('hasExplicitAccount', () => {
+    expect(hasExplicitAccount({})).toBe(false)
+    expect(hasExplicitAccount({ CLAUDE_MULTIMODEL_ACCOUNT: 'a', FNHARNESS_ACCOUNT: 'a' })).toBe(false)
+    expect(hasExplicitAccount({ CLAUDE_MULTIMODEL_ACCOUNT: 'a', FNHARNESS_ACCOUNT: 'b' })).toBe(true)
+    expect(hasExplicitAccount({ CLAUDE_MULTIMODEL_ACCOUNT: 'a', FNHARNESS_ACCOUNT: 'a', FNHARNESS_ACCOUNT_FLAG: '1' })).toBe(true)
   })
 })
