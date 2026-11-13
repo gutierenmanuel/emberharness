@@ -141,7 +141,7 @@ El tipo indica cómo se ejecuta: `local` (texto), `local-jsx` (interfaz Ink) o `
 | `/session` | `/remote` | URL y QR de la sesión remota; solo en modo `--remote`. | local-jsx | No (requiere sesión remota) |
 | `/remote-env` | | Entorno remoto por defecto para sesiones teleport. | local-jsx | No (suscriptor y política `allow_remote_sessions`) |
 | `/login` | | Iniciar sesión (o cambiar de cuenta) en Anthropic. | local-jsx | No útil: solo gestiona cuentas Anthropic |
-| `/logout` | | Cierra sesión de Anthropic. | local-jsx | No útil |
+| `/logout [<id> [--yes]]` | | Sin argumento cierra la sesión de la cuenta `claude` (credenciales de la raíz), como siempre. Con `<id>` cierra solo esa cuenta Claude añadida: pide confirmación y borra `accounts/<id>/` y su entrada en `accounts.json` (sección 2.16). | local-jsx | No útil |
 | `/voice` | | Alterna el modo voz. Compilado por defecto (`VOICE_MODE`), pero exige `claude-ai` y el gate GrowthBook de voz. | local | No (OAuth y gate) |
 
 ### 2.8 Misceláneos
@@ -275,6 +275,35 @@ Comando integrado de solo lectura (tipo `local`, funciona también con `-p "/ote
 - los receptores propios de `<CLAUDE_CONFIG_DIR>/telemetry.json`, o que no hay ninguno.
 
 Las cabeceras salen siempre enmascaradas (`dd-api-key=***`): solo se muestra su nombre, nunca el valor; lo mismo vale para credenciales en URLs y para variables con `key`, `token` o `secret` en el nombre. `/otel --json` devuelve el mismo informe como JSON. La lógica pura (origen, destinos, enmascarado) está en `src/utils/telemetry/otelReport.ts`; el comando, en `src/commands/otel/`. El envío real de telemetría no está implementado: ver `docs/plans/otel_telemetry.md`.
+
+### 2.16 Varias cuentas Claude en un arnés (`/account` con OAuth de Anthropic)
+
+Una cuenta `kind: "anthropic"` en `accounts.json` es una cuenta Claude con su propio login OAuth. Sin `kind`, una cuenta sigue siendo OpenAI-compatible (los `accounts.json` antiguos valen igual). La cuenta `claude` es la de siempre: su login sigue en la raíz (`.credentials.json`, identidad en `.claude.json`). Cualquier otra guarda lo suyo en `<config>/accounts/<id>/`:
+
+| Fichero | Contenido |
+|---|---|
+| `credentials.json` (0600) | tokens OAuth de esa cuenta; carpeta en 0700 |
+| `oauth-account.json` (0600) | correo, organización, rol |
+| `remote-settings.json` (0600) | ajustes gestionados de su organización |
+| `policy-limits.json` (0600) | límites de política de su organización |
+
+| Comando | Efecto |
+|---|---|
+| `/account` (con `-p`, o `/account list`) | panel «Cuentas»: por cuenta, cabecera `── id · tipo ● sesión ──`, identidad (`correo · organización (org 3f2a…) · plan Team`, o la URL en las OpenAI-compatibles), modelo en uso o recordado y estado (`✓ lista`, `✗ sin login`, `✓ responde`, `✗ no responde`, `✗ desactivada`); para las cuentas Claude, el receptor de telemetría corporativo de sus remote-settings y las políticas que imponen. En la TUI abre el selector, con la identidad en la descripción de cada cuenta Claude |
+| `/account import <dir> --as <id>` | copia el login Claude de otro directorio de configuración (p. ej. `~/.fnharness-work`): credenciales, identidad, remote-settings y policy-limits. El origen solo se lee; sigue funcionando con su lanzador. Si su harness renueva el token antes, la cuenta importada adopta el más nuevo al leerlo |
+| `/account add claude <id>` | abre el login OAuth normal, pero lo guarda en `accounts/<id>/` y no toca la cuenta `claude`. Repetirlo sobre una cuenta Claude existente renueva su login |
+| `/account <id> [modelo]` | cambia la sesión a esa cuenta Claude (su token, su identidad, sus ajustes gestionados); también desde `/model` (`/model claude-work:opus` o el selector, cuya cabecera muestra `── Claude (Anthropic) (claude-work) · correo ──`) |
+| `/account approve <id>` | revisa los ajustes gestionados nuevos y peligrosos que trajo una cuenta a mitad de sesión (diálogo con la cuenta y su organización en la cabecera). Aceptar los aplica; rechazar deja la cuenta desactivada en la sesión, que sigue con las demás. Si es la cuenta de la sesión, rechazar cierra fnharness, como al arrancar |
+| `/account doctor [--fix]` | comprueba que credenciales y `accounts.json` estén en 0600 y las carpetas de cuenta en 0700; `--fix` los corrige |
+| `/logout <id> [--yes]` | cierra una cuenta Claude añadida (no `claude` ni la de la sesión) |
+
+La primera vez que se usa `/account` en un directorio con `.credentials.json` en la raíz y sin cuentas Claude registradas, se registra `claude` como `kind: anthropic` y se **copia** su login a `accounts/claude/` (la raíz no se toca; la copia se mantiene al día cuando este build guarda tokens o ajustes).
+
+Enrutado: `claude-work:sonnet` (agente, frontmatter, `/model`) usa el token de `claude-work` solo para esa petición; dentro de ese ámbito `getOauthAccountInfo()` y `getClaudeAIOAuthTokens()` responden por esa cuenta. Cada cuenta renueva su token con su propio cerrojo (`accounts/<id>.lock`). Una cuenta Claude puede declarar `baseUrl` (un proxy o un servidor de pruebas): sus peticiones y sus ajustes gestionados van ahí.
+
+Ajustes gestionados y políticas (decisión D7): aplican los de todas las cuentas Claude en uso en la sesión (la de la sesión y cada una que haya servido una petición), combinados con lo más restrictivo (`deny` se une, `allow` se interseca, una política está permitida solo si todas la permiten). La telemetría de una cuenta (`OTEL_*`, `CLAUDE_CODE_ENABLE_TELEMETRY`, `otelHeadersHelper`) ya no se escribe en `process.env`: es de esa cuenta (receptor futuro, fases 5-7 del plan) y `/otel` la muestra como tal. La primera petición de una cuenta que no es la de la sesión espera a sus ajustes; si trae ajustes peligrosos nuevos, la cuenta queda desactivada hasta `/account approve <id>`.
+
+Diseño: `docs/plans/otel_telemetry.md` (secciones 2 y 3); código en `src/services/accounts/`.
 
 ## 3. CLI de línea de comandos
 
