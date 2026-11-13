@@ -1,0 +1,6 @@
+{
+  "description": "Todo por defecto: todas las herramientas, CLAUDE.md, memoria, hooks, MCP y skills",
+  "systemPrompt": { "mode": "default" },
+  "tools": "default",
+  "context": { "bare": false, "claudeMd": true, "memory": true, "hooks": true, "mcp": true, "skills": true }
+}

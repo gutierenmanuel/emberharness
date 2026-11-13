@@ -2056,7 +2056,8 @@ async function* executeHooks({
     return
   }
 
-  if (isEnvTruthy(process.env.CLAUDE_CODE_SIMPLE) || isSafeMode()) {
+  // FNHARNESS_PERFIL_NO_HOOKS: un perfil de /perfil con hooks:false (caliente, se mira en cada llamada).
+  if (isEnvTruthy(process.env.CLAUDE_CODE_SIMPLE) || isSafeMode() || isEnvTruthy(process.env.FNHARNESS_PERFIL_NO_HOOKS)) {
     return
   }
 
@@ -3194,7 +3195,8 @@ async function executeHooksOutsideREPL({
   signal?: AbortSignal
   timeoutMs: number
 }): Promise<HookOutsideReplResult[]> {
-  if (isEnvTruthy(process.env.CLAUDE_CODE_SIMPLE) || isSafeMode()) {
+  // FNHARNESS_PERFIL_NO_HOOKS: un perfil de /perfil con hooks:false (caliente, se mira en cada llamada).
+  if (isEnvTruthy(process.env.CLAUDE_CODE_SIMPLE) || isSafeMode() || isEnvTruthy(process.env.FNHARNESS_PERFIL_NO_HOOKS)) {
     return []
   }
 

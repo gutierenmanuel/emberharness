@@ -1,0 +1,9 @@
+{
+  "description": "Modelo local pequeño (8B, 16k de contexto): bare, cuatro herramientas y prompt de una línea",
+  "systemPrompt": {
+    "mode": "replace",
+    "text": "Eres un agente que trabaja en el directorio actual. Para crear o cambiar ficheros llama SIEMPRE a la herramienta Write o Edit con ruta absoluta; nunca pegues el código en el chat. Responde en español, breve."
+  },
+  "tools": ["Read", "Write", "Edit", "Glob"],
+  "context": { "bare": true, "claudeMd": false, "memory": false, "hooks": false, "mcp": false, "skills": false }
+}

@@ -1,0 +1,6 @@
+{
+  "description": "Herramientas básicas con CLAUDE.md, sin MCP, memoria ni hooks",
+  "systemPrompt": { "mode": "default" },
+  "tools": ["Read", "Write", "Edit", "Glob", "Grep", "Bash"],
+  "context": { "bare": false, "claudeMd": true, "memory": false, "hooks": false, "mcp": false, "skills": true }
+}
