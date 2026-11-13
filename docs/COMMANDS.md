@@ -17,6 +17,22 @@ Con `fnharness --account ...` (o `CLAUDE_MULTIMODEL_PROVIDER`) el harness habla 
 
 `login` y `logout` solo se ocultan con Bedrock, Vertex o Foundry (`isUsing3PServices`); con `fnharness` siguen apareciendo, pero iniciar sesión no cambia el backend activo.
 
+### 2.12c Selector de sesiones (`/sesiones` y la flecha ←)
+
+El selector junta las sesiones de toda la máquina: las de fnharness y las de Claude Code (`<config>/sessions/<pid>.json` de `~/.fnharness`, `~/.claude` y `~/.claude-work`), las bg, las salas de Element sobre tmux (`~/.local/state/matrix_terminals`, o `MATRIX_TERMINALS_STATE_DIR`) y las ventanas de kitty (`/tmp/kitty-*`, o `FNHARNESS_KITTY_SOCKET_DIR`). Cada sesión sale con su origen (`kitty`, `tmux`, `element`, `head`, `bg`, `rec`), estado, título, directorio, cuenta y edad.
+
+| Entrada | Qué pasa |
+|---|---|
+| `←` con el prompt vacío | Abre el selector. Con texto en el prompt la flecha mueve el cursor como siempre. Se puede reasignar con la acción `chat:agentsView`. |
+| `ctrl+x ctrl+w` | Abre el selector también con texto en el prompt (acción `chat:sessionSwitcher`). |
+| Escribir | Filtra por palabras (todas deben aparecer en título, directorio, `cuenta:modelo`, origen o agente). |
+| `↑`/`↓`, `Enter` | Salta con la acción por defecto de la fila: enfoca la ventana de kitty, adjunta el tmux (Element y sesiones en tmux; `Ctrl+B d` vuelve) o abre el detalle si hay que reanudar. |
+| `→` | Detalle: datos, últimas líneas de la conversación y todas las acciones (enfocar, adjuntar, reanudar, bifurcar, enviar mensaje, parar una bg). `←` vuelve. |
+| `Esc` | Borra el filtro; con el filtro vacío, cierra. |
+| `/sesiones [list] [--json] [--todas]` | Lista en texto o JSON (una fila por sesión, sin duplicados); `--todas` añade las conversaciones de Element suspendidas. |
+
+Reglas: una sesión viva nunca se reanuda sobre su propio transcript (dos procesos escribirían el mismo `.jsonl`): solo se ofrece "Bifurcar aquí" (`--resume <sid> --fork-session`). Reanudar o bifurcar aquí cierra esta sesión y pide al lanzador `bin/fnharness` que relance el CLI en el directorio de la otra (`--chdir`); con `./cli` directo se muestra el comando a mano. Una conversación de `claude` no se reanuda en fnharness. Adjuntar a Element escribe en la misma TUI que el puente de Matrix, con `-f ignore-size`. Código: `src/utils/sessionDirectory/` (puro: `merge`, `origin`, `actions`, `rows`; impuro: `sources`, `jump/*`) y `src/components/sessions/`. Plan y estado: `docs/plans/session_switcher.md`.
+
 ## 2. Slash commands
 
 El registro está en la función memoizada `COMMANDS()` de `src/commands.ts`. Además de estos comandos integrados, el CLI carga skills (carpetas de skills, bundled, de plugins) y comandos de plugins, que no se listan aquí. Hay 71 comandos integrados incondicionales, más los condicionados por flag (sección 2.9) y los internos de Anthropic (sección 2.10).

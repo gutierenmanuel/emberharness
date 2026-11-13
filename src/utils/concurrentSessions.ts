@@ -14,6 +14,7 @@ import { errorMessage, isFsInaccessible } from './errors.js'
 import { isProcessRunning } from './genericProcessUtils.js'
 import { getPlatform } from './platform.js'
 import { jsonParse, jsonStringify } from './slowOperations.js'
+import { buildRecordOrigin } from './sessionRecord.js'
 import { getAgentId } from './teammate.js'
 
 export type SessionKind = 'interactive' | 'bg' | 'daemon' | 'daemon-worker'
@@ -84,6 +85,11 @@ export async function registerSession(): Promise<boolean> {
         startedAt: Date.now(),
         kind,
         entrypoint: process.env.CLAUDE_CODE_ENTRYPOINT,
+        // Marca del arnés y origen (kitty/tmux/Element) para el directorio de sesiones.
+        harness: 'fnharness',
+        origin: buildRecordOrigin(process.env),
+        account: process.env.FNHARNESS_ACCOUNT,
+        model: process.env.ANTHROPIC_MODEL,
         ...(feature('UDS_INBOX')
           ? (() => {
               /* eslint-disable @typescript-eslint/no-require-imports */
@@ -128,6 +134,16 @@ export async function registerSession(): Promise<boolean> {
  * file doesn't exist (session not registered), or read/write fails.
  */
 async function updatePidFile(patch: Record<string, unknown>): Promise<void> {
+  // En cola: dos parches seguidos (estado y cuenta al montar el REPL) leerían el
+  // mismo fichero y el último en escribir borraría el campo del otro.
+  const run = pidFileQueue.then(() => writePidFilePatch(patch))
+  pidFileQueue = run.catch(() => {})
+  await run
+}
+
+let pidFileQueue: Promise<void> = Promise.resolve()
+
+async function writePidFilePatch(patch: Record<string, unknown>): Promise<void> {
   const pidFile = join(getSessionsDir(), `${process.pid}.json`)
   try {
     const data = jsonParse(await readFile(pidFile, 'utf8')) as Record<
@@ -141,6 +157,12 @@ async function updatePidFile(patch: Record<string, unknown>): Promise<void> {
     )
   }
 }
+
+/**
+ * Mezcla campos en el registro de esta sesión (`sessions/<pid>.json`). Lo usa
+ * `useSessionRecordSync` para publicar cuenta, modelo y origen.
+ */
+export const patchSessionRecord = updatePidFile
 
 export async function updateSessionName(
   name: string | undefined,

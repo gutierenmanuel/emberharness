@@ -148,7 +148,7 @@ fi
 # Bucle de reinicio: /perfil escribe $CLAUDE_CONFIG_DIR/restart/<pid del lanzador>.args (un argumento
 # por línea) y sale con 75 cuando el perfil pedido no se puede aplicar en caliente (bare, hooks
 # apagados → encendidos). Con ese código y ese fichero se relanza el CLI con esos argumentos
-# (--resume <sesión> --perfil <x> [--account <c> --model <m>]); cualquier otra salida termina aquí.
+# (--resume <sesión> --perfil <x> [--account <c> --model <m>] [--chdir <dir>]); cualquier otra salida termina aquí.
 export FNHARNESS_LAUNCHER_PID=$$
 restart_file="$CLAUDE_CONFIG_DIR/restart/$$.args"
 child=0
@@ -185,6 +185,11 @@ while true; do
         --account) export CLAUDE_MULTIMODEL_ACCOUNT="${restart_args[$((i + 1))]}"; i=$((i + 2)) ;;
         --model)   export CLAUDE_MULTIMODEL_MODEL="${restart_args[$((i + 1))]}"; i=$((i + 2)) ;;
         --perfil)  perfil_arg="${restart_args[$((i + 1))]}"; i=$((i + 2)) ;;
+        # --chdir lo consume el lanzador (no llega al CLI): el CLI relanzado arranca en ese directorio.
+        --chdir)
+          if cd "${restart_args[$((i + 1))]}" 2>/dev/null; then :
+          else echo "fnharness: --chdir ignorado, no existe '${restart_args[$((i + 1))]}'" >&2; fi
+          i=$((i + 2)) ;;
         *)         set -- "$@" "${restart_args[$i]}"; i=$((i + 1)) ;;
       esac
     done
