@@ -4,6 +4,7 @@
 
 ### Novedades
 
+- las herramientas nativas `WebSearch` y `WebFetch` quedan desactivadas por defecto (solo funcionan con la API de Anthropic y cuestan dinero): se sustituyen por las del MCP `web_search` (`mcp__web_search__web_search` y `mcp__web_search__web_fetch`), que citan ahora los agentes integrados `claude-code-guide` y `verification`; `FNHARNESS_NATIVE_WEB=1` las reactiva
 - `/otel` (alias `/opentelemetry` y `/telemetry`): informe de solo lectura de qué pasa con la telemetría y a dónde se enviaría (estado del build, cuenta, variables `OTEL_*` con su origen, destinos, receptores propios de `telemetry.json`); las cabeceras salen siempre enmascaradas y `--json` da el mismo informe en JSON; no implementa todavía el envío real
 - la barra de estado muestra el correo de la cuenta en la línea de cuenta (cuenta Claude con OAuth; con el binario oficial lo lee de `<config>/.claude.json`) para distinguir de un vistazo la cuenta personal de la de empresa; el bloque `fnharness.account` lleva ahora `email` y `org`
 - selector de sesiones de toda la máquina: `←` con el prompt vacío (o `ctrl+x ctrl+w`) abre una lista agrupada por estado de las sesiones de fnharness y de Claude Code, las bg, las salas de Element sobre tmux y las ventanas de kitty, con filtro por palabras; `Enter` salta (enfoca kitty o adjunta tmux), `→` abre el detalle con reanudar o bifurcar aquí, enviar mensaje y parar; nuevo comando `/sesiones [--json] [--todas]`; el lanzador acepta `--chdir` en el reinicio y `BgSessionsDialog` desaparece

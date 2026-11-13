@@ -139,6 +139,7 @@ import { getDenyRuleForTool } from './utils/permissions/permissions.js'
 import { getSimpleModeExtraTools } from './utils/perfilStore.js'
 import { hasEmbeddedSearchTools } from './utils/embeddedTools.js'
 import { isEnvTruthy } from './utils/envUtils.js'
+import { isNativeWebEnabled } from './utils/nativeWeb.js'
 import { isPowerShellToolEnabled } from './utils/shell/shellToolUtils.js'
 import { isAgentSwarmsEnabled } from './utils/agentSwarmsEnabled.js'
 import { isWorktreeModeEnabled } from './utils/worktreeModeEnabled.js'
@@ -206,9 +207,10 @@ export function getAllBaseTools(): Tools {
     FileEditTool,
     FileWriteTool,
     NotebookEditTool,
-    WebFetchTool,
+    // FnHarness: WebFetch y WebSearch solo con FNHARNESS_NATIVE_WEB=1 (ver utils/nativeWeb.ts).
+    ...(isNativeWebEnabled() ? [WebFetchTool] : []),
     TodoWriteTool,
-    WebSearchTool,
+    ...(isNativeWebEnabled() ? [WebSearchTool] : []),
     TaskStopTool,
     AskUserQuestionTool,
     SkillTool,
