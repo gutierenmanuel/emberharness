@@ -90,6 +90,7 @@ import {
   SKIP_PRECOMPACT_THRESHOLD,
 } from './sessionStoragePortable.js'
 import { getSettings_DEPRECATED } from './settings/settings.js'
+import { matrixEmitEntry, matrixRecordingStart } from './matrixEventsRuntime.js'
 import { jsonParse, jsonStringify } from './slowOperations.js'
 import type { ContentReplacementRecord } from './toolResultStorage.js'
 import { validateUuid } from './uuid.js'
@@ -608,6 +609,13 @@ class Project {
   }
 
   private enqueueWrite(filePath: string, entry: Entry): Promise<void> {
+    // Matrix event channel (docs/matrix_events.md, v2): the main transcript's entries go out
+    // as `entry` events right when they are queued, in file order, without waiting for the flush.
+    // Subagent transcripts and other sessions' files have a different path; sidechain
+    // entries are skipped even if they land in the main file.
+    if (filePath === this.sessionFile && !(entry as { isSidechain?: boolean }).isSidechain) {
+      matrixEmitEntry(entry as unknown as Record<string, unknown>)
+    }
     return new Promise<void>(resolve => {
       let queue = this.writeQueues.get(filePath)
       if (!queue) {
@@ -1410,6 +1418,21 @@ export type TeamInfo = {
 //    messagesToKeep → not a prefix → not tracked → CB gets parentUuid=null
 //    (correct: truncates --continue chain at compact boundary).
 export async function recordTranscript(
+  messages: Message[],
+  teamInfo?: TeamInfo,
+  startingParentUuidHint?: UUID,
+  allMessages?: readonly Message[],
+): Promise<UUID | null> {
+  // The Matrix channel holds `turn_end` until the recordings in flight reach the transcript.
+  const recordingDone = matrixRecordingStart()
+  try {
+    return await recordTranscriptInner(messages, teamInfo, startingParentUuidHint, allMessages)
+  } finally {
+    recordingDone()
+  }
+}
+
+async function recordTranscriptInner(
   messages: Message[],
   teamInfo?: TeamInfo,
   startingParentUuidHint?: UUID,
@@ -2669,11 +2692,10 @@ export async function saveCustomTitle(
  * where the AI title lands after a mid-flight user rename.
  */
 export function saveAiGeneratedTitle(sessionId: UUID, aiTitle: string): void {
-  appendEntryToFile(getTranscriptPathForSession(sessionId), {
-    type: 'ai-title',
-    aiTitle,
-    sessionId,
-  })
+  const entry = { type: 'ai-title', aiTitle, sessionId }
+  appendEntryToFile(getTranscriptPathForSession(sessionId), entry)
+  // Matrix event channel: the title of the live session is part of its transcript.
+  if (sessionId === getSessionId()) matrixEmitEntry(entry)
 }
 
 /**

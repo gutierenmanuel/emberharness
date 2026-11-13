@@ -35,6 +35,12 @@ import {
   ResourceListChangedNotificationSchema,
   ToolListChangedNotificationSchema,
 } from '@modelcontextprotocol/sdk/types.js'
+import {
+  matrixMcpBegin,
+  matrixMcpExpect,
+  matrixMcpSettled,
+  matrixMcpTrack,
+} from '../../utils/matrixEventsRuntime.js'
 import omit from 'lodash-es/omit.js'
 import reject from 'lodash-es/reject.js'
 import {
@@ -1011,6 +1017,11 @@ export function useManageMCPConnections(
     let cancelled = false
 
     async function loadAndConnectMcpConfigs() {
+      // Matrix event channel: hold `ready` until the initial connections settle (no-op without FNHARNESS_EVENTS/INPUT).
+      matrixMcpBegin()
+      const matrixAttempts: Array<Promise<void>> = []
+      const noteAttempt = matrixMcpTrack(onConnectionAttempt)
+
       // Clear claude.ai MCP cache so we fetch fresh configs with current auth
       // state. This is important when authVersion changes (e.g., after login/
       // logout). Kick off the fetch now so it overlaps with loadAllPlugins()
@@ -1043,15 +1054,17 @@ export function useManageMCPConnections(
       const enabledConfigs = Object.fromEntries(
         Object.entries(configs).filter(([name]) => !isMcpServerDisabled(name)),
       )
-      getMcpToolsCommandsAndResources(
-        onConnectionAttempt,
-        enabledConfigs,
-      ).catch(error => {
-        logMCPError(
-          'useManageMcpConnections',
-          `Failed to get MCP resources: ${errorMessage(error)}`,
-        )
-      })
+      matrixMcpExpect(Object.keys(enabledConfigs))
+      matrixAttempts.push(
+        getMcpToolsCommandsAndResources(noteAttempt, enabledConfigs).catch(
+          error => {
+            logMCPError(
+              'useManageMcpConnections',
+              `Failed to get MCP resources: ${errorMessage(error)}`,
+            )
+          },
+        ),
+      )
 
       // Phase 2: Await claude.ai configs (started above; memoized — no second fetch)
       let claudeaiConfigs: Record<string, ScopedMcpServerConfig> = {}
@@ -1103,17 +1116,23 @@ export function useManageMCPConnections(
               ([name]) => !isMcpServerDisabled(name),
             ),
           )
-          getMcpToolsCommandsAndResources(
-            onConnectionAttempt,
-            enabledClaudeaiConfigs,
-          ).catch(error => {
-            logMCPError(
-              'useManageMcpConnections',
-              `Failed to get claude.ai MCP resources: ${errorMessage(error)}`,
-            )
-          })
+          matrixMcpExpect(Object.keys(enabledClaudeaiConfigs))
+          matrixAttempts.push(
+            getMcpToolsCommandsAndResources(
+              noteAttempt,
+              enabledClaudeaiConfigs,
+            ).catch(error => {
+              logMCPError(
+                'useManageMcpConnections',
+                `Failed to get claude.ai MCP resources: ${errorMessage(error)}`,
+              )
+            }),
+          )
         }
       }
+
+      // Every initial attempt (Claude Code and claude.ai servers) finished: announce it once.
+      void Promise.all(matrixAttempts).then(matrixMcpSettled)
 
       // Log server counts after both phases complete
       const allConfigs = { ...configs, ...claudeaiConfigs }

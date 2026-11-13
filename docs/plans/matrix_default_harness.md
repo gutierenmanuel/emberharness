@@ -385,6 +385,7 @@ debe mantener como Claude Code: `<config>/sessions/<pid>.json` (con el `sessionI
 | 6 Migración de agentes | **Preparada, no ejecutada** por decisión del dueño (seguimos con `claude` hasta probarlo en casa) | §10.2 |
 | 7 Cuenta por sala | Hecha (`!cuenta`, herencia con `account_from: dm`, pool); falta el coste en la cabecera | puente, `harnessaccount.go` |
 | 8 Cambio del default | **No hecha** (excluida expresamente) | — |
+| 9 Eventos v2 y `!arnes` | Hecha en las ramas `quick/matrix-events-v2` (fnharness y puente); **sin integrar ni desplegar** | §10.5 |
 
 ### 10.2 Requisitos previos, una sola vez
 
@@ -429,3 +430,46 @@ recargar los agentes uno a uno; cada uno puede volver a `claude` con una línea.
 cubiertos en una semana de uso real los puntos pendientes de la §7: hooks `SessionStart` y `PreToolUse
 AskUserQuestion` del `--settings` con fnharness, `/resume` interactivo, y el acceso de red de fnharness
 al marketplace de Anthropic al arrancar.
+
+### 10.5 Contrato v2 y arnés por sala (plan `matrix_fnharness_events`)
+
+El plan completo vive fuera del repo (`temp/matrix_fnharness_events/plan.md`; no hay un
+`docs/plans/matrix_fnharness_events.md`). Lo que cambia para la migración:
+
+- **Contrato v2** (`docs/matrix_events.md`, siempre aditivo sobre la v1; todos los eventos llevan `v: 2` y el
+  lector acepta `v >= 1`): `session_start.caps` (`entries`, `mcp`), el evento `entry` (el objeto exacto que
+  fnharness añade al transcript principal, con `input_id` si el prompt vino del FIFO y `truncated` si se
+  recortó) y `mcp_settled`. Las `entry` de un turno, incluida `system/turn_duration`, van antes de su
+  `turn_end`; tras `/clear` el fichero es el mismo con el `session_id` nuevo.
+- **Puente en modo entry**: con la capacidad `entries` la sala sale solo de las `entry` (el transcript
+  principal no se lee), con un cursor persistente `<state>/<perfil>/<sesión>.evcursor` y deduplicación exacta
+  por `input_id` (`br-…`). Permisos por `permission_prompt`, `ready`/`input_accepted` al despertar una
+  conversación y `mcp_settled` antes del primer mensaje: sin `capture-pane` salvo `!screen`. Con `claude`
+  (o un fnharness sin `entries`) el camino es el de siempre.
+- **`!arnes claude|fnharness`**: arnés por sala, en `<state>/<perfil>/<sesión>.harness`. Gana al
+  `terminal.harness` del agente; cambiarlo pide confirmación y abre una sesión nueva; `claude-work`
+  corre siempre en claude. Sin argumento muestra el vigente y de dónde sale. Es la vuelta atrás por sala.
+- **Reinicio del puente con la sesión viva**: el fichero de estado del lanzador (`<state>/<perfil>/<sesión>.json`)
+  no lleva `harness`, `events_file` ni `input_fifo`; solo los trae la salida JSON del lanzador. Tras un reinicio
+  el puente vuelve a llamar al lanzador (idempotente con la sesión viva, `created:false`) para recuperarlos
+  (`adoptChannels`); sin eso la sala caería al transcript y a la pantalla en mitad de un turno. Si el selector de
+  sesiones necesita esos campos en el fichero de estado, hay que añadirlos en el lanzador (aditivo).
+- **Requisito nuevo en la §10.2**: recompilar `./cli` DESPUÉS de integrar la rama v2 en fnharness; con un
+  `./cli` anterior el puente cae al camino del transcript (no anuncia `entries`) y `waitMCPReady` no espera
+  nada con fnharness.
+
+Orden de migración (las fases A-E del plan; cada una necesita al dueño con una sala real y todas se
+deshacen sin tocar las demás):
+
+| Fase | Sala o agente | Cuenta y modelo | Hecho cuando | Vuelta atrás |
+|---|---|---|---|---|
+| A | `bench-conv-ui` (dueño `@mcp-tester`, coste cero) con `harness: fnharness` | `llamacpp` o `mock` | `MATRIX_E2E=1 … -run E2E_BenchConv` pasa con eventos y el log muestra `terminal_fifo_*` sin `capture-pane` | `harness: claude` y reload |
+| B | `lista-compra` | `account: claude`, sonnet | Lista de la §10.3: mensaje, pregunta con botones, `!nueva`, `!screen`, nota de voz, reinicio del launcher sin pérdida | igual |
+| C | pc-a, **una conversación** con `!arnes fnharness` (la DM sigue en claude) | `account: claude` explícita (la activa de `~/.fnharness/accounts.json` puede ser `zcode`) | Un día de uso sin mensajes perdidos ni duplicados (auditoría `terminal-audit.jsonl`) | `!arnes claude` en esa sala |
+| D | `asistente-voz`, `fnzcode`, `fnclaude`, la DM de pc-a | por sala con `!cuenta` | Una semana sin incidencias | por sala o por agente |
+| E | Default global a `fnharness` (la fase 8 de arriba) | — | Tras D; `claude-work` sigue en claude a la fuerza | default de vuelta a `claude` |
+
+Riesgo conocido: una sala con `harness: fnharness` y sin `account` corre sobre la cuenta activa del arnés;
+fijar siempre la cuenta de forma explícita. Con `FNHARNESS_E2E=1` el piloto (`dev-scripts/run_harness_e2e.sh`
+del puente, con `FNHARNESS_APP` apuntando a un fnharness con v2) cubre los subtests j (sin transcript), k
+(`/clear` sin hook ni `syncLiveSession`), l (reinicio del puente a mitad de turno) y m (`!screen`).

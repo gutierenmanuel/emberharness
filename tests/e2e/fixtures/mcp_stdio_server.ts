@@ -12,6 +12,7 @@
  *   FIX_CALL_LOG    if set, every tools/call appends a JSON line {name, arguments} there
  *   FIX_CALL_REPLY  if set, text returned by tools/call instead of "called <name>"
  *   FIX_DIE_AFTER_MS if set, the process exits this many ms after initialize (crash loop)
+ *   FIX_INIT_DELAY_MS if set, the answer to initialize is delayed this many ms (slow server)
  */
 import { appendFileSync, existsSync, readFileSync, watchFile, writeFileSync } from 'fs'
 
@@ -41,6 +42,18 @@ function handle(msg: { id?: number | string; method?: string; params?: any }) {
   const { id, method } = msg
   if (method === 'initialize') {
     if (process.env.FIX_DIE_AFTER_MS) setTimeout(() => process.exit(1), Number(process.env.FIX_DIE_AFTER_MS))
+    if (process.env.FIX_INIT_DELAY_MS) {
+      const reply = {
+        jsonrpc: '2.0',
+        id,
+        result: {
+          protocolVersion: msg.params?.protocolVersion ?? '2025-06-18',
+          capabilities: { tools: { listChanged: true } },
+          serverInfo: { name: 'fixture', version: '1.0.0' },
+        },
+      }
+      return void setTimeout(() => send(reply), Number(process.env.FIX_INIT_DELAY_MS))
+    }
     return send({
       jsonrpc: '2.0',
       id,

@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, test } from 'bun:test'
+import { afterEach, beforeEach, describe, expect, spyOn, test } from 'bun:test'
 import { existsSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
@@ -11,8 +11,12 @@ import {
   parseInputLine,
   serializeEvent,
   stepFlow,
+  tallyMcp,
   toAskQuestions,
+  trimEntryForEvent,
   truncate,
+  MAX_ENTRY_LINE_BYTES,
+  MAX_TOOL_RESULT_CHARS,
   type EventBody,
   type FlowAction,
   type FlowEvent,
@@ -32,6 +36,13 @@ import {
   announceAskDialog,
   bindAskSubmit,
   markAskAnswered,
+  matrixDropChannelsForFork,
+  matrixEmitEntry,
+  matrixMcpBegin,
+  matrixMcpExpect,
+  matrixMcpSettled,
+  matrixMcpTrack,
+  matrixRecordingStart,
 } from './matrixEventsRuntime.js'
 
 const NOW = new Date('2026-10-24T17:02:11.120Z')
@@ -47,7 +58,7 @@ describe('buildEvent / serializeEvent', () => {
       type: 'turn_start',
       source: 'user',
     })
-    expect(MATRIX_EVENTS_VERSION).toBe(1)
+    expect(MATRIX_EVENTS_VERSION).toBe(2)
   })
 
   test('serializes to exactly one line', () => {
@@ -352,7 +363,7 @@ describe('createEventSink', () => {
     sink.close()
     const lines = readFileSync(path, 'utf8').trimEnd().split('\n')
     expect(lines.map(l => JSON.parse(l).seq)).toEqual([1, 2])
-    expect(JSON.parse(lines[1]!)).toMatchObject({ v: 1, session_id: 'sid', type: 'turn_start', source: 'user' })
+    expect(JSON.parse(lines[1]!)).toMatchObject({ v: 2, session_id: 'sid', type: 'turn_start', source: 'user' })
     expect(statSync(path).mode & 0o777).toBe(0o600)
   })
 
@@ -503,6 +514,8 @@ describe('runtime with the channel on', () => {
     handleInputLine('{"type":"prompt","id":"p2","text":"luego"}')
     matrixIdle(true)
     matrixTurnEnd('completed')
+    // turn_end waits briefly for the transcript (contract v2): the idle report above must not precede it.
+    await Bun.sleep(150)
     detach()
     expect(submitted).toEqual(['hola', 'luego'])
     const evs = read(events)
@@ -584,5 +597,312 @@ describe('runtime with the channel on', () => {
     expect(typeof stop).toBe('function')
     stop()
     expect(startFifoReader(join(dir, 'missing'), () => {})).toBeInstanceOf(Function)
+  })
+})
+
+// ── contract v2 ──────────────────────────────────────────────────────────
+
+describe('trimEntryForEvent', () => {
+  const toolResult = (content: unknown) => ({
+    type: 'user',
+    uuid: 'u1',
+    message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: 't1', content }] },
+  })
+  const firstBlock = (e: Record<string, unknown>) =>
+    ((e.message as { content: Array<Record<string, unknown>> }).content)[0]!
+
+  test('a tool_result text above 8 KB is cut with a marker and the original is not mutated', () => {
+    const big = 'x'.repeat(MAX_TOOL_RESULT_CHARS + 5000)
+    const entry = toolResult(big)
+    const snapshot = JSON.stringify(entry)
+    const { entry: out, truncated } = trimEntryForEvent(entry)
+    expect(truncated).toBe(true)
+    const content = firstBlock(out).content as string
+    expect(content.startsWith('x'.repeat(MAX_TOOL_RESULT_CHARS))).toBe(true)
+    expect(content).toContain('recortado: 5000 caracteres más')
+    expect(content.length).toBeLessThan(MAX_TOOL_RESULT_CHARS + 100)
+    expect(JSON.stringify(entry)).toBe(snapshot)
+    expect(out).not.toBe(entry)
+    expect(out.uuid).toBe('u1')
+  })
+
+  test('text parts inside a tool_result list are cut too; base64 images become a marker', () => {
+    const entry = toolResult([
+      { type: 'text', text: 'y'.repeat(MAX_TOOL_RESULT_CHARS + 1) },
+      { type: 'image', source: { type: 'base64', media_type: 'image/png', data: 'A'.repeat(100_000) } },
+      { type: 'text', text: 'corto' },
+    ])
+    const { entry: out, truncated } = trimEntryForEvent(entry)
+    expect(truncated).toBe(true)
+    const parts = firstBlock(out).content as Array<{ type: string; text: string }>
+    expect(parts[0]!.text).toContain('recortado')
+    expect(parts[1]).toEqual({ type: 'text', text: '[imagen omitida: image/png, 100000 caracteres base64]' })
+    expect(parts[2]).toEqual({ type: 'text', text: 'corto' })
+    expect(JSON.stringify(out).length).toBeLessThan(MAX_TOOL_RESULT_CHARS + 500)
+  })
+
+  test('an image block of the message itself is replaced', () => {
+    const entry = {
+      type: 'user',
+      message: { role: 'user', content: [{ type: 'image', source: { type: 'base64', media_type: 'image/jpeg', data: 'Zg==' } }] },
+    }
+    const { entry: out, truncated } = trimEntryForEvent(entry)
+    expect(truncated).toBe(true)
+    expect(firstBlock(out)).toEqual({ type: 'text', text: '[imagen omitida: image/jpeg, 4 caracteres base64]' })
+  })
+
+  test('a 5 MB result never reaches the reader as a line over the limit', () => {
+    const entry = toolResult('z'.repeat(5 * 1024 * 1024))
+    const { entry: out, truncated } = trimEntryForEvent(entry)
+    expect(truncated).toBe(true)
+    expect(Buffer.byteLength(JSON.stringify(out))).toBeLessThan(MAX_ENTRY_LINE_BYTES)
+  })
+
+  test('many results that add up past the limit tighten the cut until the line fits', () => {
+    const blocks = Array.from({ length: 400 }, (_, i) => ({ type: 'tool_result', tool_use_id: `t${i}`, content: 'q'.repeat(50_000) }))
+    const entry = { type: 'user', message: { role: 'user', content: blocks } }
+    const { entry: out, truncated } = trimEntryForEvent(entry)
+    expect(truncated).toBe(true)
+    expect(Buffer.byteLength(JSON.stringify(out))).toBeLessThan(MAX_ENTRY_LINE_BYTES)
+  })
+
+  test('a huge field outside the content keeps the identity of the entry and drops the content', () => {
+    const entry = { ...toolResult('ok'), toolUseResult: { stdout: 'w'.repeat(2 * 1024 * 1024) } }
+    const { entry: out, truncated } = trimEntryForEvent(entry)
+    expect(truncated).toBe(true)
+    expect(out.uuid).toBe('u1')
+    expect(out.toolUseResult).toBeUndefined()
+    expect(Buffer.byteLength(JSON.stringify(out))).toBeLessThan(MAX_ENTRY_LINE_BYTES)
+  })
+
+  test('nothing to trim: the same object comes back and truncated is false', () => {
+    const entry = {
+      type: 'assistant',
+      message: { role: 'assistant', content: [{ type: 'text', text: 'hola' }, { type: 'tool_use', id: 't', name: 'Bash', input: {} }] },
+    }
+    const r = trimEntryForEvent(entry)
+    expect(r.truncated).toBe(false)
+    expect(r.entry).toBe(entry)
+    const noMessage = { type: 'queue-operation', operation: 'enqueue' }
+    expect(trimEntryForEvent(noMessage).entry).toBe(noMessage)
+    const small = toolResult('corto')
+    expect(trimEntryForEvent(small)).toEqual({ entry: small, truncated: false })
+  })
+})
+
+describe('tallyMcp', () => {
+  test('counts connected and failed (needs-auth included); the rest of the expected ones are pending', () => {
+    const states = new Map([
+      ['a', 'connected'],
+      ['b', 'failed'],
+      ['c', 'needs-auth'],
+    ])
+    expect(tallyMcp(states, 5)).toEqual({ connected: 1, failed: 2, pending: 2 })
+    expect(tallyMcp(states, 3)).toEqual({ connected: 1, failed: 2, pending: 0 })
+    expect(tallyMcp(new Map(), 0)).toEqual({ connected: 0, failed: 0, pending: 0 })
+  })
+})
+
+describe('stepFlow with the MCP gate', () => {
+  test('ready and queued prompts wait for the initial MCP connections', () => {
+    let state = initialFlow
+    const out: string[] = []
+    for (const e of [
+      { kind: 'mcp_wait', wait: true },
+      { kind: 'idle', idle: true },
+      { kind: 'prompt', id: 'p1', text: 'hola' },
+      { kind: 'mcp_wait', wait: false },
+    ] as FlowEvent[]) {
+      const r = stepFlow(state, e)
+      state = r.state
+      out.push(...r.actions.map(a => (a.kind === 'emit' ? a.body.type : a.kind)))
+    }
+    expect(out).toEqual(['input_queued', 'input_accepted', 'submit'])
+  })
+})
+
+describe('runtime v2 (entries, caps, mcp_settled, fork)', () => {
+  let dir: string
+  const saved = { e: process.env.FNHARNESS_EVENTS, i: process.env.FNHARNESS_INPUT }
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), 'mx-v2-'))
+    delete process.env.FNHARNESS_INPUT
+    resetMatrixRuntimeForTesting()
+  })
+  afterEach(() => {
+    if (saved.e === undefined) delete process.env.FNHARNESS_EVENTS
+    else process.env.FNHARNESS_EVENTS = saved.e
+    if (saved.i === undefined) delete process.env.FNHARNESS_INPUT
+    else process.env.FNHARNESS_INPUT = saved.i
+    resetMatrixRuntimeForTesting()
+    rmSync(dir, { recursive: true, force: true })
+  })
+  const read = (path: string) =>
+    readFileSync(path, 'utf8').trimEnd().split('\n').map(l => JSON.parse(l) as Record<string, any>)
+  const types = (path: string) => read(path).map(e => e.type)
+
+  test('session_start announces caps; mcp only when the process will emit mcp_settled', () => {
+    const a = join(dir, 'a.jsonl')
+    process.env.FNHARNESS_EVENTS = a
+    matrixSessionStart({ resumed: false })
+    expect(read(a)[0]).toMatchObject({ v: 2, type: 'session_start', caps: ['entries'] })
+    resetMatrixRuntimeForTesting()
+    const b = join(dir, 'b.jsonl')
+    process.env.FNHARNESS_EVENTS = b
+    matrixSessionStart({ resumed: false, mcp: true })
+    expect(read(b)[0]).toMatchObject({ caps: ['entries', 'mcp'] })
+  })
+
+  test('without FNHARNESS_EVENTS an entry writes nothing and keeps no state', () => {
+    delete process.env.FNHARNESS_EVENTS
+    matrixEmitEntry({ type: 'user', uuid: 'u' })
+    const release = matrixRecordingStart()
+    release()
+    expect(existsSync(join(dir, 'ev.jsonl'))).toBe(false)
+  })
+
+  test('entries are emitted as they come, trimmed, in order; entries before session_start follow it', () => {
+    const events = join(dir, 'ev.jsonl')
+    process.env.FNHARNESS_EVENTS = events
+    matrixEmitEntry({ type: 'attachment', uuid: 'early' })
+    expect(existsSync(events)).toBe(false)
+    matrixSessionStart({ resumed: false })
+    matrixEmitEntry({ type: 'assistant', uuid: 'a1', message: { role: 'assistant', content: [{ type: 'text', text: 'hola' }] } })
+    matrixEmitEntry({
+      type: 'user',
+      uuid: 'u2',
+      message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: 't', content: 'k'.repeat(20_000) }] },
+    })
+    const evs = read(events)
+    expect(evs.map(e => e.type)).toEqual(['session_start', 'entry', 'entry', 'entry'])
+    expect(evs[1]!.entry.uuid).toBe('early')
+    expect(evs[2]).toMatchObject({ entry: { uuid: 'a1' } })
+    expect(evs[2]!.truncated).toBeUndefined()
+    expect(evs[3]!.truncated).toBe(true)
+    expect(evs.map(e => e.seq)).toEqual([1, 2, 3, 4])
+  })
+
+  test('the entry of a FIFO prompt carries its input_id once; other user entries do not', () => {
+    const events = join(dir, 'ev.jsonl')
+    process.env.FNHARNESS_EVENTS = events
+    matrixSessionStart({ resumed: false })
+    let uuid = ''
+    const detach = attachMatrixControls({
+      submit: (_t, u) => {
+        uuid = u
+      },
+      interrupt: () => {},
+    })
+    matrixIdle(true)
+    handleInputLine('{"type":"prompt","id":"br-7","text":"hola"}')
+    detach()
+    expect(uuid).not.toBe('')
+    matrixEmitEntry({ type: 'user', uuid: 'otro', message: { role: 'user', content: 'tecleado' } })
+    matrixEmitEntry({ type: 'user', uuid, message: { role: 'user', content: 'hola' } })
+    matrixEmitEntry({ type: 'user', uuid, message: { role: 'user', content: 'hola' } })
+    const entries = read(events).filter(e => e.type === 'entry')
+    expect(entries.map(e => e.input_id)).toEqual([undefined, 'br-7', undefined])
+  })
+
+  test('turn_end waits for the recordings in flight: every entry of the turn goes before it', async () => {
+    const events = join(dir, 'ev.jsonl')
+    process.env.FNHARNESS_EVENTS = events
+    matrixSessionStart({ resumed: false })
+    matrixIdle(true)
+    matrixTurnStart()
+    matrixEmitEntry({ type: 'assistant', uuid: 'a1' })
+    const done = matrixRecordingStart()
+    matrixTurnEnd('completed')
+    matrixIdle(true)
+    await Bun.sleep(120)
+    expect(types(events)).toEqual(['session_start', 'ready', 'turn_start', 'entry']) // still held
+    matrixEmitEntry({ type: 'assistant', uuid: 'a2' })
+    done()
+    await Bun.sleep(120)
+    expect(types(events)).toEqual(['session_start', 'ready', 'turn_start', 'entry', 'entry', 'turn_end', 'ready'])
+  })
+
+  test('a long turn waits for its system/turn_duration entry before turn_end', async () => {
+    const events = join(dir, 'ev.jsonl')
+    process.env.FNHARNESS_EVENTS = events
+    matrixSessionStart({ resumed: false })
+    matrixIdle(true)
+    const real = Date.now
+    let offset = 0
+    const spy = spyOn(Date, 'now').mockImplementation(() => real() + offset)
+    try {
+      matrixTurnStart()
+      offset = 31_000
+      matrixTurnEnd('completed')
+      await Bun.sleep(150)
+      expect(types(events)).toEqual(['session_start', 'ready', 'turn_start'])
+      // The REPL adds the duration after it called matrixTurnEnd.
+      matrixEmitEntry({ type: 'system', subtype: 'turn_duration', uuid: 'd1', durationMs: 31_000 })
+      await Bun.sleep(150)
+      expect(types(events)).toEqual(['session_start', 'ready', 'turn_start', 'entry', 'turn_end', 'ready'])
+    } finally {
+      spy.mockRestore()
+    }
+  })
+
+  test('a pending turn_end goes out before the next turn_start', () => {
+    const events = join(dir, 'ev.jsonl')
+    process.env.FNHARNESS_EVENTS = events
+    matrixSessionStart({ resumed: false })
+    matrixTurnStart()
+    const done = matrixRecordingStart()
+    matrixTurnEnd('completed')
+    matrixTurnStart()
+    done()
+    expect(types(events)).toEqual(['session_start', 'turn_start', 'turn_end', 'turn_start'])
+  })
+
+  test('mcp_settled: ready and queued prompts wait for it; it counts connected, failed and pending', () => {
+    const events = join(dir, 'ev.jsonl')
+    process.env.FNHARNESS_EVENTS = events
+    matrixMcpBegin() // the manager's effect runs before the REPL's: before session_start
+    matrixMcpBegin() // idempotent
+    matrixMcpExpect(['uno', 'dos', 'tres'])
+    matrixSessionStart({ resumed: false, mcp: true })
+    const submitted: string[] = []
+    const detach = attachMatrixControls({ submit: t => submitted.push(t), interrupt: () => {} })
+    matrixIdle(true)
+    handleInputLine('{"type":"prompt","id":"p1","text":"hola"}')
+    expect(types(events)).toEqual(['session_start', 'input_queued'])
+    expect(submitted).toEqual([])
+    const note = matrixMcpTrack((_p: { client: { name: string; type: string } }) => {})
+    note({ client: { name: 'uno', type: 'connected' } })
+    note({ client: { name: 'dos', type: 'failed' } })
+    matrixMcpSettled()
+    matrixMcpSettled() // once
+    detach()
+    expect(types(events)).toEqual(['session_start', 'input_queued', 'mcp_settled', 'input_accepted'])
+    expect(read(events)[2]).toMatchObject({ connected: 1, failed: 1, pending: 1 })
+    expect(submitted).toEqual(['hola'])
+  })
+
+  test('mcp_settled emitted before session_start still comes right after it, and releases ready', () => {
+    const events = join(dir, 'ev.jsonl')
+    process.env.FNHARNESS_EVENTS = events
+    matrixMcpBegin()
+    matrixMcpSettled()
+    matrixSessionStart({ resumed: false, mcp: true })
+    matrixIdle(true)
+    expect(types(events)).toEqual(['session_start', 'mcp_settled', 'ready'])
+    expect(read(events)[1]).toMatchObject({ connected: 0, failed: 0, pending: 0 })
+  })
+
+  test('matrixMcpBegin is a no-op without the channel (no gate, no event)', () => {
+    delete process.env.FNHARNESS_EVENTS
+    matrixMcpBegin()
+    matrixMcpSettled()
+    expect(existsSync(join(dir, 'ev.jsonl'))).toBe(false)
+  })
+
+  test('--fork-session drops the event and input variables from the environment', () => {
+    const env: NodeJS.ProcessEnv = { FNHARNESS_EVENTS: '/x/ev.jsonl', FNHARNESS_INPUT: '/x/in.fifo', OTRA: '1' }
+    expect(matrixDropChannelsForFork(env)).toBe(true)
+    expect(env).toEqual({ OTRA: '1' })
+    expect(matrixDropChannelsForFork(env)).toBe(false)
   })
 })
