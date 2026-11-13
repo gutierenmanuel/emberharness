@@ -89,6 +89,7 @@ export const KEYBINDING_ACTIONS = [
   'chat:submit',
   'chat:sendNow',
   'chat:agentsView',
+  'chat:sessionSwitcher',
   'chat:newline',
   'chat:undo',
   'chat:externalEditor',

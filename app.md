@@ -65,6 +65,7 @@ Un perfil agrupa system prompt, herramientas y contexto (CLAUDE.md, memoria, hoo
 - `src/services/api/openai-compat/`: `profiles.ts` (presets y perfil activo), `accounts.ts` (almacén de cuentas), `translate.ts`, `stream.ts`, `adapter.ts`.
 - `src/commands/account/`: el comando `/account`.
 - `src/utils/perfil.ts` (modelo puro), `perfilStore.ts` (fábrica, usuario y estado), `perfilRuntime.ts` (aplicar en caliente), `perfilRestart.ts` y `src/commands/perfil/`: los perfiles de contexto.
+- `src/utils/sessionDirectory/` (directorio de sesiones de toda la máquina: `merge`, `origin`, `actions`, `rows` puros; `sources` y `jump/*` con efectos), `src/components/sessions/` (selector con ← y `ctrl+x ctrl+w`) y `src/commands/sesiones/` (`/sesiones`).
 - `statusline.sh`: statusbar propio (copia adaptada del de Claude Code; sin sidecars de agentsadmin; muestra `[cuenta]`).
 - `docs/COMMANDS.md` y `docs/EDITING.md`: catálogo de comandos y guía para modificar el sistema.
 

@@ -1,0 +1,4 @@
+[
+{"listenOn":"unix:/tmp/kitty-1000","windowId":3,"pid":1061200,"foregroundPids":[1061307],"cwd":"/home/user/fn_registry","title":"fnharness","isFocused":true},
+{"listenOn":"unix:/tmp/kitty-1000","windowId":4,"pid":1070000,"foregroundPids":[1070000],"cwd":"/home/user","title":"zsh","isFocused":false}
+]

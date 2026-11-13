@@ -16,11 +16,11 @@ export type Tui = {
   stop: () => Promise<void>
 }
 
-export function startTui(env: Record<string, string | undefined>, cwd: string, columns = 140): Tui {
+export function startTui(env: Record<string, string | undefined>, cwd: string, columns = 140, cmd: string = CLI): Tui {
   const clean: Record<string, string | undefined> = { ...env, COLUMNS: String(columns), LINES: '40', TERM: 'xterm-256color' }
   delete clean.TMUX
   delete clean.TMUX_PANE
-  const proc = Bun.spawn(['script', '-qc', `stty cols ${columns} rows 40 2>/dev/null; exec ${CLI}`, '/dev/null'], {
+  const proc = Bun.spawn(['script', '-qc', `stty cols ${columns} rows 40 2>/dev/null; exec ${cmd}`, '/dev/null'], {
     cwd,
     env: clean,
     stdin: 'pipe',

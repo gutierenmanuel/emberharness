@@ -66,7 +66,7 @@ import { isBilledAsExtraUsage } from '../../utils/extraUsage.js';
 import { getFastModeUnavailableReason, isFastModeAvailable, isFastModeCooldown, isFastModeEnabled, isFastModeSupportedByModel } from '../../utils/fastMode.js';
 import { isFullscreenEnvEnabled } from '../../utils/fullscreen.js';
 import type { PromptInputHelpers } from '../../utils/handlePromptSubmit.js';
-import { BgSessionsDialog } from '../tasks/BgSessionsDialog.js';
+import { SessionSwitcher } from '../sessions/SessionSwitcher.js';
 import { getImageFromClipboard, PASTE_THRESHOLD } from '../../utils/imagePaste.js';
 import type { ImageDimensions } from '../../utils/imageResizer.js';
 import { cacheImagePath, storeImage } from '../../utils/imageStore.js';
@@ -1643,11 +1643,18 @@ function PromptInput({
     });
   }, [addNotification, onImagePaste]);
 
-  // chat:agentsView — ← on an empty prompt opens the background sessions view;
-  // with text in the prompt it returns false so the cursor still moves.
+  // chat:agentsView — ← on an empty prompt opens the session switcher (every
+  // session on the machine); with text in the prompt it returns false so the
+  // cursor still moves. chat:sessionSwitcher (ctrl+x ctrl+w) opens it with text too.
   const [showBgSessions, setShowBgSessions] = useState(false);
   useKeybinding('chat:agentsView', () => {
     if (input !== '' || suggestions.length > 0 || footerItemSelected || isSearchingHistory || mode !== 'prompt' || historyIndex > 0) return false;
+    setShowBgSessions(true);
+  }, {
+    context: 'Chat',
+    isActive: !isModalOverlayActive && !showBashesDialog && !showBgSessions
+  });
+  useKeybinding('chat:sessionSwitcher', () => {
     setShowBgSessions(true);
   }, {
     context: 'Chat',
@@ -2149,7 +2156,7 @@ function PromptInput({
   const autoModeOptInDialog = useMemo(() => feature('TRANSCRIPT_CLASSIFIER') && showAutoModeOptIn ? <AutoModeOptInDialog onAccept={handleAutoModeOptInAccept} onDecline={handleAutoModeOptInDecline} /> : null, [showAutoModeOptIn, handleAutoModeOptInAccept, handleAutoModeOptInDecline]);
   useSetPromptOverlayDialog(isFullscreenEnvEnabled() ? autoModeOptInDialog : null);
   if (showBgSessions) {
-    return <BgSessionsDialog onDone={() => setShowBgSessions(false)} />;
+    return <SessionSwitcher onDone={() => setShowBgSessions(false)} />;
   }
   if (showBashesDialog) {
     return <BackgroundTasksDialog onDone={() => setShowBashesDialog(false)} toolUseContext={getToolUseContext(messages, [], new AbortController(), mainLoopModel)} initialDetailTaskId={typeof showBashesDialog === 'string' ? showBashesDialog : undefined} />;

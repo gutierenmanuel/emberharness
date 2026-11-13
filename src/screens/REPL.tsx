@@ -196,6 +196,7 @@ import { isBgSession, updateSessionName, updateSessionActivity } from '../utils/
 import { isInProcessTeammateTask, type InProcessTeammateTaskState } from '../tasks/InProcessTeammateTask/types.js';
 import { restoreRemoteAgentTasks } from '../tasks/RemoteAgentTask/RemoteAgentTask.js';
 import { useInboxPoller } from '../hooks/useInboxPoller.js';
+import { useSessionRecordSync } from '../hooks/useSessionRecordSync.js';
 // Dead code elimination: conditional import for loop mode
 /* eslint-disable @typescript-eslint/no-require-imports */
 const proactiveModule = feature('PROACTIVE') || feature('KAIROS') ? require('../proactive/index.js') : null;
@@ -1174,6 +1175,9 @@ export function REPL({
       });
     }
   }, [sessionStatus, waitingFor]);
+
+  // Cuenta, modelo y origen en el registro de la sesión, para /sesiones y el selector de ←.
+  useSessionRecordSync(mainLoopModel);
 
   // 3P default: off — OSC 21337 is ant-only while the spec stabilizes.
   // Gated so we can roll back if the sidebar indicator conflicts with

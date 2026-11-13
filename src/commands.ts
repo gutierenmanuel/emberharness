@@ -120,6 +120,7 @@ const buddy = feature('BUDDY')
   : null
 /* eslint-enable @typescript-eslint/no-require-imports */
 import forkCmd from './commands/fork/index.js'
+import sesiones from './commands/sesiones/index.js'
 import subtaskCmd from './commands/subtask/index.js'
 import thinkback from './commands/thinkback/index.js'
 import thinkbackPlay from './commands/thinkback-play/index.js'
@@ -356,6 +357,7 @@ const COMMANDS = memoize((): Command[] => [
   ...(!isUsing3PServices() ? [logout, login()] : []),
   passes,
   ...(peersCmd ? [peersCmd] : []),
+  sesiones,
   tasks,
   ...(workflowsCmd ? [workflowsCmd] : []),
   ...(torch ? [torch] : []),
