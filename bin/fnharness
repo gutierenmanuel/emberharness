@@ -107,6 +107,19 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
+# Lista de to-dos (TaskCreate/TaskList) por proyecto, no por sesión: el id sale del repo git
+# principal del directorio de arranque (git-common-dir, así sus worktrees comparten lista) y la
+# lista sobrevive al cerrar la sesión. Fuera de git, o con FNHARNESS_TASK_LIST_PER_SESSION=1,
+# vuelve a ser por sesión. Un CLAUDE_CODE_TASK_LIST_ID explícito manda. Skill: to_dos.
+if [[ -z "${CLAUDE_CODE_TASK_LIST_ID:-}" && "${FNHARNESS_TASK_LIST_PER_SESSION:-}" != 1 ]]; then
+  if common="$(git rev-parse --path-format=absolute --git-common-dir 2>/dev/null)"; then
+    proj="$(dirname "$common")"
+    hash="$(printf '%s' "$proj" | sha1sum | cut -c1-8)"
+    name="$(basename "$proj" | tr -c 'A-Za-z0-9_-' '_')"
+    export CLAUDE_CODE_TASK_LIST_ID="proj-${name%_}-$hash"
+  fi
+fi
+
 if [[ ! -x "$cli" ]]; then
   echo "fnharness: compilando por primera vez..." >&2
   (cd "$app" && PATH="$HOME/.local/bun-npm/node_modules/.bin:$PATH" bun install && bun run build) >&2

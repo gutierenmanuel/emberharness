@@ -4,6 +4,7 @@
 
 ### Novedades
 
+- la lista de to-dos (`TaskCreate`/`TaskList`) es por proyecto: el lanzador fija `CLAUDE_CODE_TASK_LIST_ID` desde el repo git principal del directorio de arranque (sus worktrees comparten lista) y sobrevive al cerrar la sesión; fuera de git o con `FNHARNESS_TASK_LIST_PER_SESSION=1` sigue siendo por sesión
 - cuentas, claves (`keyRef`), presets de proveedor, modelos Claude y tarifas salen de `accounts.json`, `providers.json` y `claude-models.json`, con recarga en caliente
 - Sonnet 5.5 y Opus 5.5 como modelos por defecto de los alias `sonnet` y `opus`, con tarifa y ventana de 1M
 - Haiku 5.5 y Fable 5.1 en `claude-models.json` (el alias `haiku` pasa a Haiku 5.5); Haiku 5.5 cobra el tramo de prompts de más de 100k tokens con `longPromptTokens` y `longPricing`
