@@ -43,6 +43,15 @@ per request (MCP servers by config scope, skills by origin, built-in tools full/
 per account (`contextProfile` in `accounts.json` / `.claude.json`); local backends default to Simple.
 Not behind a feature flag. See `docs/plans/context_profile.md`.
 
+FnHarness note (13/11/2026, perfiles): `/perfil` and `--perfil <name>` (also `FNHARNESS_PROFILE`) apply a
+named context profile: system prompt (default/replace/append), built-in tool list, and CLAUDE.md,
+memory, hooks, MCP (all/none/list) and skills, plus an optional account and model. It sits on top of the
+`/scope` machinery (`toolNames` and `mcpServers` lists in the context profile). Factory profiles
+(`full`, `simple`, `minimo`) live in `src/config/defaults/perfiles/`; yours in
+`<config dir>/profiles/<name>.json`; state in `<config dir>/profiles.json`. Everything is hot except
+changing `bare` and turning hooks back on, which restart the session through the launcher (exit code
+75 plus `restart/<pid>.args`). Not behind a feature flag. See `docs/COMMANDS.md` section 2.14.
+
 FnHarness note (24/10/2026, mcp-reload): MCP servers hot-reload without a restart and none of it is
 behind a build flag. `/mcp reload [server]` and `/mcp reconnect all`; a watcher over every
 `.mcp.json` from the cwd upwards and the global `.claude.json` (set `FNHARNESS_MCP_WATCH=0` to turn it

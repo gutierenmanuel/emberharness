@@ -223,6 +223,31 @@ Comando integrado (tipo `local-jsx`). Decide qué entra al modelo en cada petici
 
 Ejes: `mcp` filtra servidores por el `scope` de su config (`folder` = project/local, `user` = user); `skill` filtra lo que ve el modelo por origen (`folder` = `.claude` del proyecto, `user` = `~/.claude`; con `none` no se envía `SkillTool`); `tools` deja todas las integradas, solo Bash/Read/Write/Edit/Glob/Grep (`simple`) o ninguna (`none`, con un prompt de sistema corto de chat). El pie muestra `ctx: <perfil> ~Nk tok`. `FNHARNESS_CONTEXT_PROFILE` fuerza el perfil al arrancar sin tocar lo guardado. Diseño y medidas: `docs/plans/context_profile.md`.
 
+### 2.14 `/perfil` (perfiles de contexto)
+
+Comando integrado (tipo `local-jsx`). Un perfil agrupa con un nombre el system prompt, las herramientas y qué contexto llega al modelo (CLAUDE.md, memoria, hooks, MCP, skills), más una cuenta y un modelo opcionales. Es una capa encima de `/scope`: el perfil se traduce a un scope (con listas exactas de herramientas y de servidores MCP) y el resto de ejes se aplican con las variables de entorno que ya miran CLAUDE.md, la memoria y los hooks.
+
+| Entrada | Qué pasa |
+|---|---|
+| `/perfil` | Selector de perfiles con descripción y coste aproximado en tokens (sistema, tools, skills, CLAUDE.md). |
+| `/perfil <nombre>` | Aplica el perfil desde el siguiente turno. Si trae `account`, cambia de cuenta antes. Si no se puede en caliente, avisa y reinicia la sesión. |
+| `/perfil nuevo <nombre>` | Escribe `<CLAUDE_CONFIG_DIR>/profiles/<nombre>.json` con lo que tiene la sesión ahora y muestra la ruta. No pisa un fichero existente. |
+| `fnharness --perfil <nombre>` | Arranca con ese perfil. Resolución: `--perfil` > `FNHARNESS_PROFILE` > `default` > `active` de `profiles.json`. Sin ninguno manda el scope recordado por cuenta. |
+
+Formato (JSON en `<CLAUDE_CONFIG_DIR>/profiles/<nombre>.json`; el del usuario sustituye al de fábrica del mismo nombre):
+
+```json
+{ "description": "8B local, 16k",
+  "systemPrompt": { "mode": "default|replace|append", "text": "...", "file": "ruta relativa a profiles/" },
+  "tools": "default" | ["Read","Write","Edit","Glob"],
+  "context": { "bare": false, "claudeMd": true, "memory": true, "hooks": true, "mcp": true | ["registry"], "skills": true },
+  "account": "opcional", "model": "opcional" }
+```
+
+`replace` y `append` exigen `text` o `file`. `bare: true` fuerza `claudeMd`, `memory` y `hooks` a false. En `text` (y en el fichero) `{cwd}` se sustituye por el directorio de trabajo: un prompt de reemplazo no lleva la información de entorno y un modelo pequeño que no sabe dónde está inventa rutas. Perfiles de fábrica (`src/config/defaults/perfiles/`): `full` (todo por defecto), `simple` (Read, Write, Edit, Glob, Grep, Bash; sin MCP, memoria ni hooks) y `minimo` (bare, Read, Write, Edit, Glob, prompt de una línea, para un modelo local de 8B con 16k de contexto). El estado va en `<CLAUDE_CONFIG_DIR>/profiles.json` (`{default, active}`, 0600; `/perfil <n>` fija `active`).
+
+En caliente (desde el siguiente turno): herramientas, MCP (todos, ninguno o una lista), skills, system prompt (un `--system-prompt` explícito gana al del perfil; `append` se suma detrás), memoria y CLAUDE.md. Con reinicio: cambiar `bare` en cualquier sentido y pasar los hooks de apagados a encendidos. El reinicio lo hace el lanzador: el CLI escribe `restart/<pid del lanzador>.args` y sale con 75, y `bin/fnharness` relanza con `--resume <sesión> --perfil <x>` conservando `--account` y `--model`. Con `-p`, con `FNHARNESS_NO_RESTART=1` o ejecutando `./cli` directamente no hay bucle: `/perfil` imprime el comando a escribir. El modelo de un perfil solo se aplica con su cuenta; un perfil con `account` bare añade a Bash/Read/Edit las herramientas que nombra. `/scope` y Ctrl+Tab ajustan el scope encima y marcan el perfil como modificado (`nombre*` en la barra de estado). `/account` ya no pisa el scope de un perfil activo.
+
 ## 3. CLI de línea de comandos
 
 Forma general: `claude [options] [command] [prompt]`; el binario es `./cli` (también `bin.claude` y `bin.claude-multimodel` en `package.json`). Por defecto abre una sesión interactiva; `-p/--print` imprime y sale. Versión: `./cli --version` devuelve `2.1.87 (Claude Code)`.
@@ -353,6 +378,7 @@ Integraciones y depuración:
 | Flag de `fnharness` | Variable que fija | Descripción |
 |---|---|---|
 | `--account <nombre>` | `CLAUDE_MULTIMODEL_PROVIDER` | Preset de backend. |
+| `--perfil <nombre>` | | Perfil de contexto (`/perfil`); se acepta en cualquier posición y se reenvía al CLI. El lanzador relanza el CLI cuando `/perfil` pide un reinicio (salida 75 y `restart/<pid>.args`). |
 | `--model <id>` | `CLAUDE_MULTIMODEL_MODEL` | Modelo principal enviado al backend. |
 | `--small-model <id>` | `CLAUDE_MULTIMODEL_SMALL_MODEL` | Modelo para llamadas baratas o de fondo. |
 | `--base-url <url>` | `CLAUDE_MULTIMODEL_BASE_URL` | Sobrescribe la URL del preset. |
