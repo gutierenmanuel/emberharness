@@ -149,7 +149,7 @@ function resolveTarget(
 ): ResolvedFallback | null {
   const accountId = t.account ?? activeAccount()
   try {
-    if (accountId === CLAUDE_ACCOUNT_ID) {
+    if (accountId === CLAUDE_ACCOUNT_ID || store.accounts[accountId]?.kind === 'anthropic') {
       return { target: t, accountId, profile: null, model: t.model ?? '', index }
     }
     const withModel: AccountStore = t.model

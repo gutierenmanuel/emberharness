@@ -25,7 +25,18 @@ import {
 
 export const CLAUDE_ACCOUNT_ID = 'claude'
 
+/**
+ * `anthropic`: a Claude account with its own OAuth login; its tokens and
+ * organisation data live in `<config>/accounts/<id>/` (services/accounts).
+ * `openai_compat` (the default, so older accounts.json files keep working):
+ * an OpenAI-compatible backend built from a provider preset.
+ */
+export type AccountKind = 'anthropic' | 'openai_compat'
+
 export type StoredAccount = {
+  kind?: AccountKind
+  /** Directory an anthropic account was imported from (`/account import`); read-only, never written. */
+  importedFrom?: string
   provider?: string
   label?: string
   baseUrl?: string
@@ -93,6 +104,24 @@ export function saveStore(store: AccountStore, path = accountsFilePath()): void 
   chmodSync(path, 0o600)
 }
 
+/** Pure: the kind of a stored account (absent = openai_compat). */
+export function accountKind(stored: StoredAccount | undefined): AccountKind {
+  return stored?.kind === 'anthropic' ? 'anthropic' : 'openai_compat'
+}
+
+/** Pure: whether `id` is a Claude (Anthropic OAuth) account: `claude` or a stored `kind: anthropic`. */
+export function isAnthropicAccount(id: string, store: AccountStore): boolean {
+  return id === CLAUDE_ACCOUNT_ID || accountKind(store.accounts[id]) === 'anthropic'
+}
+
+/** Pure: ids of every Claude account, `claude` first. */
+export function anthropicAccountIds(store: AccountStore): string[] {
+  return [
+    CLAUDE_ACCOUNT_ID,
+    ...Object.keys(store.accounts).filter(id => id !== CLAUDE_ACCOUNT_ID && accountKind(store.accounts[id]) === 'anthropic'),
+  ]
+}
+
 /** The env the profile resolver should see for one account. */
 export function accountEnv(
   id: string,
@@ -144,7 +173,7 @@ export function profileForAccount(
   store: AccountStore,
   base: Env,
 ): MultimodelProfile | null {
-  if (id === CLAUDE_ACCOUNT_ID) return null
+  if (isAnthropicAccount(id, store)) return null
   const known = id in getProviderPresets() || id in store.accounts
   if (!known) {
     throw new MultimodelConfigError(
@@ -166,14 +195,18 @@ export function listAccounts(store: AccountStore, base: Env): Account[] {
 }
 
 function describeAccount(id: string, store: AccountStore, base: Env): Account {
-  if (id === CLAUDE_ACCOUNT_ID) {
+  if (isAnthropicAccount(id, store)) {
+    const stored = store.accounts[id]
     return {
       id,
-      label: 'Claude (Anthropic)',
+      label: stored?.label ?? 'Claude (Anthropic)',
       provider: null,
-      baseUrl: null,
+      baseUrl: stored?.baseUrl ?? null,
       ready: true,
-      detail: 'cuenta nativa; usa /login dentro de fnharness',
+      detail:
+        id === CLAUDE_ACCOUNT_ID
+          ? 'cuenta nativa; usa /login dentro de fnharness'
+          : `cuenta Claude; credenciales en accounts/${id}/ (/account add claude ${id} para iniciar sesión)`,
     }
   }
   const stored = store.accounts[id]

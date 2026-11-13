@@ -13,6 +13,7 @@ import { gracefulShutdownSync } from '../../utils/gracefulShutdown.js';
 import { getSecureStorage } from '../../utils/secureStorage/index.js';
 import { clearToolSchemaCache } from '../../utils/toolSchemaCache.js';
 import { resetUserCache } from '../../utils/user.js';
+import type { LocalJSXCommandOnDone } from '../../types/command.js';
 export async function performLogout({
   clearOnboarding = false
 }): Promise<void> {
@@ -69,7 +70,12 @@ export async function clearAuthRelatedCaches(): Promise<void> {
   // Clear policy limits cache
   await clearPolicyLimitsCache();
 }
-export async function call(): Promise<React.ReactNode> {
+export async function call(onDone?: LocalJSXCommandOnDone, _context?: unknown, args?: string): Promise<React.ReactNode> {
+  // `/logout <id>`: only that Claude account (accounts/<id>/), with confirmation.
+  if (args?.trim() && onDone) {
+    const { callLogoutAccount } = await import('./logoutAccount.js');
+    return callLogoutAccount(onDone, args);
+  }
   await performLogout({
     clearOnboarding: true
   });

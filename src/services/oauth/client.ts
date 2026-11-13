@@ -20,6 +20,11 @@ import {
 import type { AccountInfo } from '../../utils/config.js'
 import { getGlobalConfig, saveGlobalConfig } from '../../utils/config.js'
 import { logForDebugging } from '../../utils/debug.js'
+import {
+  readAccountInfo,
+  tokenAccountId,
+  updateAccountInfo,
+} from '../accounts/anthropicAccounts.js'
 import { getOauthProfileFromOauthToken } from './getOauthProfile.js'
 import type {
   BillingType,
@@ -225,12 +230,18 @@ export async function refreshOAuthToken(
     // subscription type for paying users. By passing through existing values,
     // the re-login path writes cached ?? wiped ?? null = cached; and if secure
     // storage was already empty we fall through to the fetch.
+    // Another Claude account (accounts/<id>) keeps its identity in its own
+    // oauth-account.json: read and update that one, never the root identity.
+    const accountId = tokenAccountId()
     const config = getGlobalConfig()
+    const accountInfo: AccountInfo | undefined = accountId
+      ? ((readAccountInfo(accountId) as AccountInfo | null) ?? undefined)
+      : config.oauthAccount
     const existing = getClaudeAIOAuthTokens()
     const haveProfileAlready =
-      config.oauthAccount?.billingType !== undefined &&
-      config.oauthAccount?.accountCreatedAt !== undefined &&
-      config.oauthAccount?.subscriptionCreatedAt !== undefined &&
+      accountInfo?.billingType !== undefined &&
+      accountInfo?.accountCreatedAt !== undefined &&
+      accountInfo?.subscriptionCreatedAt !== undefined &&
       existing?.subscriptionType != null &&
       existing?.rateLimitTier != null
 
@@ -239,7 +250,7 @@ export async function refreshOAuthToken(
       : await fetchProfileInfo(accessToken)
 
     // Update the stored properties if they have changed
-    if (profileInfo && config.oauthAccount) {
+    if (profileInfo && accountInfo) {
       const updates: Partial<AccountInfo> = {}
       if (profileInfo.displayName !== undefined) {
         updates.displayName = profileInfo.displayName
@@ -256,7 +267,9 @@ export async function refreshOAuthToken(
       if (profileInfo.subscriptionCreatedAt !== undefined) {
         updates.subscriptionCreatedAt = profileInfo.subscriptionCreatedAt
       }
-      if (Object.keys(updates).length > 0) {
+      if (Object.keys(updates).length > 0 && accountId) {
+        updateAccountInfo(accountId, updates as Record<string, unknown>)
+      } else if (Object.keys(updates).length > 0) {
         saveGlobalConfig(current => ({
           ...current,
           oauthAccount: current.oauthAccount
@@ -299,6 +312,29 @@ export async function refreshOAuthToken(
     })
     throw error
   }
+}
+
+/**
+ * Roles and organisation name of a Claude account that lives in
+ * accounts/<id>/ (login through `/account add claude <id>`): stored in its
+ * own oauth-account.json, never in the root identity.
+ */
+export async function fetchAndStoreUserRolesForAccount(
+  accountId: string,
+  accessToken: string,
+): Promise<void> {
+  const response = await axios.get(getOauthConfig().ROLES_URL, {
+    headers: { Authorization: `Bearer ${accessToken}` },
+  })
+  if (response.status !== 200) {
+    throw new Error(`Failed to fetch user roles: ${response.statusText}`)
+  }
+  const data = response.data as UserRolesResponse
+  updateAccountInfo(accountId, {
+    organizationRole: data.organization_role,
+    workspaceRole: data.workspace_role,
+    organizationName: data.organization_name,
+  })
 }
 
 export async function fetchAndStoreUserRoles(
@@ -501,6 +537,10 @@ export async function populateOAuthAccountInfoIfNeeded(): Promise<boolean> {
   // Wait for any in-flight token refresh to complete first, since
   // refreshOAuthToken already fetches and stores profile info
   await checkAndRefreshOAuthTokenIfNeeded()
+
+  // Another Claude account keeps its identity in accounts/<id>/oauth-account.json
+  // (written at login/import): never fill the root identity with its profile.
+  if (tokenAccountId()) return false
 
   const config = getGlobalConfig()
   if (

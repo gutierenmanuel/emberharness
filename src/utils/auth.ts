@@ -25,6 +25,17 @@ import {
   shouldUseClaudeAIAuth,
 } from '../services/oauth/client.js'
 import { isMultimodelActive } from '../services/api/openai-compat/profiles.js'
+import {
+  activeCredentialsPath,
+  clearAccountTokenCache,
+  getLoginTargetAccount,
+  mirrorRootCredentials,
+  readAccountInfo,
+  readAccountTokens,
+  refreshLockDir,
+  tokenAccountId,
+  writeAccountTokens,
+} from '../services/accounts/anthropicAccounts.js'
 import type { CodexTokens } from '../services/oauth/codex-client.js'
 import { getOauthProfileFromOauthToken } from '../services/oauth/getOauthProfile.js'
 import type { OAuthTokens, SubscriptionType } from '../services/oauth/types.js'
@@ -1211,6 +1222,22 @@ export function saveOAuthTokensIfNeeded(tokens: OAuthTokens): {
     return { success: true }
   }
 
+  // Another Claude account (accounts/<id>/): a login aimed at it, or a
+  // refresh of the account in force. Its own file, never the root one.
+  const accountId = getLoginTargetAccount() ?? tokenAccountId()
+  if (accountId) {
+    try {
+      writeAccountTokens(accountId, tokens)
+      getClaudeAIOAuthTokens.cache?.clear?.()
+      clearBetasCaches()
+      clearToolSchemaCache()
+      return { success: true }
+    } catch (error) {
+      logError(error)
+      return { success: false, warning: 'Failed to save OAuth tokens' }
+    }
+  }
+
   const secureStorage = getSecureStorage()
   const storageBackend =
     secureStorage.name as AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS
@@ -1236,6 +1263,8 @@ export function saveOAuthTokensIfNeeded(tokens: OAuthTokens): {
     const updateStatus = secureStorage.update(storageData)
 
     if (updateStatus.success) {
+      // `claude` was migrated: keep accounts/claude/ a copy of the root file.
+      mirrorRootCredentials(storageData)
       logEvent('tengu_oauth_tokens_saved', { storageBackend })
     } else {
       logEvent('tengu_oauth_tokens_save_failed', { storageBackend })
@@ -1257,7 +1286,30 @@ export function saveOAuthTokensIfNeeded(tokens: OAuthTokens): {
   }
 }
 
-export const getClaudeAIOAuthTokens = memoize((): OAuthTokens | null => {
+/**
+ * OAuth tokens of the Claude account in force: the request scope's account
+ * (`claude-work:sonnet`), else the session's. `claude` (and a token forced
+ * by env or file descriptor) reads the legacy root storage; any other Claude
+ * account reads its own `accounts/<id>/credentials.json`.
+ */
+export const getClaudeAIOAuthTokens = Object.assign(
+  (): OAuthTokens | null => {
+    if (isBareMode()) return null
+    const accountId = tokenAccountId()
+    if (accountId) return readAccountTokens(accountId) as OAuthTokens | null
+    return getRootClaudeAIOAuthTokens()
+  },
+  {
+    cache: {
+      clear: (): void => {
+        getRootClaudeAIOAuthTokens.cache?.clear?.()
+        clearAccountTokenCache()
+      },
+    },
+  },
+)
+
+const getRootClaudeAIOAuthTokens = memoize((): OAuthTokens | null => {
   // --bare: API-key-only. No OAuth env tokens, no keychain, no credentials file.
   if (isBareMode()) return null
 
@@ -1371,7 +1423,7 @@ export function clearCodexOAuthTokens(): void {
 }
 
 
-let lastCredentialsMtimeMs = 0
+const lastCredentialsMtimeMs = new Map<string, number>()
 
 // Cross-process staleness: another CC instance may write fresh tokens to
 // disk (refresh or /login), but this process's memoize caches forever.
@@ -1380,11 +1432,11 @@ let lastCredentialsMtimeMs = 0
 // re-reads — infinite /login regress (CC-1096, GH#24317).
 async function invalidateOAuthCacheIfDiskChanged(): Promise<void> {
   try {
-    const { mtimeMs } = await stat(
-      join(getClaudeConfigHomeDir(), '.credentials.json'),
-    )
-    if (mtimeMs !== lastCredentialsMtimeMs) {
-      lastCredentialsMtimeMs = mtimeMs
+    // Per account: each Claude account has its own credentials file.
+    const path = activeCredentialsPath()
+    const { mtimeMs } = await stat(path)
+    if (mtimeMs !== lastCredentialsMtimeMs.get(path)) {
+      lastCredentialsMtimeMs.set(path, mtimeMs)
       clearOAuthTokenCache()
     }
   } catch {
@@ -1459,6 +1511,8 @@ async function handleOAuth401ErrorImpl(
  */
 export async function getClaudeAIOAuthTokensAsync(): Promise<OAuthTokens | null> {
   if (isBareMode()) return null
+  const accountId = tokenAccountId()
+  if (accountId) return readAccountTokens(accountId) as OAuthTokens | null
 
   // Env var and FD tokens are sync and don't hit the keychain
   if (
@@ -1482,8 +1536,9 @@ export async function getClaudeAIOAuthTokensAsync(): Promise<OAuthTokens | null>
   }
 }
 
-// In-flight promise for deduplicating concurrent calls
-let pendingRefreshCheck: Promise<boolean> | null = null
+// In-flight promise per Claude account, for deduplicating concurrent calls
+// (two accounts refresh independently; '' is the root `claude`).
+const pendingRefreshChecks = new Map<string, Promise<boolean>>()
 
 export function checkAndRefreshOAuthTokenIfNeeded(
   retryCount = 0,
@@ -1491,15 +1546,18 @@ export function checkAndRefreshOAuthTokenIfNeeded(
 ): Promise<boolean> {
   // Deduplicate concurrent non-retry, non-force calls
   if (retryCount === 0 && !force) {
-    if (pendingRefreshCheck) {
-      return pendingRefreshCheck
+    const key = tokenAccountId() ?? ''
+    const pending = pendingRefreshChecks.get(key)
+    if (pending) {
+      return pending
     }
 
     const promise = checkAndRefreshOAuthTokenIfNeededImpl(retryCount, force)
-    pendingRefreshCheck = promise.finally(() => {
-      pendingRefreshCheck = null
+    const tracked = promise.finally(() => {
+      pendingRefreshChecks.delete(key)
     })
-    return pendingRefreshCheck
+    pendingRefreshChecks.set(key, tracked)
+    return tracked
   }
 
   return checkAndRefreshOAuthTokenIfNeededImpl(retryCount, force)
@@ -1542,8 +1600,10 @@ async function checkAndRefreshOAuthTokenIfNeededImpl(
     return false
   }
 
-  // Tokens are still expired, try to acquire lock and refresh
-  const claudeDir = getClaudeConfigHomeDir()
+  // Tokens are still expired, try to acquire lock and refresh. Each Claude
+  // account locks its own directory (accounts/<id>), so refreshing one never
+  // waits for or steps on another; `claude` keeps the root lock.
+  const claudeDir = refreshLockDir() ?? getClaudeConfigHomeDir()
   await mkdir(claudeDir, { recursive: true })
 
   let release
@@ -1699,7 +1759,12 @@ export function is1PApiCustomer(): boolean {
  * Returns undefined when using external API keys or third-party services.
  */
 export function getOauthAccountInfo(): AccountInfo | undefined {
-  return isAnthropicAuthEnabled() ? getGlobalConfig().oauthAccount : undefined
+  if (!isAnthropicAuthEnabled()) return undefined
+  // The Claude account in force (request scope, else session): another
+  // account answers from its own oauth-account.json, never the root identity.
+  const accountId = tokenAccountId()
+  if (accountId) return (readAccountInfo(accountId) as AccountInfo | null) ?? undefined
+  return getGlobalConfig().oauthAccount
 }
 
 /**

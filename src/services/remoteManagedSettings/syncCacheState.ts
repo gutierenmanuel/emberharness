@@ -22,6 +22,19 @@
  */
 
 import { join } from 'path'
+import {
+  ROOT_LINKED_ACCOUNT_ID,
+  accountDir,
+  accountFilePath,
+  writeJsonPrivate,
+} from '../accounts/anthropicFiles.js'
+import { mergeManagedSettings } from '../accounts/managedPolicy.js'
+import {
+  accountsInForce,
+  activeAnthropicAccountId,
+  onAccountTouched,
+} from '../accounts/sessionAccounts.js'
+import { existsSync } from 'fs'
 import { getClaudeConfigHomeDir } from '../../utils/envUtils.js'
 import { readFileSync } from '../../utils/fileRead.js'
 import { stripBOM } from '../../utils/jsonRead.js'
@@ -31,32 +44,67 @@ import { jsonParse } from '../../utils/slowOperations.js'
 
 const SETTINGS_FILENAME = 'remote-settings.json'
 
-let sessionCache: SettingsJson | null = null
-let eligible: boolean | undefined
+// Several Claude accounts (services/accounts): each one has its own remote
+// settings (`claude` in the root file, the others in accounts/<id>/). The
+// raw settings of each account are cached here; the session sees the merge
+// of every in-force account (D7), without telemetry (that belongs to the
+// account, not to process.env).
+const rawCache = new Map<string, SettingsJson | null>()
+const eligibleByAccount = new Map<string, boolean>()
+let mergedCache: SettingsJson | null | undefined
 
+function invalidateMerged(): void {
+  mergedCache = undefined
+}
+
+// A Claude account joining (or leaving) the session changes the merged view.
+// eslint-disable-next-line custom-rules/no-top-level-side-effects
+onAccountTouched(() => {
+  invalidateMerged()
+  resetSettingsCache()
+})
+
+/** Raw settings just fetched (or confirmed) for the active Claude account. */
 export function setSessionCache(value: SettingsJson | null): void {
-  sessionCache = value
+  rawCache.set(activeAnthropicAccountId(), value)
+  invalidateMerged()
 }
 
 export function resetSyncCache(): void {
-  sessionCache = null
-  eligible = undefined
+  rawCache.clear()
+  eligibleByAccount.clear()
+  invalidateMerged()
 }
 
+/** Eligibility of the active Claude account (computed in syncCache.ts). */
 export function setEligibility(v: boolean): boolean {
-  eligible = v
+  eligibleByAccount.set(activeAnthropicAccountId(), v)
+  invalidateMerged()
   return v
 }
 
-export function getSettingsPath(): string {
-  return join(getClaudeConfigHomeDir(), SETTINGS_FILENAME)
+/** remote-settings.json of a Claude account (default: the active one). */
+export function getSettingsPath(accountId: string = activeAnthropicAccountId()): string {
+  return accountId === ROOT_LINKED_ACCOUNT_ID
+    ? join(getClaudeConfigHomeDir(), SETTINGS_FILENAME)
+    : accountFilePath(accountId, 'remoteSettings')
+}
+
+/** `claude` was migrated: keep accounts/claude/remote-settings.json a copy of the root file. */
+export function mirrorRootRemoteSettings(settings: SettingsJson | null): void {
+  try {
+    if (!existsSync(accountDir(ROOT_LINKED_ACCOUNT_ID))) return
+    if (settings) writeJsonPrivate(accountFilePath(ROOT_LINKED_ACCOUNT_ID, 'remoteSettings'), settings)
+  } catch {
+    // A copy only; the root file is the truth for `claude`.
+  }
 }
 
 // sync IO — settings pipeline is sync. fileRead and jsonRead are leaves;
 // file.ts and json.ts both sit in the settings SCC.
-function loadSettings(): SettingsJson | null {
+function loadSettings(accountId: string): SettingsJson | null {
   try {
-    const content = readFileSync(getSettingsPath())
+    const content = readFileSync(getSettingsPath(accountId))
     const data: unknown = jsonParse(stripBOM(content))
     if (!data || typeof data !== 'object' || Array.isArray(data)) {
       return null
@@ -67,30 +115,42 @@ function loadSettings(): SettingsJson | null {
   }
 }
 
+/**
+ * Raw remote settings of one Claude account (telemetry included), or null.
+ * `claude` keeps the legacy guard (nothing until its eligibility is known to
+ * be true); another account applies its cached file unless it was found
+ * ineligible, since that file is only written when it was eligible.
+ */
+export function getAccountRemoteSettings(accountId: string = activeAnthropicAccountId()): SettingsJson | null {
+  const eligible = eligibleByAccount.get(accountId)
+  if (accountId === ROOT_LINKED_ACCOUNT_ID ? eligible !== true : eligible === false) return null
+  const cached = rawCache.get(accountId)
+  if (cached) return cached
+  const fromFile = loadSettings(accountId)
+  if (fromFile) rawCache.set(accountId, fromFile)
+  return fromFile
+}
+
+/**
+ * The managed settings the session runs with: those of every in-force Claude
+ * account (the session's and each one that served a request), combined
+ * keeping the most restrictive values, with the telemetry part removed.
+ */
 export function getRemoteManagedSettingsSyncFromCache(): SettingsJson | null {
-  if (eligible !== true) return null
-  if (sessionCache) return sessionCache
-  const cachedSettings = loadSettings()
-  if (cachedSettings) {
-    sessionCache = cachedSettings
-    // Remote settings just became available for the first time. Any merged
-    // getSettings_DEPRECATED() result cached before this moment is missing
-    // the policySettings layer (the `eligible !== true` guard above returned
-    // null). Flush so the next merged read re-merges with this layer visible.
-    //
-    // Fires at most once: subsequent calls hit `if (sessionCache)` above.
-    // When called from loadSettingsFromDisk() (settings.ts:546), the merged
-    // cache is still null (setSessionSettingsCache runs at :732 after
-    // loadSettingsFromDisk returns) — no-op. The async-fetch arm (index.ts
-    // setSessionCache + notifyChange) already handles its own reset.
-    //
-    // gh-23085: isBridgeEnabled() at main.tsx Commander-definition time
-    // (before preAction → init() → isRemoteManagedSettingsEligible()) reached
-    // getSettings_DEPRECATED() at auth.ts:115. The try/catch in bridgeEnabled
-    // swallowed the later getGlobalConfig() throw, but the merged settings
-    // cache was already poisoned. See managedSettingsHeadless.int.test.ts.
+  if (mergedCache !== undefined) return mergedCache
+  const merged = mergeManagedSettings(
+    accountsInForce().map(accountId => ({
+      accountId,
+      settings: getAccountRemoteSettings(accountId) as Record<string, unknown> | null,
+    })),
+  ).settings as SettingsJson | null
+  mergedCache = merged
+  if (merged) {
+    // Remote settings just became available (or changed): any merged
+    // getSettings_DEPRECATED() result cached before this moment misses this
+    // policySettings layer. Flush so the next read re-merges with it (see the
+    // gh-23085 note in the upstream history of this file).
     resetSettingsCache()
-    return cachedSettings
   }
-  return null
+  return merged
 }

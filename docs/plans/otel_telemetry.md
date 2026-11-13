@@ -1,7 +1,9 @@
 # Varias cuentas Claude en un mismo arnés y telemetría OTel por cuenta y receptor
 
 Plan ejecutable. Fecha: 11/11/2026 (v2: añade varias cuentas Claude en un arnés y receptores por
-cuenta). Estado: sin empezar. Las decisiones abiertas están en la sección 11.
+cuenta). Estado (13/11/2026): **fases 1 a 4 hechas** (rama `quick/multi-claude`; ver «Estado de las
+fases 1-4» al final); fases 0 y 5 a 9 sin empezar. D7 y D8 se aplicaron con su opción por defecto. Las
+decisiones abiertas están en la sección 11.
 
 Objetivo, en tres partes:
 
@@ -375,3 +377,51 @@ Las fases 1 a 4 (cuentas) y 5 a 7 (telemetría) se pueden hacer en ramas separad
 | D6 | Trazas (`sessionTracing.ts`) | Fuera de alcance en esta versión |
 | D7 | Políticas corporativas en sesiones mixtas | Lo más restrictivo de todas las cuentas usadas en la sesión |
 | D8 | ¿Se unifican `~/.fnharness` y `~/.fnharness-work`? | Sí, con `/account import`, pero sin borrar los directorios viejos hasta validarlo |
+
+## 12. Estado de las fases 1-4 (13/11/2026)
+
+Hecho, con código nuevo en `src/services/accounts/` (`anthropicFiles.ts` hoja de ficheros,
+`sessionAccounts.ts` hoja de cuentas activas y en uso, `anthropicAccounts.ts`, `managedPolicy.ts`
+puro, `switchAnthropic.ts`) y `auth.ts` como despachador fino (`tokenAccountId()`).
+
+- Fase 1: `kind`, `accounts/<id>/` (0600/0700, escrituras atómicas), migración por copia,
+  `/account import`, `/account add claude <id>` (login dirigido con `setLoginTargetAccount`; no
+  ejecuta el logout de la raíz), `/logout <id>` con confirmación, refresco por cuenta con cerrojo propio
+  y deduplicado por cuenta, `/account doctor [--fix]`.
+- Fase 2: `routeForModel` acepta cualquier cuenta `anthropic`; el ámbito de la petición fija la cuenta
+  que responden `getClaudeAIOAuthTokens()`, `getOauthAccountInfo()`, el refresco y el perfil del
+  token; `/account <id>` y `/model` cambian la sesión a otra cuenta Claude.
+- Fase 3: remote-settings y policy-limits por cuenta (rutas y cachés por cuenta, elegibilidad por
+  cuenta), combinación D7 de las cuentas en uso, telemetría fuera de `process.env`, diálogo con la
+  cuenta y su organización en la cabecera.
+- Fase 4: panel de `/account` (maqueta de la sección 3), cabecera con correo en `/model`, la barra de
+  estado toma el correo de la cuenta Claude de la sesión, `/otel` lee las remote-settings de la cuenta
+  activa.
+
+Desviaciones:
+
+- **Migración al usar `/account`, no en cada arranque.** Sin efecto funcional (`claude` sigue leyendo
+  la raíz), y así un directorio que solo se abre con su lanzador antiguo (`~/.fnharness-work`) no
+  cambia por arrancar.
+- **`claude` sigue enlazada a la raíz**: su token se lee y renueva en `.credentials.json` como antes,
+  para que otras sesiones y builds anteriores que comparten el directorio no se pisen el refresh token;
+  `accounts/claude/` es una copia que este build mantiene al día.
+- **Diálogo a mitad de sesión**: el `render()` de Ink sustituye el árbol de la REPL (las instancias van
+  por stdout), así que no se puede dibujar el diálogo encima. Al arrancar se muestra como siempre; a
+  mitad de sesión (primera petición de otra cuenta, cambio de cuenta) los ajustes peligrosos nuevos
+  quedan pendientes, la cuenta (si no es la de la sesión) queda desactivada y `/account approve <id>`
+  muestra el diálogo dentro de la REPL.
+- **Cuenta importada**: comparte refresh token con su directorio de origen. Si el arnés de origen
+  renueva antes, la cuenta importada adopta el token nuevo (solo lee el origen); si renueva antes la
+  importada, el lanzador antiguo puede pedir `/login`. Por eso D8 recomienda pasar a usarla desde
+  `~/.fnharness` y no borrar el directorio viejo hasta validarlo.
+- `StoredAccount.baseUrl` en una cuenta Claude redirige sus peticiones y sus ajustes gestionados (proxy
+  o servidor de pruebas; lo usan los e2e).
+- `-p` imprime ahora el resultado de los comandos `local-jsx` con `supportsNonInteractive`
+  (`processSlashCommand.tsx`), necesario para `-p "/account"`.
+
+Pruebas: `src/services/accounts/*.test.ts` (migración idempotente, `kind`, enrutado y ámbito,
+identidad sin fugas, permisos, D7, panel) y `tests/e2e/multiClaude.e2e.test.ts` (dos servidores
+Anthropic falsos con tokens distintos: cada petición lleva el suyo y el subagente `claude-b:sonnet`
+llega a B con el token de B; panel de `/account list` con 3 cuentas en pseudo-terminal; ajustes
+peligrosos de B pendientes, `/account approve` rechazado y la sesión en A sigue).
