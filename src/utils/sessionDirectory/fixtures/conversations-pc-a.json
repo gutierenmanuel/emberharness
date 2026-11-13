@@ -1,0 +1,4 @@
+{"space_id":"!space:matrix.local","conversations":[
+{"room_id":"!IBLxAAAA:matrix.local","session":"pc-a-c-1113-1558","title":"revisar el selector de sesiones","claude_session_id":"865085ed-5a1c-4c7e-9d0b-2f6e1a7c3b11","workdir":"/home/user/fn_registry","status":"active","created":"2026-11-13T15:58:28+01:00","last_activity":"2026-11-13T16:05:00+01:00"},
+{"room_id":"!IBLxBBBB:matrix.local","session":"pc-a-c-1010-0249","title":"hablame de que motores de etl existen","claude_session_id":"684e9faa-0000-4000-8000-000000000001","workdir":"/home/user/fn_registry","status":"suspended","created":"2026-10-10T02:49:51+02:00","last_activity":"2026-10-10T02:53:03+02:00"}
+]}
