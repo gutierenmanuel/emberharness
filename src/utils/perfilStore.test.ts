@@ -164,6 +164,15 @@ describe('cuenta del perfil al arrancar (--account > perfil > predeterminada)', 
     expect(env.CLAUDE_MULTIMODEL_ACCOUNT).toBe('zcode')
   })
 
+  test('el modelo del perfil no va a CLAUDE_MULTIMODEL_MODEL en una cuenta Claude (kind anthropic)', () => {
+    const env = sandbox()
+    writeFileSync(join(env.CLAUDE_CONFIG_DIR!, 'accounts.json'), JSON.stringify({ accounts: { empresa: { kind: 'anthropic' } } }))
+    put(env, 'emp.json', JSON.stringify({ account: 'empresa', model: 'sonnet' }))
+    bootPerfil(['--perfil', 'emp'], env)
+    expect(env.CLAUDE_MULTIMODEL_ACCOUNT).toBe('empresa')
+    expect(env.CLAUDE_MULTIMODEL_MODEL).toBeUndefined()
+  })
+
   test('hasExplicitAccount', () => {
     expect(hasExplicitAccount({})).toBe(false)
     expect(hasExplicitAccount({ CLAUDE_MULTIMODEL_ACCOUNT: 'a', FNHARNESS_ACCOUNT: 'a' })).toBe(false)
