@@ -23,7 +23,8 @@ import { getModelOptions } from '../../utils/model/modelOptions.js';
 import { gatherAccountModelGroups, type AccountModelGroup } from '../../utils/model/routedModels.js';
 import { sessionAccountId, splitAccountModel } from '../../services/api/accountRouting.js';
 import { accountPredicate } from '../../services/api/fallbackChain.js';
-import { CLAUDE_ACCOUNT_ID, accountsFilePath, loadStore } from '../../services/api/openai-compat/accounts.js';
+import { CLAUDE_ACCOUNT_ID, accountsFilePath, isAnthropicAccount, loadStore } from '../../services/api/openai-compat/accounts.js';
+import { collectAccountPanel } from '../account/anthropicActions.js';
 import { getMultimodelProfile } from '../../services/api/openai-compat/profiles.js';
 import { switchAccountWithHooks } from '../account/actions.js';
 import { UnifiedModelPicker } from './UnifiedModelPicker.js';
@@ -323,9 +324,20 @@ export const call: LocalJSXCommandCall = async (onDone, _context, args) => {
   await warmActiveAccountModels();
   const session = sessionAccountId();
   const sessionModel = _context.getAppState().mainLoopModel ?? null;
+  const store = loadStore(accountsFilePath());
+  const onClaude = isAnthropicAccount(session, store);
+  // Claude accounts show who they are in their header: `── claude-work · correo ──`.
+  const identities: Record<string, string | undefined> = {};
+  try {
+    for (const e of collectAccountPanel().entries) {
+      const email = e.identity.split(' · ')[0];
+      if (isAnthropicAccount(e.id, store) && email?.includes('@')) identities[e.id] = email;
+    }
+  } catch {}
   const groups = await gatherAccountModelGroups({
-    sessionModel: session === CLAUDE_ACCOUNT_ID ? null : getMultimodelProfile()?.model ?? null,
-    claudeOptions: session === CLAUDE_ACCOUNT_ID ? getModelOptions().map(o => ({
+    identities,
+    sessionModel: onClaude ? null : getMultimodelProfile()?.model ?? null,
+    claudeOptions: onClaude ? getModelOptions().map(o => ({
       value: o.value ?? 'default',
       label: o.label,
       description: o.description
@@ -333,7 +345,7 @@ export const call: LocalJSXCommandCall = async (onDone, _context, args) => {
   });
   const current = {
     account: session,
-    model: session === CLAUDE_ACCOUNT_ID ? sessionModel : getMultimodelProfile()?.model ?? sessionModel
+    model: onClaude ? sessionModel : getMultimodelProfile()?.model ?? sessionModel
   };
   return <UnifiedModelCommand groups={groups} current={current} onDone={onDone} setAppState={_context.setAppState} />;
 };
@@ -356,13 +368,14 @@ async function switchToAccountModel(account: string, model: string, setAppState:
       });
       return;
     }
-    const sessionModel = account === CLAUDE_ACCOUNT_ID ? wanted ?? null : result.model;
+    const toClaude = isAnthropicAccount(account, loadStore(accountsFilePath()));
+    const sessionModel = toClaude ? wanted ?? result.model ?? null : result.model;
     setAppState(prev => ({
       ...prev,
       mainLoopModel: sessionModel,
       mainLoopModelForSession: null
     }));
-    const suffix = account === CLAUDE_ACCOUNT_ID ? ` · modelo ${chalk.bold(renderModelLabel(sessionModel))}` : '';
+    const suffix = toClaude ? ` · modelo ${chalk.bold(renderModelLabel(sessionModel))}` : '';
     onDone(result.message + suffix, {
       display: 'system'
     });

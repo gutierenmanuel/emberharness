@@ -151,6 +151,7 @@ import {
   routeForModel,
   withModelRoute,
   withModelRouteGenerator,
+  withRequestRoute,
 } from './accountRouting.js'
 import { getFeatureValue_CACHED_MAY_BE_STALE } from 'src/services/analytics/growthbook.js'
 import type { AgentId } from 'src/types/ids.js'
@@ -733,7 +734,7 @@ export async function queryModelWithoutStreaming({
   // `cuenta:modelo`: this request is served by that account (accountRouting.ts).
   const route = routeForModel(options.model)
   if (route) {
-    return withModelRoute(
+    return withRequestRoute(
       options.model,
       model =>
         queryModelWithoutStreaming({

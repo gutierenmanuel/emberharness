@@ -81,6 +81,12 @@ export type OtelAccount = {
   provider: string | null
   email: string | null
   org: string | null
+  /**
+   * Claude account whose remote settings the report reads (the request scope's
+   * or the session's; `claude` from an OpenAI-compatible session). Its OTEL_*
+   * are a receiver of that account and never reach process.env.
+   */
+  managedFrom?: string | null
 }
 
 export type OtelReport = {
@@ -378,6 +384,9 @@ export function formatOtelReport(r: OtelReport): string {
   const a = r.account
   L.push(`Cuenta: ${a.id}${a.label ? ` (${a.label})` : ''}${a.provider ? ` · ${a.provider}` : ''}`)
   L.push(`  correo: ${a.email ?? 'no disponible'}${a.org ? ` · organización: ${a.org}` : ''}`)
+  if (a.managedFrom) {
+    L.push(`  remote-settings de la cuenta Claude ${a.managedFrom}: sus OTEL_* son un receptor de esa cuenta y no se aplican a process.env`)
+  }
   L.push('')
   L.push('Variables efectivas y su origen:')
   if (r.vars.length === 0) L.push('  (ninguna)')

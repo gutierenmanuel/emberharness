@@ -604,7 +604,11 @@ async function getMessagesForSlashCommand(commandName: string, args: string, set
                 shouldQuery: options?.shouldQuery ?? false,
                 command,
                 nextInput: options?.nextInput,
-                submitNextInput: options?.submitNextInput
+                submitNextInput: options?.submitNextInput,
+                // -p prints it, like the text of a `local` command (fnharness: /account list).
+                ...(context.options.isNonInteractiveSession && typeof result === 'string' ? {
+                  resultText: result
+                } : {})
               });
             };
             void command.load().then(mod => mod.call(onDone, {

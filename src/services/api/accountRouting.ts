@@ -24,12 +24,19 @@ import { claudeAliasApiId } from '../config/claudeModels.js'
 import {
   CLAUDE_ACCOUNT_ID,
   accountsFilePath,
+  isAnthropicAccount,
   loadStore,
   profileForAccount,
   type AccountStore,
 } from './openai-compat/accounts.js'
+import {
+  accountDisabledReason,
+  accountReady,
+  markAccountTouched,
+} from '../accounts/sessionAccounts.js'
 import { accountPredicate, parseFallbackTarget } from './fallbackChain.js'
 import {
+  MultimodelConfigError,
   getMultimodelProfile,
   getOriginalModelEnv,
   getScopedAccountId,
@@ -134,16 +141,20 @@ export function routeForModel(
   const split = splitAccountModel(model, accountPredicate(store))
   if (!split) return null
   const current = deps.currentAccount ?? currentAccountId(env)
-  if (split.account === CLAUDE_ACCOUNT_ID) {
+  // Any Claude account (`claude`, `claude-work`, ...): native path with that
+  // account's OAuth token; aliases resolve against the original model slots.
+  if (isAnthropicAccount(split.account, store)) {
+    const off = accountDisabledReason(split.account)
+    if (off) throw new MultimodelConfigError(`La cuenta ${split.account} está desactivada en esta sesión: ${off}`)
     return {
-      accountId: CLAUDE_ACCOUNT_ID,
+      accountId: split.account,
       profile: null,
       model: resolveClaudeAlias(
         split.model,
         deps.originalSlots ?? getOriginalModelEnv(env),
         deps.claudeDefaults ?? claudeDefaults(),
       ),
-      current: current === CLAUDE_ACCOUNT_ID,
+      current: current === split.account,
     }
   }
   const isCurrent = split.account === current
@@ -229,6 +240,36 @@ function scopeFor(route: ModelRoute): ProfileScope {
 }
 
 /**
+ * A routed request is about to go out on `route`: a Claude account other than
+ * the session's joins the in-force accounts (its organisation's policies apply
+ * to the session, D7) and, the first time, its managed settings are loaded and
+ * checked. Resolves when the account may serve; rejects when it was disabled.
+ */
+function beginRoutedRequest(route: ModelRoute): Promise<void> | null {
+  if (route.current || route.profile !== null) return null
+  markAccountTouched(route.accountId)
+  const ready = accountReady(route.accountId)
+  const check = () => {
+    const off = accountDisabledReason(route.accountId)
+    if (off) throw new MultimodelConfigError(`La cuenta ${route.accountId} está desactivada en esta sesión: ${off}`)
+  }
+  return ready ? ready.then(check) : (check(), null)
+}
+
+/**
+ * withModelRoute for a request that really goes out (not display or cost
+ * paths): waits for the account to be ready first.
+ */
+export async function withRequestRoute<T>(
+  model: string,
+  fn: (model: string) => Promise<T>,
+  route: ModelRoute,
+): Promise<T> {
+  await beginRoutedRequest(route)
+  return withModelRoute(model, fn, route)
+}
+
+/**
  * Runs `fn` with the model stripped of its prefix and, when the route points
  * to another account, inside that account's scope. Sync or async `fn`.
  */
@@ -263,7 +304,20 @@ export function withModelRouteGenerator<T, R>(
 ): AsyncGenerator<T, R> {
   if (route.current) return make(route.model)
   const scope = scopeFor(route)
-  return scopeGenerator(scope, runInProfileScope(scope, () => make(route.model)))
+  let ready: Promise<void> | null
+  try {
+    ready = beginRoutedRequest(route)
+  } catch (err) {
+    scope.live = false
+    throw err
+  }
+  if (!ready) return scopeGenerator(scope, runInProfileScope(scope, () => make(route.model)))
+  // Wait for the account (its managed settings) before the first request goes out.
+  const waited = async function* (): AsyncGenerator<T, R> {
+    await ready
+    return yield* make(route.model)
+  }
+  return scopeGenerator(scope, runInProfileScope(scope, () => waited()))
 }
 
 /**

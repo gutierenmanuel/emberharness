@@ -13,11 +13,16 @@ import { fetchAndStoreClaudeCodeFirstTokenDate } from '../../services/api/firstT
 import {
   createAndStoreApiKey,
   fetchAndStoreUserRoles,
+  fetchAndStoreUserRolesForAccount,
   refreshOAuthToken,
   shouldUseClaudeAIAuth,
   storeOAuthAccountInfo,
 } from '../../services/oauth/client.js'
 import { getOauthProfileFromOauthToken } from '../../services/oauth/getOauthProfile.js'
+import {
+  getLoginTargetAccount,
+  installTokensForAccount,
+} from '../../services/accounts/anthropicAccounts.js'
 import { OAuthService } from '../../services/oauth/index.js'
 import type { OAuthTokens } from '../../services/oauth/types.js'
 import {
@@ -59,6 +64,43 @@ function hasAnyAnthropicScope(scopes: string[] | undefined): boolean {
  * and sets up the local auth state.
  */
 export async function installOAuthTokens(tokens: OAuthTokens): Promise<void> {
+  // `/account add claude <id>`: the login belongs to another Claude account.
+  // It goes to accounts/<id>/ and the root login (account `claude`) is left
+  // untouched, so no logout of the root runs.
+  const target = getLoginTargetAccount()
+  if (target) {
+    const profile =
+      tokens.profile ?? (await getOauthProfileFromOauthToken(tokens.accessToken))
+    installTokensForAccount(
+      target,
+      tokens,
+      profile
+        ? {
+            accountUuid: profile.account.uuid,
+            emailAddress: profile.account.email,
+            organizationUuid: profile.organization.uuid,
+            organizationName: (profile.organization as { name?: string }).name ?? null,
+            displayName: profile.account.display_name || undefined,
+            hasExtraUsageEnabled: profile.organization.has_extra_usage_enabled ?? undefined,
+            billingType: profile.organization.billing_type ?? undefined,
+            subscriptionCreatedAt: profile.organization.subscription_created_at ?? undefined,
+            accountCreatedAt: profile.account.created_at,
+          }
+        : tokens.tokenAccount
+          ? {
+              accountUuid: tokens.tokenAccount.uuid,
+              emailAddress: tokens.tokenAccount.emailAddress,
+              organizationUuid: tokens.tokenAccount.organizationUuid,
+            }
+          : null,
+    )
+    clearOAuthTokenCache()
+    await fetchAndStoreUserRolesForAccount(target, tokens.accessToken).catch(err =>
+      logForDebugging(String(err), { level: 'error' }),
+    )
+    return
+  }
+
   // Clear old state before saving new credentials
   await performLogout({ clearOnboarding: false })
 

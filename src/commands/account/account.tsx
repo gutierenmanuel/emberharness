@@ -11,6 +11,23 @@ import { accountsFilePath, loadStore } from '../../services/api/openai-compat/ac
 import type { Catalog } from '../../services/api/openai-compat/catalog.js'
 import { loadCatalog } from '../../services/api/openai-compat/catalogStore.js'
 import { MultimodelConfigError } from '../../services/api/openai-compat/profiles.js'
+import { getIsNonInteractiveSession } from '../../bootstrap/state.js'
+import { isAnthropicAccount } from '../../services/api/openai-compat/accounts.js'
+import {
+  assertNewAccountId,
+  readAccountInfo,
+  setLoginTargetAccount,
+} from '../../services/accounts/anthropicAccounts.js'
+import { Login } from '../login/login.js'
+import { ManagedSettingsSecurityDialog } from '../../components/ManagedSettingsSecurityDialog/ManagedSettingsSecurityDialog.js'
+import {
+  claudeIdentity,
+  collectAccountPanel,
+  doctorAction,
+  importAction,
+  migrateOnce,
+  panelText,
+} from './anthropicActions.js'
 import {
   accountsWithStatus,
   catalogLines,
@@ -38,6 +55,11 @@ const HELP = [
   '/account add <proveedor> [id] [modelo] cuenta de un proveedor del catálogo (sin URL)',
   '/account catalog [texto]      proveedores del catálogo models.dev con su nº de modelos',
   '/account remove <id>          borrar los datos guardados de una cuenta',
+  '/account add claude <id>      cuenta Claude (OAuth) más: abre el login y la guarda en accounts/<id>/',
+  '/account import <dir> --as <id>   copiar el login Claude de otro directorio (p. ej. ~/.fnharness-work)',
+  '/account doctor [--fix]       permisos de credenciales (0600) y carpetas de cuenta (0700)',
+  '/account approve <id>         revisar los ajustes gestionados nuevos de una cuenta Claude (aceptar o rechazar)',
+  '/logout <id>                  cerrar una cuenta Claude añadida (borra solo accounts/<id>/)',
 ].join('\n')
 
 type PickerProps = {
@@ -230,6 +252,11 @@ function AccountPicker(props: PickerProps): React.ReactNode {
 
 export const call: LocalJSXCommandCall = async (onDone, context, args) => {
   const [cmd, ...rest] = args.trim().split(/\s+/).filter(Boolean)
+  // First use of /account in this config dir: register the root login as the
+  // Claude account `claude` (a copy in accounts/claude/, the root untouched).
+  const migrated = migrateOnce()
+  const withMigration = (text: string) => (migrated ? `${migrated}\n${text}` : text)
+  const sessionModel = () => context.getAppState().mainLoopModel ?? null
 
   const apply = async (run: () => ActionResult | Promise<ActionResult>) => {
     try {
@@ -246,7 +273,7 @@ export const call: LocalJSXCommandCall = async (onDone, context, args) => {
         }))
         clearSystemPromptSections()
       }
-      onDone(result.message, { display: 'system' })
+      onDone(withMigration(result.message), { display: 'system' })
     } catch (err) {
       const msg = err instanceof MultimodelConfigError || err instanceof Error ? err.message : String(err)
       onDone(msg, { display: 'system' })
@@ -258,12 +285,62 @@ export const call: LocalJSXCommandCall = async (onDone, context, args) => {
     onDone(HELP, { display: 'system' })
     return null
   }
-  if (cmd === 'list') {
-    const active = activeAccountId()
-    const defaultId = loadStore(accountsFilePath()).default
-    const lines = (await accountsWithStatus()).map(a => formatAccountLine(a, active, defaultId))
-    onDone([...lines, '', startupSummary()].join('\n'), { display: 'system' })
+  if (cmd === 'list' || (!cmd && getIsNonInteractiveSession())) {
+    const panel = panelText({ accounts: await accountsWithStatus(), sessionModel: sessionModel() })
+    onDone(withMigration([panel, '', startupSummary()].join('\n')), { display: 'system' })
     return null
+  }
+  if (cmd === 'import') {
+    return apply(() => importAction(rest))
+  }
+  if (cmd === 'approve' && rest.length >= 1) {
+    const id = rest[0]!
+    const rms = await import('../../services/remoteManagedSettings/index.js')
+    const { accountDialogHeader } = await import('../../services/remoteManagedSettings/securityCheck.js')
+    const pending = rms.pendingManagedSettings(id)
+    if (!pending) {
+      onDone(`La cuenta ${id} no tiene ajustes gestionados pendientes de aprobar.`, { display: 'system' })
+      return null
+    }
+    const finish = (accepted: boolean) => void rms.resolvePendingManagedSettings(id, accepted).then(m => onDone(m, { display: 'system' }))
+    return (
+      <Box flexDirection="column">
+        <Text bold color="warning">{accountDialogHeader(id) ?? `Cuenta ${id}`}</Text>
+        <ManagedSettingsSecurityDialog settings={pending} onAccept={() => finish(true)} onReject={() => finish(false)} />
+      </Box>
+    )
+  }
+  if (cmd === 'doctor') {
+    onDone(withMigration(doctorAction(rest.includes('--fix')).message), { display: 'system' })
+    return null
+  }
+  if (cmd === 'add' && rest[0] === 'claude' && rest.length >= 2) {
+    const id = rest[1]!
+    try {
+      const store = loadStore(accountsFilePath())
+      if (id === 'claude') throw new MultimodelConfigError('La cuenta «claude» inicia sesión con /login.')
+      // Re-login of an existing Claude account is allowed (expired session).
+      if (!isAnthropicAccount(id, store)) assertNewAccountId(id, store)
+    } catch (err) {
+      onDone(err instanceof Error ? err.message : String(err), { display: 'system' })
+      return null
+    }
+    setLoginTargetAccount(id)
+    return (
+      <Login
+        startingMessage={`Inicio de sesión para la cuenta Claude «${id}»: se guarda en accounts/${id}/ y no toca la cuenta «claude».`}
+        onDone={(success: boolean) => {
+          setLoginTargetAccount(null)
+          if (!success) {
+            onDone(`Login de ${id} interrumpido; no se ha guardado nada.`, { display: 'system' })
+            return
+          }
+          const info = readAccountInfo(id)
+          const who = info ? claudeIdentity({ email: info.emailAddress, org: info.organizationName ?? null, orgUuid: info.organizationUuid ?? null, plan: null }) : 'sin identidad'
+          onDone(withMigration(`Cuenta Claude ${id} lista (${who}). Úsala con /account ${id} o en un agente con ${id}:sonnet.`), { display: 'system' })
+        }}
+      />
+    )
   }
   if (cmd === 'catalog') {
     onDone(catalogLines(loadCatalog(), rest.join(' ')).join('\n'), { display: 'system' })
@@ -276,7 +353,14 @@ export const call: LocalJSXCommandCall = async (onDone, context, args) => {
   if (cmd) return apply(() => switchAccountWithHooks(cmd, rest[0]))
 
   const active = activeAccountId()
-  const accounts = await accountsWithStatus()
+  // Claude accounts show who they are (correo · organización · plan) in the picker.
+  const identities = new Map(collectAccountPanel({ sessionModel: sessionModel() }).entries.map(e => [e.id, e]))
+  const accounts = (await accountsWithStatus()).map(a => {
+    const e = identities.get(a.id)
+    if (!e || !isAnthropicAccount(a.id, loadStore(accountsFilePath()))) return a
+    const detail = e.state === '✓ lista' ? e.identity : `${e.identity} · ${e.state}${a.id === 'claude' ? ' (/login)' : ` (/account add claude ${a.id})`}`
+    return { ...a, detail }
+  })
   const catalog = loadCatalog()
   const stored = loadStore(accountsFilePath()).accounts
   return (

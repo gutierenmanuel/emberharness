@@ -275,6 +275,7 @@ export function activeTarget(env: Env = process.env): ModelTarget | null {
   const id = env.FNHARNESS_ACCOUNT
   if (!id || id === 'claude') return null
   try {
+    if (loadStore(accountsFilePath(env)).accounts[id]?.kind === 'anthropic') return null
     return targetForAccount(id, loadStore(accountsFilePath(env)), env)
   } catch {
     return null
