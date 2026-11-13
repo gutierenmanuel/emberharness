@@ -4,6 +4,7 @@ import { tmpdir } from 'os'
 import { join } from 'path'
 import { clearCommandQueue, getCommandQueueSnapshot } from './messageQueueManager.js'
 import { parseAddress } from './peerAddress.js'
+import { readPeerLog } from './peerLog.js'
 import { sendToUdsSocket } from './udsClient.js'
 import {
   getUdsMessagingSocketPath,
@@ -81,5 +82,38 @@ describe('UDS inbox round trip', () => {
     expect(queued[0]!.isMeta).toBe(true)
     expect(String(queued[0]!.value)).toContain('<cross-session-message from="uds:/tmp/other.sock" pid="99">\nPING\n')
     clearCommandQueue()
+  })
+
+  test('el mensaje entrante se anota en el canal que toca', async () => {
+    // El servidor del test anterior sigue activo: startUdsMessaging es idempotente.
+    const path = getUdsMessagingSocketPath()!
+    const logDir = join(dir, 'cfg', 'peer-log')
+    const prevCfg = process.env.CLAUDE_CONFIG_DIR
+    const prevCyber = process.env.CLAUDE_CYBER
+    process.env.CLAUDE_CONFIG_DIR = join(dir, 'cfg')
+    delete process.env.CLAUDE_CYBER
+    try {
+      const send = (payload: object) =>
+        new Promise<string>((resolve, reject) => {
+          const conn = require('net').createConnection(path)
+          let buf = ''
+          conn.on('connect', () => conn.write(JSON.stringify({ type: 'message', ...payload }) + '\n'))
+          conn.on('data', (c: Buffer) => (buf += c.toString()))
+          conn.on('end', () => resolve(buf))
+          conn.on('error', reject)
+        })
+      await send({ text: 'de normal', from: 'uds:/tmp/n.sock', pid: 11 })
+      await send({ text: 'de cyber', from: 'uds:/tmp/c.sock', pid: 12, cyber: true })
+      clearCommandQueue()
+      expect(readPeerLog({ cyber: false, dir: logDir }).map(e => e.text)).toEqual(['de normal'])
+      const all = readPeerLog({ cyber: true, dir: logDir })
+      expect(all.map(e => [e.channel, e.text])).toEqual([['normal', 'de normal'], ['cyber', 'de cyber']])
+      expect(all[0]!.to.address).toBe(`uds:${path}`)
+      expect(all[0]!.from.pid).toBe(11)
+    } finally {
+      if (prevCfg === undefined) delete process.env.CLAUDE_CONFIG_DIR
+      else process.env.CLAUDE_CONFIG_DIR = prevCfg
+      if (prevCyber !== undefined) process.env.CLAUDE_CYBER = prevCyber
+    }
   })
 })

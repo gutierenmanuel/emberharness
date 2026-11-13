@@ -150,6 +150,18 @@ externalized `@ant/*` packages.
   supported. Code: `src/utils/udsMessaging.ts` (server), `src/utils/udsClient.ts`
   (registry, resolution, client), `src/tools/ListPeersTool/`, `src/commands/peers/`.
 
+  History of the conversations. Every message a session receives is also
+  appended, once (the receiver is the only writer), to
+  `<CLAUDE_CONFIG_DIR>/peer-log/<channel>.jsonl` (dir `0700`, files `0600`, a
+  channel file rotates to `<channel>.1.jsonl` past 5 MiB). The `PeerHistory`
+  tool reads the latest ones (`limit`, `peer` filter by pid, session id prefix,
+  name or address). Two channels keep cyber apart: a conversation where either
+  end runs with `CLAUDE_CYBER=1` goes to `cyber.jsonl`, every other one to
+  `normal.jsonl` (the sender announces `cyber` in the wire message). A normal
+  session only reads `normal` and never opens `cyber.jsonl`; a cyber session
+  reads both, or one with `scope`. Code: `src/utils/peerLog.ts`,
+  `src/tools/PeerHistoryTool/`.
+
 ## Subagents always answer their parent
 
 `SendMessage` is always available (not only with agent teams): it continues a
