@@ -96,6 +96,7 @@ import { exitWithError, exitWithMessage, getRenderContext, renderAndRun, showSet
 import { initBuiltinPlugins } from './plugins/bundled/index.js';
 /* eslint-enable @typescript-eslint/no-require-imports */
 import { checkQuotaStatus } from './services/claudeAiLimits.js';
+import { matrixDropChannelsForFork } from './utils/matrixEventsRuntime.js';
 import { getMcpToolsCommandsAndResources, prefetchAllMcpResources } from './services/mcp/client.js';
 import { VALID_INSTALLABLE_SCOPES, VALID_UPDATE_SCOPES } from './services/plugins/pluginCliCommands.js';
 import { initBundledSkills } from './skills/bundled/index.js';
@@ -1022,6 +1023,14 @@ async function run(): Promise<CommanderCommand> {
   // --plugin-dir takes exactly one arg; repeat the flag for multiple dirs.
   .option('--plugin-dir <path>', 'Load plugins from a directory for this session only (repeatable: --plugin-dir A --plugin-dir B)', (val: string, prev: string[]) => [...prev, val], [] as string[]).option('--disable-slash-commands', 'Disable all skills', () => true).option('--perfil <name>', 'Context profile: system prompt, tools and context (CLAUDE.md, memory, hooks, MCP, skills) as one named preset. Built-in: full, simple, minimo; yours live in <config dir>/profiles/<name>.json. Switch live with /perfil.').option('--chrome', 'Enable Claude in Chrome integration').option('--no-chrome', 'Disable Claude in Chrome integration').option('--file <specs...>', 'File resources to download at startup. Format: file_id:relative_path (e.g., --file file_abc:doc.txt file_def:img.png)').action(async (prompt, options) => {
     profileCheckpoint('action_handler_start');
+
+    // A forked session must not inherit the Matrix event channel of the one it came from
+    // (it would write into that session's events file and read its input FIFO).
+    if ((options as {
+      forkSession?: boolean;
+    }).forkSession) {
+      matrixDropChannelsForFork();
+    }
 
     // --bare = one-switch minimal mode. Sets SIMPLE so all the existing
     // gates fire (CLAUDE.md, skills, hooks inside executeHooks, agent

@@ -26,7 +26,8 @@ export function useMatrixChannel({ isIdle, resumed, submit, interrupt }: Params)
 
   // Declared before the idle effect so `session_start` precedes the first `ready`.
   useEffect(() => {
-    matrixSessionStart({ resumed })
+    // The REPL mounts the MCP manager, so `mcp_settled` will be emitted: announce the capability.
+    matrixSessionStart({ resumed, mcp: true })
     return attachMatrixControls({
       submit: (text, uuid) => submitRef.current(text, uuid),
       interrupt: () => interruptRef.current(),

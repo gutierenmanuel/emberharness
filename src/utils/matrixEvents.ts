@@ -1,5 +1,5 @@
 /**
- * Pure core of the Matrix event channel (contract: docs/matrix_events.md, v1).
+ * Pure core of the Matrix event channel (contract: docs/matrix_events.md, v2).
  *
  * Everything here is free of I/O and of module state: building and serializing
  * events, parsing the input lines of `FNHARNESS_INPUT`, splitting a byte stream
@@ -8,7 +8,7 @@
  * reading, hooks into the REPL) live in `matrixEventsRuntime.ts`.
  */
 
-export const MATRIX_EVENTS_VERSION = 1
+export const MATRIX_EVENTS_VERSION = 2
 
 // ── events (output) ──────────────────────────────────────────────────────
 
@@ -24,9 +24,23 @@ export type AskQuestion = {
   options: AskOption[]
 }
 
+/** Capabilities announced in `session_start.caps` (v2). */
+export type MatrixCap = 'entries' | 'mcp'
+
+/** One transcript entry as it is serialized into the session JSONL. */
+export type TranscriptEntryObject = Record<string, unknown>
+
 /** The type-specific part of each event; the common fields are added by `buildEvent`. */
 export type EventBody =
-  | { type: 'session_start'; cwd: string; account: string; model: string; resumed: boolean; pid: number }
+  | {
+      type: 'session_start'
+      cwd: string
+      account: string
+      model: string
+      resumed: boolean
+      pid: number
+      caps: MatrixCap[]
+    }
   | { type: 'ready' }
   | { type: 'turn_start'; source: TurnSource }
   | { type: 'turn_end'; reason: TurnEndReason }
@@ -41,6 +55,8 @@ export type EventBody =
       new_session_id: string
       reason: SessionSwitchReason
     }
+  | { type: 'entry'; entry: TranscriptEntryObject; input_id?: string; truncated?: true }
+  | { type: 'mcp_settled'; connected: number; failed: number; pending: number }
   | { type: 'exit'; code: number }
 
 export type EventType = EventBody['type']
@@ -75,6 +91,114 @@ export function serializeEvent(event: MatrixEvent): string {
 export function truncate(text: string, max: number): string {
   const flat = text.replace(/\s+/g, ' ').trim()
   return flat.length <= max ? flat : flat.slice(0, Math.max(0, max - 1)) + '…'
+}
+
+// ── entry trimming (v2) ──────────────────────────────────────────────────
+
+/** A `tool_result` text longer than this is cut. */
+export const MAX_TOOL_RESULT_CHARS = 8 * 1024
+/** The serialized event line never goes past this (the reader drops lines over 1 MB). */
+export const MAX_ENTRY_LINE_BYTES = 900 * 1024
+
+const isObj = (v: unknown): v is Record<string, unknown> =>
+  typeof v === 'object' && v !== null && !Array.isArray(v)
+
+const byteLength = (s: string) => Buffer.byteLength(s, 'utf8')
+
+function cutText(text: string, max: number): string {
+  const omitted = text.length - max
+  return `${text.slice(0, max)}\n[… recortado: ${omitted} caracteres más]`
+}
+
+/** Shrinks the content of a `tool_result` block (string or list of blocks). Returns null if nothing changed. */
+function trimToolResultContent(content: unknown, max: number): unknown | null {
+  if (typeof content === 'string') return content.length > max ? cutText(content, max) : null
+  if (!Array.isArray(content)) return null
+  let changed = false
+  const out = content.map(part => {
+    if (!isObj(part)) return part
+    // Inside a tool_result every text part obeys the tool_result limit.
+    const replaced =
+      part.type === 'text' && typeof part.text === 'string' && part.text.length > max
+        ? { ...part, text: cutText(part.text, max) }
+        : trimBlock(part, max)
+    if (replaced !== part) changed = true
+    return replaced
+  })
+  return changed ? out : null
+}
+
+/** Trims one content block: cuts long tool_result text and replaces base64 images. Never mutates. */
+function trimBlock(block: Record<string, unknown>, max: number): Record<string, unknown> {
+  if (block.type === 'image') {
+    const source = block.source
+    if (isObj(source) && source.type === 'base64') {
+      const data = typeof source.data === 'string' ? source.data : ''
+      const mediaType = typeof source.media_type === 'string' ? source.media_type : 'image'
+      return { type: 'text', text: `[imagen omitida: ${mediaType}, ${data.length} caracteres base64]` }
+    }
+    return block
+  }
+  if (block.type === 'tool_result') {
+    const content = trimToolResultContent(block.content, max)
+    return content === null ? block : { ...block, content }
+  }
+  if (block.type === 'text' && typeof block.text === 'string' && block.text.length > max * 64) {
+    // A single text block of more than 512 KB cannot be a human message; keep the line under the limit.
+    return { ...block, text: cutText(block.text, max * 64) }
+  }
+  return block
+}
+
+function trimMessageContent(entry: TranscriptEntryObject, max: number): TranscriptEntryObject {
+  const message = entry.message
+  if (!isObj(message) || !Array.isArray(message.content)) return entry
+  let changed = false
+  const content = message.content.map(part => {
+    if (!isObj(part)) return part
+    const replaced = trimBlock(part, max)
+    if (replaced !== part) changed = true
+    return replaced
+  })
+  return changed ? { ...entry, message: { ...message, content } } : entry
+}
+
+/**
+ * Prepares a transcript entry for the `entry` event (contract v2): `tool_result`
+ * text above 8 KB is cut with a marker, base64 images become a text marker, and
+ * if the serialized entry is still over ~900 KB the cut tightens until it fits
+ * (the last resort replaces the whole message content). Pure: the input is not
+ * mutated; when nothing needs trimming the same object comes back with
+ * `truncated: false`.
+ */
+export function trimEntryForEvent(entry: TranscriptEntryObject): {
+  entry: TranscriptEntryObject
+  truncated: boolean
+} {
+  let current = trimMessageContent(entry, MAX_TOOL_RESULT_CHARS)
+  const tooBig = (e: TranscriptEntryObject) => {
+    try {
+      return byteLength(JSON.stringify(e)) > MAX_ENTRY_LINE_BYTES
+    } catch {
+      return true
+    }
+  }
+  // Tool results far above the limit may still add up (many blocks): tighten stepwise.
+  for (let max = MAX_TOOL_RESULT_CHARS / 2; tooBig(current) && max >= 256; max = Math.floor(max / 2)) {
+    current = trimMessageContent(current, max)
+  }
+  if (tooBig(current)) {
+    // Something outside the content is huge (toolUseResult, a giant text): keep only the identity of the entry.
+    const message = isObj(current.message) ? current.message : undefined
+    const { toolUseResult: _drop, ...rest } = current
+    current = {
+      ...rest,
+      ...(message
+        ? { message: { ...message, content: [{ type: 'text', text: '[contenido omitido: entrada demasiado grande]' }] } }
+        : {}),
+    }
+  }
+  return { entry: current, truncated: current !== entry }
 }
 
 /** Shapes the questions of an AskUserQuestion call as the contract's `ask_user` payload. */
@@ -244,6 +368,29 @@ export function buildAskAnswers(
   return out
 }
 
+// ── MCP initial connection tally ─────────────────────────────────────────
+
+export type McpTally = { connected: number; failed: number; pending: number }
+
+/**
+ * Counts the initial MCP connections: `states` maps each server name to the
+ * type of its last connection attempt (`connected`, `failed`, `needs-auth`...),
+ * `expected` is how many servers were to be connected. A server with no
+ * attempt yet is `pending`; `failed` includes `needs-auth`; anything else a
+ * settled attempt can end in (`disabled`) counts as neither.
+ */
+export function tallyMcp(states: ReadonlyMap<string, string>, expected: number): McpTally {
+  let connected = 0
+  let failed = 0
+  let other = 0
+  for (const type of states.values()) {
+    if (type === 'connected') connected++
+    else if (type === 'failed' || type === 'needs-auth') failed++
+    else other++
+  }
+  return { connected, failed, pending: Math.max(0, expected - connected - failed - other) }
+}
+
 // ── input queue state machine ────────────────────────────────────────────
 
 export type QueuedPrompt = { id: string; text: string }
@@ -257,6 +404,8 @@ export type FlowState = {
   readySent: boolean
   /** A prompt was handed to the REPL and has not been picked up yet. */
   submitting: boolean
+  /** The initial MCP connections have not settled: no `ready` and no queued prompt goes out yet. */
+  mcpWait: boolean
   pending: QueuedPrompt[]
 }
 
@@ -267,6 +416,7 @@ export type FlowEvent =
   | { kind: 'prompt'; id: string; text: string }
   | { kind: 'interrupt' }
   | { kind: 'submit_timeout' }
+  | { kind: 'mcp_wait'; wait: boolean }
 
 export type FlowAction =
   | { kind: 'emit'; body: EventBody }
@@ -278,10 +428,11 @@ export const initialFlow: FlowState = {
   openTurns: 0,
   readySent: false,
   submitting: false,
+  mcpWait: false,
   pending: [],
 }
 
-const quiet = (s: FlowState) => s.idle && s.openTurns === 0 && !s.submitting
+const quiet = (s: FlowState) => s.idle && s.openTurns === 0 && !s.submitting && !s.mcpWait
 
 /** When the prompt is free: send the next queued prompt, or announce `ready` once. */
 function settle(s: FlowState): { state: FlowState; actions: FlowAction[] } {
@@ -309,6 +460,8 @@ export function stepFlow(s: FlowState, e: FlowEvent): { state: FlowState; action
     }
     case 'submit_timeout':
       return settle({ ...s, submitting: false })
+    case 'mcp_wait':
+      return settle({ ...s, mcpWait: e.wait })
     case 'turn_start':
       return {
         state: { ...s, openTurns: s.openTurns + 1, submitting: false, readySent: false },
