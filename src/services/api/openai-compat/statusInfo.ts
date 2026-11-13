@@ -53,6 +53,9 @@ export type AccountStatusInput = {
   pricePerMtok: { input: number; output: number } | null
   /** Perfil de contexto activo (/perfil) y si se modificó a mano; null/ausente = ninguno. */
   profile?: { name: string; modified: boolean } | null
+  /** Correo y organización del titular de la cuenta, cuando el proveedor los expone (OAuth de Anthropic). */
+  email?: string | null
+  org?: string | null
   now: number
 }
 
@@ -66,6 +69,10 @@ export type AccountStatusJson = {
     model: string
     /** Name the server itself reports, when it differs from `model` (e.g. llama.cpp "default"). */
     server_model: string | null
+    /** Correo del titular de la cuenta; null cuando el proveedor no lo expone. */
+    email: string | null
+    /** Organización del titular; null cuando no se conoce. */
+    org: string | null
   }
   context: {
     window: number
@@ -102,6 +109,8 @@ export function buildAccountStatus(i: AccountStatusInput): AccountStatusJson {
       local,
       model: i.model,
       server_model: serverModel,
+      email: i.email?.trim() || null,
+      org: i.org?.trim() || null,
     },
     context: {
       window: i.contextWindow,

@@ -57,6 +57,13 @@ describe('buildAccountStatus', () => {
     expect(buildAccountStatus({ ...base, profile: { name: 'minimo', modified: true } }).profile).toEqual({ name: 'minimo', modified: true })
   })
 
+  test('el titular de la cuenta viaja en el bloque; sin dato queda null', () => {
+    expect(buildAccountStatus(base).account).toMatchObject({ email: null, org: null })
+    const s = buildAccountStatus({ ...base, email: ' persona@example.com ', org: 'Acme' })
+    expect(s.account).toMatchObject({ email: 'persona@example.com', org: 'Acme' })
+    expect(buildAccountStatus({ ...base, email: '', org: undefined }).account).toMatchObject({ email: null, org: null })
+  })
+
   test('native account is a subscription with no server block', () => {
     const s = buildAccountStatus({ ...base, accountId: 'claude', provider: null, baseUrl: null, contextSource: 'claude', server: null })
     expect(s.cost.kind).toBe('subscription')
