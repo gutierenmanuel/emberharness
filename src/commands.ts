@@ -178,6 +178,7 @@ import account from './commands/account/index.js'
 import secrets from './commands/secrets/index.js'
 import scope from './commands/scope/index.js'
 import perfil from './commands/perfil/index.js'
+import otel from './commands/otel/index.js'
 import goal from './commands/goal/index.js'
 import cyber from './commands/cyber/index.js'
 import background from './commands/background/index.js'
@@ -301,6 +302,7 @@ const COMMANDS = memoize((): Command[] => [
   secrets,
   scope,
   perfil,
+  otel,
   goal,
   cyber,
   background,
