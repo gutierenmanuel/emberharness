@@ -14,6 +14,7 @@ import {
   formatTokenEstimate,
   parseScopeArgs,
   parseStoredProfile,
+  sameProfile,
   scopeLookup,
   type ContextProfile,
 } from './contextProfile.js'
@@ -162,5 +163,34 @@ describe('helpers', () => {
     expect(JSON.stringify(out)).not.toContain('tool_use"')
     expect((out[1]!.message.content as Array<{ text: string }>)[1]!.text).toBe('[tool call Bash: {"command":"ls"}]')
     expect((out[2]!.message.content as Array<{ text: string }>)[0]!.text).toBe('[tool result]\na.txt')
+  })
+})
+
+describe('listas de un perfil (toolNames, mcpServers)', () => {
+  const base: ContextProfile = { mcp: 'full', skill: 'full', tools: 'simple', toolNames: ['Read', 'Write'] }
+  test('sameProfile y formatProfile las tienen en cuenta', () => {
+    expect(sameProfile(base, { ...base })).toBe(true)
+    expect(sameProfile(base, { ...base, toolNames: ['Read'] })).toBe(false)
+    expect(sameProfile(base, { mcp: 'full', skill: 'full', tools: 'simple' })).toBe(false)
+    expect(formatProfile({ ...base, mcpServers: ['registry'] })).toBe('mcp:full[registry] skill:full tools:[Read,Write]')
+  })
+  test('filterTools con toolNames deja solo esas internas', () => {
+    expect(filterToolsByProfile(BUILTINS, base, () => undefined).map(t => t.name)).toEqual(['Read', 'Write'])
+  })
+  test('los subagentes ignoran la lista y conservan las internas', () => {
+    const names = filterWorkerToolsByProfile(BUILTINS, base, CLIENTS).map(t => t.name)
+    expect(names).toContain('Bash')
+    expect(names).toContain('Agent')
+  })
+  test('mcpServers limita las herramientas y las conexiones MCP', () => {
+    const p: ContextProfile = { mcp: 'full', skill: 'full', tools: 'full', mcpServers: ['proj'] }
+    expect(filterToolsByProfile(MCP, p, () => 'project').map(t => t.name)).toEqual(['mcp__proj__a'])
+    expect(filterMcpClientsByProfile(CLIENTS, p).map(c => c.name)).toEqual(['proj'])
+  })
+  test('tocar un eje con /scope descarta su lista', () => {
+    const r = parseScopeArgs('tools:full', base)
+    expect(r.kind === 'set' && r.profile.toolNames).toBeUndefined()
+    const r2 = parseScopeArgs('mcp:none', { ...base, mcpServers: ['x'] })
+    expect(r2.kind === 'set' && r2.profile.mcpServers).toBeUndefined()
   })
 })

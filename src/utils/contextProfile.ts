@@ -18,6 +18,14 @@ export type ContextProfile = {
   mcp: McpAxis
   skill: SkillAxis
   tools: ToolsAxis
+  /**
+   * Lista exacta de herramientas internas (la fija un perfil de /perfil). Con ella
+   * manda sobre el eje `tools`: solo se envían esas, más las MCP que dejen pasar
+   * los otros ejes. Los presets de /scope no la usan.
+   */
+  toolNames?: readonly string[]
+  /** Solo estos servidores MCP (por nombre), además del filtro del eje `mcp`. */
+  mcpServers?: readonly string[]
 }
 
 export const MCP_AXIS_VALUES: readonly McpAxis[] = ['full', 'folder', 'user', 'none']
@@ -59,8 +67,26 @@ const PRESET_ALIASES: Record<string, PresetName> = {
   chat: 'nothing',
 }
 
+function sameList(a: readonly string[] | undefined, b: readonly string[] | undefined): boolean {
+  if (a === undefined || b === undefined) return a === b
+  return a.length === b.length && a.every((x, i) => x === b[i])
+}
+
 export function sameProfile(a: ContextProfile, b: ContextProfile): boolean {
-  return a.mcp === b.mcp && a.skill === b.skill && a.tools === b.tools
+  return (
+    a.mcp === b.mcp &&
+    a.skill === b.skill &&
+    a.tools === b.tools &&
+    sameList(a.toolNames, b.toolNames) &&
+    sameList(a.mcpServers, b.mcpServers)
+  )
+}
+
+/** `mcp:user skill:none tools:[Read,Write]` con las listas de un perfil si las hay. */
+function describeAxes(p: ContextProfile, short: boolean): string {
+  const tools = p.toolNames ? `[${p.toolNames.join(',')}]` : p.tools
+  const mcp = p.mcpServers ? `${p.mcp}[${p.mcpServers.join(',')}]` : p.mcp
+  return short ? `m:${mcp} s:${p.skill} t:${tools}` : `mcp:${mcp} skill:${p.skill} tools:${tools}`
 }
 
 /** Preset that matches `p` exactly, or null for a custom combination. */
@@ -70,12 +96,12 @@ export function presetOf(p: ContextProfile): (typeof CONTEXT_PRESETS)[number] | 
 
 /** `simple` for a preset, `mcp:user skill:none tools:simple` otherwise. */
 export function formatProfile(p: ContextProfile): string {
-  return presetOf(p)?.name ?? `mcp:${p.mcp} skill:${p.skill} tools:${p.tools}`
+  return presetOf(p)?.name ?? describeAxes(p, false)
 }
 
 /** Short form for the footer: preset name or `m:user s:none t:simple`. */
 export function formatProfileShort(p: ContextProfile): string {
-  return presetOf(p)?.name ?? `m:${p.mcp} s:${p.skill} t:${p.tools}`
+  return presetOf(p)?.name ?? describeAxes(p, true)
 }
 
 /**
@@ -122,6 +148,9 @@ export function parseScopeArgs(args: string, current: ContextProfile): ScopeArgs
       return { kind: 'error', message: `${axis}:${value} no vale; usa ${axis}:<${allowed.join('|')}>` }
     }
     profile = { ...profile, [axis]: value } as ContextProfile
+    // Tocar un eje a mano descarta la lista que un perfil hubiera fijado para él.
+    if (axis === 'tools') delete profile.toolNames
+    if (axis === 'mcp') delete profile.mcpServers
   }
   return { kind: 'set', profile }
 }
@@ -178,6 +207,10 @@ export function isSkillSourceAllowed(source: string | undefined, axis: SkillAxis
   }
 }
 
+function isMcpServerListed(server: string, profile: ContextProfile): boolean {
+  return !profile.mcpServers || profile.mcpServers.includes(server)
+}
+
 type ToolLike = { name: string; isMcp?: boolean; mcpInfo?: { serverName: string; toolName: string } }
 
 function isMcpToolLike(t: ToolLike): boolean {
@@ -194,10 +227,17 @@ export function filterToolsByProfile<T extends ToolLike>(
   scopeOfServer: (serverName: string) => string | undefined,
 ): T[] {
   if (!profile || sameProfile(profile, FULL_PROFILE)) return [...tools]
+  const listed = profile.toolNames ? new Set(profile.toolNames) : null
   return tools.filter(t => {
     if (isMcpToolLike(t)) {
       const server = t.mcpInfo?.serverName ?? t.name.split('__')[1] ?? ''
-      return isMcpScopeAllowed(scopeOfServer(server), profile.mcp)
+      return isMcpScopeAllowed(scopeOfServer(server), profile.mcp) && isMcpServerListed(server, profile)
+    }
+    if (listed) {
+      if (!listed.has(t.name)) return false
+      if (MCP_RESOURCE_TOOL_NAMES.has(t.name)) return profile.mcp !== 'none'
+      if (t.name === SKILL_TOOL_NAME) return profile.skill !== 'none'
+      return true
     }
     if (MCP_RESOURCE_TOOL_NAMES.has(t.name)) return profile.tools === 'full' && profile.mcp !== 'none'
     if (t.name === SKILL_TOOL_NAME) return profile.tools === 'full' && profile.skill !== 'none'
@@ -208,12 +248,16 @@ export function filterToolsByProfile<T extends ToolLike>(
 }
 
 /** Filters MCP client connections (used for server instructions) by scope. */
-export function filterMcpClientsByProfile<C extends { config: { scope?: string } }>(
+export function filterMcpClientsByProfile<C extends { name?: string; config: { scope?: string } }>(
   clients: readonly C[],
   profile: ContextProfile | undefined,
 ): C[] {
-  if (!profile || profile.mcp === 'full') return [...clients]
-  return clients.filter(c => isMcpScopeAllowed(c.config.scope, profile.mcp))
+  if (!profile || (profile.mcp === 'full' && !profile.mcpServers)) return [...clients]
+  return clients.filter(
+    c =>
+      isMcpScopeAllowed(c.config.scope, profile.mcp) &&
+      (!profile.mcpServers || profile.mcpServers.includes(c.name ?? '')),
+  )
 }
 
 /** Filters skills/commands the model may see or invoke. */
@@ -282,5 +326,7 @@ export function filterWorkerToolsByProfile<T extends ToolLike>(
   clients: readonly { name: string; config: { scope?: string } }[],
 ): T[] {
   if (!profile) return [...tools]
-  return filterToolsByProfile(tools, { ...profile, tools: 'full' }, scopeLookup(clients))
+  // Los subagentes conservan siempre las herramientas internas completas, también
+  // cuando un perfil fija una lista para la sesión principal.
+  return filterToolsByProfile(tools, { ...profile, tools: 'full', toolNames: undefined }, scopeLookup(clients))
 }
