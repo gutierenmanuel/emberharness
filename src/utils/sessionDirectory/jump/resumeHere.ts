@@ -39,8 +39,10 @@ export function buildResumeArgs(row: SessionRow, mode: ResumeMode): string[] {
   const args = ['--resume', row.sessionId]
   if (mode === 'fork') args.push('--fork-session')
   if (row.cwd) args.push('--chdir', row.cwd)
-  if (row.account) args.push('--account', row.account)
-  if (row.model && row.account && row.account !== 'claude') args.push('--model', row.model)
+  // 'default' es lo que apunta una bg lanzada sin cuenta explícita: no es una cuenta que reaplicar.
+  const account = row.account && row.account !== 'default' ? row.account : undefined
+  if (account) args.push('--account', account)
+  if (row.model && account && account !== 'claude') args.push('--model', row.model)
   return args
 }
 

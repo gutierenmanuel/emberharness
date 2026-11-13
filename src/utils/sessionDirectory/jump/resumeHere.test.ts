@@ -33,6 +33,10 @@ describe('buildResumeArgs', () => {
     ])
   })
 
+  test('la cuenta "default" de una bg no se reenvía', () => {
+    expect(buildResumeArgs(row({ account: 'default', model: 'm' }), 'resume')).toEqual(['--resume', 's1', '--chdir', '/work/proyecto'])
+  })
+
   test('otra cuenta: --account y --model', () => {
     expect(buildResumeArgs(row({ account: 'twil', model: 'm8b' }), 'resume')).toEqual([
       '--resume', 's1', '--chdir', '/work/proyecto', '--account', 'twil', '--model', 'm8b',
