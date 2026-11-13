@@ -35,7 +35,7 @@ Reglas: una sesión viva nunca se reanuda sobre su propio transcript (dos proces
 
 ## 2. Slash commands
 
-El registro está en la función memoizada `COMMANDS()` de `src/commands.ts`. Además de estos comandos integrados, el CLI carga skills (carpetas de skills, bundled, de plugins) y comandos de plugins, que no se listan aquí. Hay 71 comandos integrados incondicionales, más los condicionados por flag (sección 2.9) y los internos de Anthropic (sección 2.10).
+El registro está en la función memoizada `COMMANDS()` de `src/commands.ts`. Además de estos comandos integrados, el CLI carga skills (carpetas de skills, bundled, de plugins) y comandos de plugins, que no se listan aquí. Hay 72 comandos integrados incondicionales, más los condicionados por flag (sección 2.9) y los internos de Anthropic (sección 2.10).
 
 El tipo indica cómo se ejecuta: `local` (texto), `local-jsx` (interfaz Ink) o `prompt` (se expande a un prompt para el modelo).
 
@@ -263,6 +263,18 @@ Formato (JSON en `<CLAUDE_CONFIG_DIR>/profiles/<nombre>.json`; el del usuario su
 `replace` y `append` exigen `text` o `file`. `bare: true` fuerza `claudeMd`, `memory` y `hooks` a false. En `text` (y en el fichero) `{cwd}` se sustituye por el directorio de trabajo: un prompt de reemplazo no lleva la información de entorno y un modelo pequeño que no sabe dónde está inventa rutas. Perfiles de fábrica (`src/config/defaults/perfiles/`): `full` (todo por defecto), `simple` (Read, Write, Edit, Glob, Grep, Bash; sin MCP, memoria ni hooks) y `minimo` (bare, Read, Write, Edit, Glob, prompt de una línea, para un modelo local de 8B con 16k de contexto). El estado va en `<CLAUDE_CONFIG_DIR>/profiles.json` (`{default, active}`, 0600; `/perfil <n>` fija `active`).
 
 En caliente (desde el siguiente turno): herramientas, MCP (todos, ninguno o una lista), skills, system prompt (un `--system-prompt` explícito gana al del perfil; `append` se suma detrás), memoria y CLAUDE.md. Con reinicio: cambiar `bare` en cualquier sentido y pasar los hooks de apagados a encendidos. El reinicio lo hace el lanzador: el CLI escribe `restart/<pid del lanzador>.args` y sale con 75, y `bin/fnharness` relanza con `--resume <sesión> --perfil <x>` conservando `--account` y `--model`. Con `-p`, con `FNHARNESS_NO_RESTART=1` o ejecutando `./cli` directamente no hay bucle: `/perfil` imprime el comando a escribir. El modelo de un perfil solo se aplica con su cuenta; un perfil con `account` bare añade a Bash/Read/Edit las herramientas que nombra. `/scope` y Ctrl+Tab ajustan el scope encima y marcan el perfil como modificado (`nombre*` en la barra de estado). `/account` ya no pisa el scope de un perfil activo.
+
+### 2.15 `/otel` (informe de telemetría)
+
+Comando integrado de solo lectura (tipo `local`, funciona también con `-p "/otel"`). Alias: `/opentelemetry` y `/telemetry`. Responde a qué pasa ahora con la telemetría y a dónde se enviaría, sin enviar nada:
+
+- el estado real: si el build tiene la telemetría activa (`isTelemetryEnabled()`; en el build OSS es `false`, así que dice «No se envía nada: telemetría desactivada en este build» y, si los ajustes la piden, a dónde iría);
+- la cuenta en uso (id, etiqueta, correo y organización cuando el proveedor los expone);
+- las variables `CLAUDE_CODE_ENABLE_TELEMETRY`, `DISABLE_TELEMETRY` y `OTEL_*` efectivas con su origen: remote-settings de la organización (o managed-settings), `settings.json` (`env`), `.claude.json` (`env`), perfil de cuenta o entorno del proceso; gana la capa de mayor precedencia, como al construir el entorno;
+- los destinos por señal (metrics, logs, traces): exportadores, endpoint, protocolo, intervalo y atributos de recurso;
+- los receptores propios de `<CLAUDE_CONFIG_DIR>/telemetry.json`, o que no hay ninguno.
+
+Las cabeceras salen siempre enmascaradas (`dd-api-key=***`): solo se muestra su nombre, nunca el valor; lo mismo vale para credenciales en URLs y para variables con `key`, `token` o `secret` en el nombre. `/otel --json` devuelve el mismo informe como JSON. La lógica pura (origen, destinos, enmascarado) está en `src/utils/telemetry/otelReport.ts`; el comando, en `src/commands/otel/`. El envío real de telemetría no está implementado: ver `docs/plans/otel_telemetry.md`.
 
 ## 3. CLI de línea de comandos
 

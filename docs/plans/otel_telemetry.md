@@ -272,7 +272,7 @@ momento (decisión D2).
   diálogos de seguridad de cada cuenta.
 - `flushTelemetry()` al salir, en paralelo y con un tope de 2 s por receptor.
 - Un receptor caído solo deja una entrada en el log de depuración. Nunca se imprime una cabecera.
-- `/telemetry` lista los receptores, sus cuentas, el último envío correcto y el último error.
+- `/telemetry` lista los receptores, sus cuentas, el último envío correcto y el último error (hoy existe la versión informe, `/otel`, que no envía nada: `src/utils/telemetry/otelReport.ts`).
   `/telemetry test <id>` manda un punto de prueba.
 
 ## 5. Nuestro receptor: `otel_sink` (si D4 = «lo montamos»)
@@ -302,7 +302,7 @@ App nueva `apps/otel_sink` (sub-repo `dataforge/otel_sink`): un receptor OTLP/HT
 | 4 | `/account` con identidad, modelo y receptores; cabecera en `/model`; statusline | Captura en pseudo-terminal con 3 cuentas |
 | 5 | `context.ts`, `sinks.ts` (`sinksFor`, `telemetry.json`), contadores N-arios, `logOTelEvent` real | Unitarias verdes |
 | 6 | Reparto por cuenta + `sessionAccountsTouched` + `DISABLE_TELEMETRY` | e2e de la sección 7 |
-| 7 | `/telemetry` (list, add, test) | Captura en pseudo-terminal |
+| 7 | `/telemetry` (list, add, test). **Ya existe en versión informe** (13/11/2026): `/otel`, alias `/opentelemetry` y `/telemetry`, solo lectura (estado del build, cuenta, `OTEL_*` con origen, destinos, `telemetry.json`); faltan `add`, `test` y el último envío/error | Captura en pseudo-terminal |
 | 8 | `otel_sink` + tab del dashboard (si D4) | Sesión real deja filas por cuenta y modelo |
 | 9 | Prueba real con la empresa | Sección 8 |
 
