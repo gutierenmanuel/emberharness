@@ -449,6 +449,11 @@ El plan completo vive fuera del repo (`temp/matrix_fnharness_events/plan.md`; no
 - **`!arnes claude|fnharness`**: arnés por sala, en `<state>/<perfil>/<sesión>.harness`. Gana al
   `terminal.harness` del agente; cambiarlo pide confirmación y abre una sesión nueva; `claude-work`
   corre siempre en claude. Sin argumento muestra el vigente y de dónde sale. Es la vuelta atrás por sala.
+- **Reinicio del puente con la sesión viva**: el fichero de estado del lanzador (`<state>/<perfil>/<sesión>.json`)
+  no lleva `harness`, `events_file` ni `input_fifo`; solo los trae la salida JSON del lanzador. Tras un reinicio
+  el puente vuelve a llamar al lanzador (idempotente con la sesión viva, `created:false`) para recuperarlos
+  (`adoptChannels`); sin eso la sala caería al transcript y a la pantalla en mitad de un turno. Si el selector de
+  sesiones necesita esos campos en el fichero de estado, hay que añadirlos en el lanzador (aditivo).
 - **Requisito nuevo en la §10.2**: recompilar `./cli` DESPUÉS de integrar la rama v2 en fnharness; con un
   `./cli` anterior el puente cae al camino del transcript (no anuncia `entries`) y `waitMCPReady` no espera
   nada con fnharness.
