@@ -5,6 +5,11 @@ import { GREP_TOOL_NAME } from 'src/tools/GrepTool/prompt.js'
 import { SEND_MESSAGE_TOOL_NAME } from 'src/tools/SendMessageTool/constants.js'
 import { WEB_FETCH_TOOL_NAME } from 'src/tools/WebFetchTool/prompt.js'
 import { WEB_SEARCH_TOOL_NAME } from 'src/tools/WebSearchTool/prompt.js'
+import {
+  isNativeWebEnabled,
+  MCP_WEB_FETCH_TOOL_NAME,
+  MCP_WEB_SEARCH_TOOL_NAME,
+} from 'src/utils/nativeWeb.js'
 import { isUsing3PServices } from 'src/utils/auth.js'
 import { hasEmbeddedSearchTools } from 'src/utils/embeddedTools.js'
 import { getSettings_DEPRECATED } from 'src/utils/settings/settings.js'
@@ -69,11 +74,11 @@ function getClaudeCodeGuideBasePrompt(): string {
 
 **Approach:**
 1. Determine which domain the user's question falls into
-2. Use ${WEB_FETCH_TOOL_NAME} to fetch the appropriate docs map
+2. Use ${webFetchName()} to fetch the appropriate docs map
 3. Identify the most relevant documentation URLs from the map
 4. Fetch the specific documentation pages
 5. Provide clear, actionable guidance based on official documentation
-6. Use ${WEB_SEARCH_TOOL_NAME} if docs don't cover the topic
+6. Use ${webSearchName()} if docs don't cover the topic
 7. Reference local project files (CLAUDE.md, .claude/ directory) when relevant using ${localSearchHint}
 
 **Guidelines:**
@@ -84,6 +89,17 @@ function getClaudeCodeGuideBasePrompt(): string {
 - Help users discover features by proactively suggesting related commands, shortcuts, or capabilities
 
 Complete the user's request by providing accurate, documentation-based guidance.`
+}
+
+// FnHarness: sin las herramientas nativas (FNHARNESS_NATIVE_WEB != 1) se usan las del MCP web_search.
+function webFetchName(): string {
+  return isNativeWebEnabled() ? WEB_FETCH_TOOL_NAME : MCP_WEB_FETCH_TOOL_NAME
+}
+function webSearchName(): string {
+  return isNativeWebEnabled() ? WEB_SEARCH_TOOL_NAME : MCP_WEB_SEARCH_TOOL_NAME
+}
+function webToolNames(): string[] {
+  return [webFetchName(), webSearchName()]
 }
 
 function getFeedbackGuideline(): string {
@@ -104,15 +120,13 @@ export const CLAUDE_CODE_GUIDE_AGENT: BuiltInAgentDefinition = {
     ? [
         BASH_TOOL_NAME,
         FILE_READ_TOOL_NAME,
-        WEB_FETCH_TOOL_NAME,
-        WEB_SEARCH_TOOL_NAME,
+        ...webToolNames(),
       ]
     : [
         GLOB_TOOL_NAME,
         GREP_TOOL_NAME,
         FILE_READ_TOOL_NAME,
-        WEB_FETCH_TOOL_NAME,
-        WEB_SEARCH_TOOL_NAME,
+        ...webToolNames(),
       ],
   source: 'built-in',
   baseDir: 'built-in',

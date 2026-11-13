@@ -179,6 +179,16 @@ del registry.
 `FNHARNESS_LOCAL_LEAN=0 fnharness --account qwen36` vuelve a cargar los ajustes y `CLAUDE.md` del
 proyecto. Código: `src/services/api/openai-compat/leanLocal.ts`.
 
+## Herramientas web nativas desactivadas
+
+`WebSearch` y `WebFetch` solo funcionan con la API de Anthropic (la primera usa la herramienta de
+servidor `web_search`, la segunda pasa por un modelo auxiliar) y cuestan dinero con otros
+proveedores, así que FnHarness las deja fuera de la lista de herramientas por defecto. Se
+sustituyen por las del servidor MCP `web_search`: `mcp__web_search__web_search` y
+`mcp__web_search__web_fetch` (los agentes integrados que antes citaban las nativas citan estas).
+`FNHARNESS_NATIVE_WEB=1` las reactiva. Código: `src/utils/nativeWeb.ts` y `getAllBaseTools` en
+`src/tools.ts`.
+
 ## Estructura
 
 | Ruta | Contenido |
