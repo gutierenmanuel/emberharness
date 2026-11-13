@@ -199,6 +199,7 @@ import { type AppState, getDefaultAppState, IDLE_SPECULATION_STATE } from './sta
 import { initialPerfilState } from './utils/perfilInitial.js';
 import { effectiveSystemPrompts } from './utils/perfil.js';
 import { getBootPerfil } from './utils/perfilStore.js';
+import { isAnthropicAccountId } from './services/accounts/sessionAccounts.js';
 import { onChangeAppState } from './state/onChangeAppState.js';
 import { createStore } from './state/store.js';
 import { asSessionId } from './types/ids.js';
@@ -1451,8 +1452,11 @@ async function run(): Promise<CommanderCommand> {
           systemPrompt = eff.customSystemPrompt;
           appendSystemPrompt = eff.appendSystemPrompt;
         }
-        // El modelo de un perfil solo vale con la cuenta claude; en las demás va por CLAUDE_MULTIMODEL_MODEL.
-        if (bootPerfil.def.model && bootPerfil.def.account === 'claude' && !options.model) {
+        // El modelo de un perfil vale con una cuenta Claude (claude o una `kind: anthropic` como
+        // claude-work) y solo si es la cuenta de la sesión (un --account explícito distinto lo anula);
+        // en las demás va por CLAUDE_MULTIMODEL_MODEL (perfilStore.bootPerfil).
+        const sessionAccount = process.env.FNHARNESS_ACCOUNT ?? 'claude';
+        if (bootPerfil.def.model && !options.model && isAnthropicAccountId(sessionAccount) && (!bootPerfil.def.account || bootPerfil.def.account === sessionAccount)) {
           options.model = bootPerfil.def.model;
         }
       }

@@ -276,9 +276,21 @@ export function bootPerfil(argv: readonly string[], env: Env = process.env): str
   if (p.context.bare) env.CLAUDE_CODE_SIMPLE = '1'
   if (p.account && !hasExplicitAccount(env)) {
     env.CLAUDE_MULTIMODEL_ACCOUNT = p.account
-    if (p.model && !env.CLAUDE_MULTIMODEL_MODEL && p.account !== 'claude') env.CLAUDE_MULTIMODEL_MODEL = p.model
+    // En una cuenta Claude el modelo lo aplica main.tsx (options.model); CLAUDE_MULTIMODEL_MODEL es solo de las openai_compat.
+    if (p.model && !env.CLAUDE_MULTIMODEL_MODEL && !isStoredAnthropicAccount(p.account, env)) env.CLAUDE_MULTIMODEL_MODEL = p.model
   }
   return undefined
+}
+
+/** ¿`id` es `claude` o una cuenta `kind: anthropic` de accounts.json? Lectura mínima: se usa antes de cargar nada más. */
+function isStoredAnthropicAccount(id: string, env: Env): boolean {
+  if (id === 'claude') return true
+  try {
+    const raw = JSON.parse(readFileSync(configFilePath('accounts.json', env), 'utf8')) as { accounts?: Record<string, { kind?: string }> }
+    return raw.accounts?.[id]?.kind === 'anthropic'
+  } catch {
+    return false
+  }
 }
 
 /** Perfil con el que arrancó la sesión (undefined si nadie eligió uno). */

@@ -24,6 +24,7 @@
 
 ### Correcciones
 
+- el modelo de un perfil (`--perfil`) ahora se aplica también con cuentas Claude distintas de `claude` (p. ej. `claude-work` con `"model": "sonnet"`); antes solo valía con la cuenta literal `claude` y la sesión arrancaba con el modelo por defecto
 - `fnharness --perfil <p>` no aplicaba la cuenta del perfil cuando el shell colgaba de otra sesión fnharness (heredaba `CLAUDE_MULTIMODEL_ACCOUNT` y `FNHARNESS_ACCOUNT` y esa cuenta ganaba): el lanzador marca con `FNHARNESS_ACCOUNT_FLAG=1` un `--account` explícito y `bootPerfil` ignora la cuenta heredada; precedencia `--account` > cuenta del perfil > predeterminada
 - la API rechazaba los modelos 5.x (`claude_code_version_too_old`): el cliente anuncia ahora la versión 2.1.280 como mínimo (`FNHARNESS_API_VERSION` la sobrescribe)
 - tarifas oficiales de Sonnet 5.5 (2/10) y Opus 5.5 (4/20, rápido 8/40), con la caché de lectura al 0.05x; se añaden los modelos 5, 4.7 y 4.8 y Fable 5
