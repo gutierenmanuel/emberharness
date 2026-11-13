@@ -41,6 +41,27 @@ import { sleep } from '../../utils/sleep.js'
 import { jsonStringify } from '../../utils/slowOperations.js'
 import { getClaudeCodeUserAgent } from '../../utils/userAgent.js'
 import { getRetryDelay } from '../api/withRetry.js'
+import { anthropicAccountBaseUrl } from '../accounts/anthropicAccounts.js'
+import {
+  ROOT_LINKED_ACCOUNT_ID,
+  accountDir,
+  accountFilePath,
+  ensureAccountDir,
+  writeJsonPrivate,
+} from '../accounts/anthropicFiles.js'
+import { mergeRestrictions } from '../accounts/managedPolicy.js'
+import { accountsInForce, activeAnthropicAccountId } from '../accounts/sessionAccounts.js'
+import { runInProfileScope } from '../api/openai-compat/profiles.js'
+import { existsSync } from 'fs'
+
+/** `claude` was migrated: keep accounts/claude/policy-limits.json a copy of the root file. */
+function mirrorRootPolicyLimits(data: unknown): void {
+  try {
+    if (existsSync(accountDir(ROOT_LINKED_ACCOUNT_ID))) writeJsonPrivate(accountFilePath(ROOT_LINKED_ACCOUNT_ID, 'policyLimits'), data)
+  } catch {
+    // A copy only.
+  }
+}
 import {
   type PolicyLimitsFetchResult,
   type PolicyLimitsResponse,
@@ -68,8 +89,18 @@ let loadingCompleteResolve: (() => void) | null = null
 // Timeout for the loading promise to prevent deadlocks
 const LOADING_PROMISE_TIMEOUT_MS = 30000 // 30 seconds
 
-// Session-level cache for policy restrictions
-let sessionCache: PolicyLimitsResponse['restrictions'] | null = null
+// Session-level cache for policy restrictions, per Claude account (each one
+// has its own organisation and its own policy-limits.json).
+const sessionCaches = new Map<string, PolicyLimitsResponse['restrictions']>()
+
+function getSessionRestrictions(accountId = activeAnthropicAccountId()): PolicyLimitsResponse['restrictions'] | null {
+  return sessionCaches.get(accountId) ?? null
+}
+
+function setSessionRestrictions(value: PolicyLimitsResponse['restrictions'] | null, accountId = activeAnthropicAccountId()): void {
+  if (value) sessionCaches.set(accountId, value)
+  else sessionCaches.delete(accountId)
+}
 
 /**
  * Test-only sync reset. clearPolicyLimitsCache() does file I/O and is too
@@ -78,7 +109,7 @@ let sessionCache: PolicyLimitsResponse['restrictions'] | null = null
  */
 export function _resetPolicyLimitsForTesting(): void {
   stopBackgroundPolling()
-  sessionCache = null
+  sessionCaches.clear()
   loadingCompletePromise = null
   loadingCompleteResolve = null
 }
@@ -116,15 +147,17 @@ export function initializePolicyLimitsLoadingPromise(): void {
 /**
  * Get the path to the policy limits cache file
  */
-function getCachePath(): string {
-  return join(getClaudeConfigHomeDir(), CACHE_FILENAME)
+function getCachePath(accountId = activeAnthropicAccountId()): string {
+  return accountId === 'claude'
+    ? join(getClaudeConfigHomeDir(), CACHE_FILENAME)
+    : accountFilePath(accountId, 'policyLimits')
 }
 
 /**
  * Get the policy limits API endpoint
  */
 function getPolicyLimitsEndpoint(): string {
-  return `${getOauthConfig().BASE_API_URL}/api/claude_code/policy_limits`
+  return `${anthropicAccountBaseUrl() ?? getOauthConfig().BASE_API_URL}/api/claude_code/policy_limits`
 }
 
 /**
@@ -389,9 +422,9 @@ async function fetchPolicyLimits(
  * Load restrictions from cache file
  */
 // sync IO: called from sync context (getRestrictionsFromCache -> isPolicyAllowed)
-function loadCachedRestrictions(): PolicyLimitsResponse['restrictions'] | null {
+function loadCachedRestrictions(accountId = activeAnthropicAccountId()): PolicyLimitsResponse['restrictions'] | null {
   try {
-    const content = fsReadFileSync(getCachePath(), 'utf-8')
+    const content = fsReadFileSync(getCachePath(accountId), 'utf-8')
     const data = safeParseJSON(content, false)
     const parsed = PolicyLimitsResponseSchema().safeParse(data)
     if (!parsed.success) {
@@ -413,10 +446,12 @@ async function saveCachedRestrictions(
   try {
     const path = getCachePath()
     const data: PolicyLimitsResponse = { restrictions }
+    if (activeAnthropicAccountId() !== 'claude') ensureAccountDir(activeAnthropicAccountId())
     await writeFile(path, jsonStringify(data, null, 2), {
       encoding: 'utf-8',
       mode: 0o600,
     })
+    if (activeAnthropicAccountId() === 'claude') mirrorRootPolicyLimits(data)
     logForDebugging(`Policy limits: Saved to ${path}`)
   } catch (error) {
     logForDebugging(
@@ -448,7 +483,7 @@ async function fetchAndLoadPolicyLimits(): Promise<
     if (!result.success) {
       if (cachedRestrictions) {
         logForDebugging('Policy limits: Using stale cache after fetch failure')
-        sessionCache = cachedRestrictions
+        setSessionRestrictions(cachedRestrictions)
         return cachedRestrictions
       }
       return null
@@ -457,7 +492,7 @@ async function fetchAndLoadPolicyLimits(): Promise<
     // Handle 304 Not Modified
     if (result.restrictions === null && cachedRestrictions) {
       logForDebugging('Policy limits: Cache still valid (304 Not Modified)')
-      sessionCache = cachedRestrictions
+      setSessionRestrictions(cachedRestrictions)
       return cachedRestrictions
     }
 
@@ -465,14 +500,14 @@ async function fetchAndLoadPolicyLimits(): Promise<
     const hasContent = Object.keys(newRestrictions).length > 0
 
     if (hasContent) {
-      sessionCache = newRestrictions
+      setSessionRestrictions(newRestrictions)
       await saveCachedRestrictions(newRestrictions)
       logForDebugging('Policy limits: Applied new restrictions successfully')
       return newRestrictions
     }
 
     // Empty restrictions (404 response) - delete cached file if it exists
-    sessionCache = newRestrictions
+    setSessionRestrictions(newRestrictions)
     try {
       await unlink(getCachePath())
       logForDebugging('Policy limits: Deleted cached file (404 response)')
@@ -487,7 +522,7 @@ async function fetchAndLoadPolicyLimits(): Promise<
   } catch {
     if (cachedRestrictions) {
       logForDebugging('Policy limits: Using stale cache after error')
-      sessionCache = cachedRestrictions
+      setSessionRestrictions(cachedRestrictions)
       return cachedRestrictions
     }
     return null
@@ -531,21 +566,35 @@ export function isPolicyAllowed(policy: string): boolean {
 function getRestrictionsFromCache():
   | PolicyLimitsResponse['restrictions']
   | null {
-  if (!isPolicyLimitsEligible()) {
-    return null
+  // Every in-force Claude account (the session's and each one that served a
+  // request) adds its organisation's restrictions; a policy is allowed only
+  // when all of them allow it (D7). Each account keeps the legacy rule: its
+  // cache counts only while it is eligible.
+  const lists: Array<PolicyLimitsResponse['restrictions'] | null> = []
+  for (const accountId of accountsInForce()) {
+    lists.push(restrictionsOfAccount(accountId))
   }
+  return mergeRestrictions(lists) as PolicyLimitsResponse['restrictions'] | null
+}
 
-  if (sessionCache) {
-    return sessionCache
-  }
+function restrictionsOfAccount(accountId: string): PolicyLimitsResponse['restrictions'] | null {
+  const eligible = runInProfileScope({ accountId, profile: null, live: true }, () => isPolicyLimitsEligible())
+  if (!eligible) return null
+  const cached = getSessionRestrictions(accountId)
+  if (cached) return cached
+  const fromFile = loadCachedRestrictions(accountId)
+  if (fromFile) setSessionRestrictions(fromFile, accountId)
+  return fromFile
+}
 
-  const cachedRestrictions = loadCachedRestrictions()
-  if (cachedRestrictions) {
-    sessionCache = cachedRestrictions
-    return cachedRestrictions
-  }
-
-  return null
+/**
+ * Policy limits of the Claude account in force (used when an account other
+ * than the session's is about to serve its first request): fetch with its
+ * token, falling back to its cached copy.
+ */
+export async function loadPolicyLimitsForActiveAccount(): Promise<void> {
+  if (!isPolicyLimitsEligible()) return
+  await fetchAndLoadPolicyLimits()
 }
 
 /**
@@ -595,7 +644,7 @@ export async function refreshPolicyLimits(): Promise<void> {
 export async function clearPolicyLimitsCache(): Promise<void> {
   stopBackgroundPolling()
 
-  sessionCache = null
+  setSessionRestrictions(null)
 
   loadingCompletePromise = null
   loadingCompleteResolve = null
@@ -615,12 +664,12 @@ async function pollPolicyLimits(): Promise<void> {
     return
   }
 
-  const previousCache = sessionCache ? jsonStringify(sessionCache) : null
+  const previousCache = getSessionRestrictions() ? jsonStringify(getSessionRestrictions()) : null
 
   try {
     await fetchAndLoadPolicyLimits()
 
-    const newCache = sessionCache ? jsonStringify(sessionCache) : null
+    const newCache = getSessionRestrictions() ? jsonStringify(getSessionRestrictions()) : null
     if (newCache !== previousCache) {
       logForDebugging('Policy limits: Changed during background poll')
     }

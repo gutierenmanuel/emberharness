@@ -246,6 +246,20 @@ export function syncSimpleModeExtraTools(p: Perfil | undefined): void {
 }
 
 /**
+ * ¿La cuenta de arranque la eligió una persona (`--account`, o la variable puesta a mano)?
+ * `bin/fnharness` marca el flag con FNHARNESS_ACCOUNT_FLAG=1. Un CLAUDE_MULTIMODEL_ACCOUNT que
+ * coincide con FNHARNESS_ACCOUNT y no trae esa marca es herencia de una sesión fnharness padre
+ * (cada sesión exporta ambas a sus hijos): no es una elección y la cuenta del perfil lo sustituye.
+ * Precedencia: --account explícito > cuenta del perfil > predeterminada.
+ */
+export function hasExplicitAccount(env: Env = process.env): boolean {
+  const acct = env.CLAUDE_MULTIMODEL_ACCOUNT
+  if (!acct) return false
+  if (env.FNHARNESS_ACCOUNT_FLAG === '1') return true
+  return env.FNHARNESS_ACCOUNT !== acct
+}
+
+/**
  * Se llama una vez al arrancar (cli.tsx), antes de que nada lea el entorno: resuelve el
  * perfil, aplica su entorno (incluido bare) y, si el perfil trae cuenta o modelo y la
  * persona no pasó los suyos, los pone donde los lee el resto del arranque.
@@ -260,7 +274,7 @@ export function bootPerfil(argv: readonly string[], env: Env = process.env): str
   syncSimpleModeExtraTools(p)
   applyPerfilEnv(p, env)
   if (p.context.bare) env.CLAUDE_CODE_SIMPLE = '1'
-  if (p.account && !env.CLAUDE_MULTIMODEL_ACCOUNT) {
+  if (p.account && !hasExplicitAccount(env)) {
     env.CLAUDE_MULTIMODEL_ACCOUNT = p.account
     if (p.model && !env.CLAUDE_MULTIMODEL_MODEL && p.account !== 'claude') env.CLAUDE_MULTIMODEL_MODEL = p.model
   }

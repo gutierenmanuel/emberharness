@@ -1,7 +1,9 @@
 import { readFileSync } from 'fs'
 import { join } from 'path'
 import { getMultimodelProfile } from '../../services/api/openai-compat/profiles.js'
-import { getRemoteManagedSettingsSyncFromCache, getSettingsPath as getRemoteSettingsPath } from '../../services/remoteManagedSettings/syncCacheState.js'
+import { getAccountRemoteSettings, getSettingsPath as getRemoteSettingsPath } from '../../services/remoteManagedSettings/syncCacheState.js'
+import { activeAnthropicAccountId } from '../../services/accounts/sessionAccounts.js'
+import { telemetryEnvOf } from '../../services/accounts/managedPolicy.js'
 import type { LocalCommandCall } from '../../types/command.js'
 import { getOauthAccountInfo } from '../../utils/auth.js'
 import { getGlobalConfig } from '../../utils/config.js'
@@ -30,8 +32,8 @@ function readText(path: string): string | null {
   }
 }
 
-function readRemoteSettingsFileEnv(): Record<string, string> | undefined {
-  const text = readText(getRemoteSettingsPath())
+function readRemoteSettingsFileEnv(accountId: string): Record<string, string> | undefined {
+  const text = readText(getRemoteSettingsPath(accountId))
   if (text === null) return undefined
   try {
     const env = (JSON.parse(text) as { env?: unknown })?.env
@@ -47,21 +49,23 @@ export function collectOtelReportInput() {
   const accountId = process.env.FNHARNESS_ACCOUNT ?? 'claude'
   const holder = profile ? undefined : getOauthAccountInfo()
 
-  const remote = getRemoteManagedSettingsSyncFromCache()
-  const hasRemote = !!remote && Object.keys(remote).length > 0
+  // Remote settings of the Claude account in force: since there can be
+  // several, its telemetry is read from that account's own copy (the merged
+  // settings the session runs with no longer carry any OTEL_*).
+  const managedFrom = activeAnthropicAccountId()
+  const remote = getAccountRemoteSettings(managedFrom)
+  const remoteEnv = remote ? telemetryEnvOf(remote as Record<string, unknown>) : undefined
+  const hasRemote = !!remoteEnv && Object.keys(remoteEnv).length > 0
   const policyEnv = getSettingsForSource('policySettings')?.env
-  // El fichero remote-settings.json puede existir sin aplicarse (la sesión no cumple los requisitos
-  // de elegibilidad, p. ej. otra cuenta): se muestra igualmente, marcado, porque es lo que la
-  // organización inyectaría en una sesión elegible.
-  const fileEnv = hasRemote || policyEnv ? undefined : readRemoteSettingsFileEnv()
+  // The file can exist without being in force (the account is not eligible
+  // or not in use in this session): shown anyway, marked.
+  const fileEnv = hasRemote ? undefined : readRemoteSettingsFileEnv(managedFrom)
   const layers: EnvLayer[] = [
-    fileEnv
-      ? { origin: 'remote-settings', label: 'remote-settings de la organización (fichero, no aplicado en esta sesión)', env: fileEnv }
-      : {
-          origin: hasRemote ? 'remote-settings' : 'managed-settings',
-          label: hasRemote ? 'remote-settings de la organización' : 'ajustes gestionados (managed-settings)',
-          env: policyEnv,
-        },
+    hasRemote
+      ? { origin: 'remote-settings', label: `remote-settings de la organización de ${managedFrom} (receptor de esa cuenta)`, env: remoteEnv }
+      : fileEnv
+        ? { origin: 'remote-settings', label: `remote-settings de la organización de ${managedFrom} (fichero; cuenta no en uso en esta sesión)`, env: fileEnv }
+        : { origin: 'managed-settings', label: 'ajustes gestionados (managed-settings)', env: policyEnv },
     ...(
       [
         ['flagSettings', '--settings'],
@@ -85,6 +89,7 @@ export function collectOtelReportInput() {
       provider: profile?.provider ?? null,
       email: holder?.emailAddress ?? null,
       org: holder?.organizationName ?? null,
+      managedFrom,
     },
     layers,
     processEnv: process.env,

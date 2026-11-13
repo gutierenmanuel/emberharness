@@ -52,6 +52,7 @@ const paths = (env: Record<string, string | undefined>) => accountsFilePath(env)
 
 function requireAccount(store: AccountStore, id: string): void {
   if (id === CLAUDE_ACCOUNT_ID) throw new MultimodelConfigError('claude usa /login, no una API key')
+  if (store.accounts[id]?.kind === 'anthropic') throw new MultimodelConfigError(`${id} es una cuenta Claude: usa /account add claude ${id}, no una API key`)
   if (!isKnownAccount(id, store)) throw new MultimodelConfigError(`Cuenta desconocida "${id}". Mira /account list.`)
 }
 
@@ -65,7 +66,7 @@ export function secretRows(env: Record<string, string | undefined> = process.env
   const store = loadStore(paths(env))
   const rows: SecretRow[] = []
   for (const a of listAccounts(store, env)) {
-    if (a.id === CLAUDE_ACCOUNT_ID) continue
+    if (a.id === CLAUDE_ACCOUNT_ID || store.accounts[a.id]?.kind === 'anthropic') continue
     const stored = store.accounts[a.id]
     const hasStored = Boolean(stored?.apiKey || stored?.apiKeyRef)
     const baseUrl = stored?.baseUrl ?? a.baseUrl

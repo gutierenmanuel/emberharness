@@ -34,6 +34,7 @@ import { createCodexFetch } from './codex-fetch-adapter.js'
 import { createOpenAICompatFetch } from './openai-compat/adapter.js'
 import { getMultimodelProfile } from './openai-compat/profiles.js'
 import { routeForModel, withModelRoute } from './accountRouting.js'
+import { anthropicAccountBaseUrl } from '../accounts/anthropicAccounts.js'
 
 /**
  * Environment variables for different client types:
@@ -343,6 +344,10 @@ export async function getAnthropicClient({
     }
   }
 
+  // A Claude account may declare its own API base (a proxy, or a test
+  // server): requests of that account go there with that account's token.
+  const accountBaseUrl = anthropicAccountBaseUrl()
+
   // Determine authentication method based on available tokens
   const clientConfig: ConstructorParameters<typeof Anthropic>[0] = {
     apiKey: isClaudeAISubscriber() ? null : apiKey || getAnthropicApiKey(),
@@ -354,6 +359,7 @@ export async function getAnthropicClient({
     isEnvTruthy(process.env.USE_STAGING_OAUTH)
       ? { baseURL: getOauthConfig().BASE_API_URL }
       : {}),
+    ...(accountBaseUrl ? { baseURL: accountBaseUrl } : {}),
     ...ARGS,
     ...(isDebugToStdErr() && { logger: createStderrLogger() }),
   }

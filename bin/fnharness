@@ -5,7 +5,8 @@
 #   fnharness --resume <session_id>    retoma una sesión
 #   fnharness --account llamacpp       arranca con una cuenta concreta (no se guarda)
 #   fnharness --account ollama --model qwen3:8b -p "resume este repo"
-#   fnharness --perfil minimo          arranca con un perfil de contexto (full, simple, minimo o uno propio en profiles/)
+#   fnharness --perfil minimo          arranca con un perfil de contexto (full, simple, minimo o uno propio en profiles/);
+#                                      si el perfil trae cuenta, se usa salvo --account (--account > cuenta del perfil > predeterminada)
 #   fnharness --accounts               lista las cuentas, la predeterminada y la última usada
 #   fnharness --set-default qwen36 [modelo]   fija la cuenta (y modelo) con la que abre; "last" = volver a la última usada
 #
@@ -41,10 +42,15 @@ perfil_arg=""
 # y en cada reinicio por /perfil: los reinicios sustituyen los argumentos de la sesión.
 trust_workdir_arg=""
 rest=()
+# FNHARNESS_ACCOUNT_FLAG=1 marca que la cuenta la pidió una persona con --account (o /perfil al
+# reiniciar). Sin él, un CLAUDE_MULTIMODEL_ACCOUNT igual a FNHARNESS_ACCOUNT es herencia de una sesión
+# fnharness padre (un shell o tmux abierto desde ella) y no debe ganar a la cuenta del perfil
+# (bootPerfil, src/utils/perfilStore.ts). Se limpia aquí para que no se herede a su vez.
+unset FNHARNESS_ACCOUNT_FLAG
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --account)   export CLAUDE_MULTIMODEL_ACCOUNT="${2:?--account requiere valor}"; shift 2 ;;
-    --account=*) export CLAUDE_MULTIMODEL_ACCOUNT="${1#--account=}"; shift ;;
+    --account)   export CLAUDE_MULTIMODEL_ACCOUNT="${2:?--account requiere valor}" FNHARNESS_ACCOUNT_FLAG=1; shift 2 ;;
+    --account=*) export CLAUDE_MULTIMODEL_ACCOUNT="${1#--account=}" FNHARNESS_ACCOUNT_FLAG=1; shift ;;
     --perfil)    perfil_arg="${2:?--perfil requiere valor}"; shift 2 ;;
     --perfil=*)  perfil_arg="${1#--perfil=}"; shift ;;
     --trust-workdir)   trust_workdir_arg="${2:?--trust-workdir requiere valor}"; shift 2 ;;
@@ -189,7 +195,7 @@ while true; do
     i=0
     while [[ $i -lt ${#restart_args[@]} ]]; do
       case "${restart_args[$i]}" in
-        --account) export CLAUDE_MULTIMODEL_ACCOUNT="${restart_args[$((i + 1))]}"; i=$((i + 2)) ;;
+        --account) export CLAUDE_MULTIMODEL_ACCOUNT="${restart_args[$((i + 1))]}" FNHARNESS_ACCOUNT_FLAG=1; i=$((i + 2)) ;;
         --model)   export CLAUDE_MULTIMODEL_MODEL="${restart_args[$((i + 1))]}"; i=$((i + 2)) ;;
         --perfil)  perfil_arg="${restart_args[$((i + 1))]}"; i=$((i + 2)) ;;
         # --chdir lo consume el lanzador (no llega al CLI): el CLI relanzado arranca en ese directorio.

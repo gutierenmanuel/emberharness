@@ -7,6 +7,7 @@
 import {
   CLAUDE_ACCOUNT_ID,
   accountsFilePath,
+  isAnthropicAccount,
   listAccounts,
   loadStore,
 } from '../../services/api/openai-compat/accounts.js'
@@ -39,6 +40,8 @@ export type AccountModelGroup = {
   /** The session's account. */
   active: boolean
   models: ModelEntry[]
+  /** Who a Claude account is (its email), shown in the header. */
+  identity?: string
 }
 
 export type PickerOption = {
@@ -158,7 +161,7 @@ export function buildModelPickerOptions(
     if (models.length === 0) continue
     out.push({
       value: `h:${g.accountId}`,
-      label: `── ${g.label} (${g.accountId})${g.active ? ' · cuenta activa' : ''} ──`,
+      label: `── ${g.label} (${g.accountId})${g.identity ? ` · ${g.identity}` : ''}${g.active ? ' · cuenta activa' : ''} ──`,
       disabled: true,
     })
     // Capped so one very long name does not push every row's stats off screen.
@@ -248,6 +251,8 @@ export type GatherOptions = {
   sessionModel?: string | null
   /** Stock Claude options when the session is on Claude (keeps plan-specific entries). */
   claudeOptions?: ModelEntry[]
+  /** Email of each Claude account (header identity in /model). */
+  identities?: Record<string, string | undefined>
 }
 
 /** Connected accounts with their models, the session's account first. Never throws. */
@@ -269,8 +274,15 @@ export async function gatherAccountModelGroups(opts: GatherOptions = {}): Promis
     ids.map(async (id): Promise<AccountModelGroup> => {
       const active = id === session
       const label = labels.get(id) ?? id
-      if (id === CLAUDE_ACCOUNT_ID) {
-        return { accountId: id, label, active, models: mergeClaudeEntries(claudeModelEntries(), active ? opts.claudeOptions : undefined) }
+      if (isAnthropicAccount(id, store)) {
+        const identity = opts.identities?.[id]
+        return {
+          accountId: id,
+          label,
+          active,
+          models: mergeClaudeEntries(claudeModelEntries(), active ? opts.claudeOptions : undefined),
+          ...(identity ? { identity } : {}),
+        }
       }
       try {
         const target = targetForAccount(id, store, env)

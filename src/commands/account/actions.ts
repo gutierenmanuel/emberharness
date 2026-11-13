@@ -6,6 +6,7 @@
 import {
   CLAUDE_ACCOUNT_ID,
   accountsFilePath,
+  isAnthropicAccount,
   isLocalUrl,
   listAccounts,
   loadStore,
@@ -80,9 +81,9 @@ export function setDefaultAccount(
   // Fail now (missing key, ...) instead of at the next launch.
   const profile = profileForAccount(id, store, env)
   saveStore(store, path)
-  const modelPart = profile ? ` · modelo ${profile.model}` : ''
+  const modelPart = profile ? ` · modelo ${profile.model}` : model && id !== CLAUDE_ACCOUNT_ID ? ` · modelo ${model}` : ''
   return {
-    message: `Cuenta predeterminada: ${profile?.label ?? 'Claude (Anthropic)'} (${id})${modelPart}. Se usa al abrir fnharness salvo --account.`,
+    message: `Cuenta predeterminada: ${profile?.label ?? store.accounts[id]?.label ?? 'Claude (Anthropic)'} (${id})${modelPart}. Se usa al abrir fnharness salvo --account.`,
   }
 }
 
@@ -104,20 +105,33 @@ export function switchAccount(
   if (model && id !== CLAUDE_ACCOUNT_ID) {
     store.accounts[id] = { ...store.accounts[id], model }
   }
+  const previous = activeAccountId(env)
   const profile = profileForAccount(id, store, env)
   setActiveProfile(profile, id, env)
   saveStore({ ...store, active: id }, path)
 
-  return profile
-    ? {
-        message: `Cuenta activa: ${profile.label} (${id}) · modelo ${profile.model} · ${profile.baseUrl}`,
-        model: profile.model,
-      }
-    : {
-        message:
-          'Cuenta activa: Claude (Anthropic). Si no has iniciado sesión en fnharness, usa /login.',
-        model: null,
-      }
+  if (profile) {
+    return {
+      message: `Cuenta activa: ${profile.label} (${id}) · modelo ${profile.model} · ${profile.baseUrl}`,
+      model: profile.model,
+    }
+  }
+  // A Claude account: its own OAuth login (accounts/<id>/), or the root one for `claude`.
+  const label = store.accounts[id]?.label ?? 'Claude (Anthropic)'
+  env.FNHARNESS_ACCOUNT_LABEL = label
+  if (env === process.env) {
+    const wasClaude = isAnthropicAccount(previous, store) ? previous : null
+    void import('../../services/accounts/switchAnthropic.js').then(m => m.afterAnthropicSessionSwitch(id, wasClaude))
+  }
+  const remembered = id === CLAUDE_ACCOUNT_ID ? null : (store.accounts[id]?.model ?? null)
+  const loginHint =
+    id === CLAUDE_ACCOUNT_ID
+      ? 'Si no has iniciado sesión en fnharness, usa /login.'
+      : `Si no tiene sesión iniciada, usa /account add claude ${id}.`
+  return {
+    message: `Cuenta activa: ${label} (${id}). ${loginHint}`,
+    model: remembered,
+  }
 }
 
 /**
@@ -137,7 +151,7 @@ export async function switchAccountWithHooks(
   try {
     const store = loadStore(accountsFilePath(env))
     if (model && id !== CLAUDE_ACCOUNT_ID) store.accounts[id] = { ...store.accounts[id], model }
-    toModel = profileForAccount(id, store, env)?.model ?? model ?? 'claude'
+    toModel = profileForAccount(id, store, env)?.model ?? model ?? id
   } catch {
     // switchAccount below reports the configuration error.
   }
@@ -157,6 +171,14 @@ export function persistModelForActiveAccount(model: string | null, env = process
   const id = activeAccountId(env)
   if (!model || id === CLAUDE_ACCOUNT_ID) return
   try {
+    const path = accountsFilePath(env)
+    const store = loadStore(path)
+    if (isAnthropicAccount(id, store)) {
+      // Another Claude account: just remember the model, the session stays as it is.
+      store.accounts[id] = { ...store.accounts[id], model }
+      saveStore(store, path)
+      return
+    }
     switchAccount(id, model, env)
   } catch {
     // Keep the in-session choice even if the account file cannot be written.
@@ -166,6 +188,9 @@ export function persistModelForActiveAccount(model: string | null, env = process
 export function setKey(id: string, apiKey: string, env = process.env): ActionResult {
   if (!(id in getProviderPresets()) && !loadStore(accountsFilePath(env)).accounts[id]) {
     throw new MultimodelConfigError(`Unknown account "${id}"`)
+  }
+  if (isAnthropicAccount(id, loadStore(accountsFilePath(env)))) {
+    throw new MultimodelConfigError(`${id} es una cuenta Claude: inicia sesión con /account add claude ${id}, no con una clave.`)
   }
   const path = accountsFilePath(env)
   const store = loadStore(path)
@@ -250,6 +275,9 @@ export function removeAccount(id: string, env = process.env): ActionResult {
   const store = loadStore(path)
   if (!(id in store.accounts)) {
     return { message: `No hay datos guardados para ${id}.` }
+  }
+  if (isAnthropicAccount(id, store)) {
+    throw new MultimodelConfigError(`${id} es una cuenta Claude: se quita con /logout ${id} (borra también sus credenciales).`)
   }
   delete store.accounts[id]
   if (store.active === id) store.active = CLAUDE_ACCOUNT_ID

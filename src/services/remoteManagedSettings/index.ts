@@ -35,14 +35,31 @@ import { getClaudeCodeUserAgent } from '../../utils/userAgent.js'
 import { getRetryDelay } from '../api/withRetry.js'
 import {
   checkManagedSettingsSecurity,
-  handleSecurityCheckResult,
+  clearPendingApproval,
+  getPendingApproval,
+  handleAccountSecurityCheckResult,
+  needsSecurityApproval,
+  setPendingApproval,
 } from './securityCheck.jsx'
 import { isRemoteManagedSettingsEligible, resetSyncCache } from './syncCache.js'
 import {
+  getAccountRemoteSettings,
   getRemoteManagedSettingsSyncFromCache,
   getSettingsPath,
+  mirrorRootRemoteSettings,
   setSessionCache,
 } from './syncCacheState.js'
+import { anthropicAccountBaseUrl } from '../accounts/anthropicAccounts.js'
+import {
+  activeAnthropicAccountId,
+  disableAccountForSession,
+  enableAccountForSession,
+  sessionAnthropicAccountId,
+  setAccountReadyHook,
+} from '../accounts/sessionAccounts.js'
+import { gracefulShutdownSync } from '../../utils/gracefulShutdown.js'
+import { runInProfileScope } from '../api/openai-compat/profiles.js'
+import { loadPolicyLimitsForActiveAccount } from '../policyLimits/index.js'
 import {
   type RemoteManagedSettingsFetchResult,
   RemoteManagedSettingsResponseSchema,
@@ -103,7 +120,8 @@ export function initializeRemoteManagedSettingsLoadingPromise(): void {
  * Uses the OAuth config base API URL
  */
 function getRemoteManagedSettingsEndpoint() {
-  return `${getOauthConfig().BASE_API_URL}/api/claude_code/settings`
+  // A Claude account with its own API base (proxy, test server) asks there.
+  return `${anthropicAccountBaseUrl() ?? getOauthConfig().BASE_API_URL}/api/claude_code/settings`
 }
 
 /**
@@ -366,6 +384,7 @@ async function fetchRemoteManagedSettings(
  */
 async function saveSettings(settings: SettingsJson): Promise<void> {
   try {
+    if (activeAnthropicAccountId() === 'claude') mirrorRootRemoteSettings(settings)
     const path = getSettingsPath()
     const handle = await open(path, 'w', 0o600)
     try {
@@ -412,13 +431,15 @@ export async function clearRemoteManagedSettingsCache(): Promise<void> {
  * Internal function that handles the full load/fetch logic
  * Fails open - returns null if fetch fails and no cache exists
  */
-async function fetchAndLoadRemoteManagedSettings(): Promise<SettingsJson | null> {
+async function fetchAndLoadRemoteManagedSettings(
+  opts: { deferApproval?: boolean } = {},
+): Promise<SettingsJson | null> {
   if (!isRemoteManagedSettingsEligible()) {
     return null
   }
 
-  // Load cached settings from file
-  const cachedSettings = getRemoteManagedSettingsSyncFromCache()
+  // Load cached settings from file (raw, of the active Claude account)
+  const cachedSettings = getAccountRemoteSettings()
 
   // Compute checksum locally from cached settings for HTTP caching validation
   const cachedChecksum = cachedSettings
@@ -454,12 +475,29 @@ async function fetchAndLoadRemoteManagedSettings(): Promise<SettingsJson | null>
     const hasContent = Object.keys(newSettings).length > 0
 
     if (hasContent) {
+      const accountId = activeAnthropicAccountId()
+      // Mid-session (a routed account's first request, a switch of account)
+      // the dialog cannot be drawn over the running REPL: the new settings
+      // wait for `/account approve <id>`, and an account other than the
+      // session's does not serve until then.
+      if (opts.deferApproval && needsSecurityApproval(cachedSettings, newSettings)) {
+        setPendingApproval(accountId, newSettings)
+        if (sessionAnthropicAccountId() !== accountId) {
+          disableAccountForSession(
+            accountId,
+            `trae ajustes gestionados nuevos sin aprobar; revísalos con /account approve ${accountId}`,
+          )
+        }
+        logForDebugging(`Remote settings: account ${accountId} has settings pending approval`)
+        return cachedSettings
+      }
       // Check for dangerous settings changes before applying
       const securityResult = await checkManagedSettingsSecurity(
         cachedSettings,
         newSettings,
+        accountId,
       )
-      if (!handleSecurityCheckResult(securityResult)) {
+      if (!handleAccountSecurityCheckResult(securityResult, accountId)) {
         // User rejected - don't apply settings, return cached or null
         logForDebugging(
           'Remote settings: User rejected new settings, using cached settings',
@@ -587,14 +625,14 @@ async function pollRemoteSettings(): Promise<void> {
   }
 
   // Get current cached settings for comparison
-  const prevCache = getRemoteManagedSettingsSyncFromCache()
+  const prevCache = getAccountRemoteSettings()
   const previousSettings = prevCache ? jsonStringify(prevCache) : null
 
   try {
     await fetchAndLoadRemoteManagedSettings()
 
     // Check if settings actually changed
-    const newCache = getRemoteManagedSettingsSyncFromCache()
+    const newCache = getAccountRemoteSettings()
     const newSettings = newCache ? jsonStringify(newCache) : null
     if (newSettings !== previousSettings) {
       logForDebugging('Remote settings: Changed during background poll')
@@ -635,4 +673,83 @@ export function stopBackgroundPolling(): void {
     clearInterval(pollingIntervalId)
     pollingIntervalId = null
   }
+}
+
+// ── several Claude accounts ─────────────────────────────────────────────
+
+const accountReadyPromises = new Map<string, Promise<void>>()
+
+/**
+ * Before a Claude account other than the session's serves its first request
+ * in this session: fetch its organisation's remote settings and policy limits
+ * with its own token (its cached copies apply meanwhile), and show the
+ * security dialog, naming the account, when it brings new dangerous settings.
+ * Rejecting it disables that account for the session (the session goes on).
+ * Fails open like the startup load: a failed fetch keeps the cached copies.
+ */
+export function ensureAccountManagedSettings(accountId: string): Promise<void> {
+  if (sessionAnthropicAccountId() === accountId) return Promise.resolve()
+  const pending = accountReadyPromises.get(accountId)
+  if (pending) return pending
+  const run = refreshAccountManagedSettings(accountId)
+  accountReadyPromises.set(accountId, run)
+  return run
+}
+
+/** Fetches (or confirms) the managed settings and policy limits of one Claude account, in its scope. */
+export function refreshAccountManagedSettings(accountId: string): Promise<void> {
+  const scope = { accountId, profile: null, live: true }
+  return runInProfileScope(scope, async () => {
+    try {
+      if (isRemoteManagedSettingsEligible()) await fetchAndLoadRemoteManagedSettings({ deferApproval: true })
+      await loadPolicyLimitsForActiveAccount()
+    } catch (err) {
+      logForDebugging(
+        `Remote settings: account ${accountId} not refreshed (${err instanceof Error ? err.message : 'error'})`,
+      )
+    } finally {
+      scope.live = false
+    }
+    settingsChangeDetector.notifyChange('policySettings')
+  })
+}
+
+// eslint-disable-next-line custom-rules/no-top-level-side-effects
+setAccountReadyHook(ensureAccountManagedSettings)
+
+/** Pending managed settings of `accountId`, for `/account approve`. */
+export function pendingManagedSettings(accountId: string): SettingsJson | undefined {
+  return getPendingApproval(accountId)
+}
+
+/**
+ * `/account approve <id>`: the person accepted (or rejected) the pending
+ * managed settings of one Claude account. Accepting applies and saves them
+ * and lets the account serve again; rejecting keeps it disabled for the
+ * session, or exits when it is the session's own account (as at startup).
+ */
+export async function resolvePendingManagedSettings(accountId: string, accepted: boolean): Promise<string> {
+  const pending = getPendingApproval(accountId)
+  if (!pending) return `La cuenta ${accountId} no tiene ajustes gestionados pendientes.`
+  clearPendingApproval(accountId)
+  if (!accepted) {
+    if (sessionAnthropicAccountId() === accountId) {
+      gracefulShutdownSync(1)
+      return 'Rechazados los ajustes de la cuenta de la sesión: fnharness se cierra.'
+    }
+    disableAccountForSession(accountId, 'rechazaste los ajustes gestionados de su organización')
+    return `Rechazados los ajustes gestionados de ${accountId}: la cuenta queda desactivada en esta sesión (las demás siguen).`
+  }
+  const scope = { accountId, profile: null, live: true }
+  await runInProfileScope(scope, async () => {
+    try {
+      setSessionCache(pending)
+      await saveSettings(pending)
+    } finally {
+      scope.live = false
+    }
+  })
+  enableAccountForSession(accountId)
+  settingsChangeDetector.notifyChange('policySettings')
+  return `Aceptados los ajustes gestionados de ${accountId}: ya puede usarse.`
 }
