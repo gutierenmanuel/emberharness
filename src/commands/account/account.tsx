@@ -241,7 +241,8 @@ export const call: LocalJSXCommandCall = async (onDone, context, args) => {
           ...prev,
           mainLoopModel: result.model ?? null,
           mainLoopModelForSession: null,
-          contextProfile,
+          // Con un perfil activo manda su scope, no el que la cuenta recordaba.
+          ...(prev.perfil ? {} : { contextProfile }),
         }))
         clearSystemPromptSections()
       }
