@@ -241,14 +241,27 @@ export function requiresRestart(from: Perfil | undefined, to: Perfil): boolean {
 export function effectiveSystemPrompts(
   cli: { customSystemPrompt?: string; appendSystemPrompt?: string },
   perfil: Pick<Perfil, 'systemPrompt'> | undefined,
+  vars?: PromptVars,
 ): { customSystemPrompt?: string; appendSystemPrompt?: string } {
   const sp = perfil?.systemPrompt
   if (!sp || sp.mode === 'default' || !sp.text) return cli
+  const text = expandPromptVars(sp.text, vars)
   if (sp.mode === 'replace') {
-    return { ...cli, customSystemPrompt: cli.customSystemPrompt ?? sp.text }
+    return { ...cli, customSystemPrompt: cli.customSystemPrompt ?? text }
   }
-  const append = [cli.appendSystemPrompt, sp.text].filter(Boolean).join('\n\n')
+  const append = [cli.appendSystemPrompt, text].filter(Boolean).join('\n\n')
   return { ...cli, appendSystemPrompt: append }
+}
+
+export type PromptVars = { cwd?: string }
+
+/**
+ * Sustituye `{cwd}` en el texto de un prompt de perfil por el directorio de trabajo. Un
+ * prompt de reemplazo no lleva la información de entorno del prompt por defecto, y un modelo
+ * pequeño que no sabe dónde está inventa rutas (/tmp/...) al escribir ficheros.
+ */
+export function expandPromptVars(text: string, vars?: PromptVars): string {
+  return vars?.cwd === undefined ? text : text.replaceAll('{cwd}', vars.cwd)
 }
 
 export type PerfilArgs =

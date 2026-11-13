@@ -10,7 +10,7 @@ import { join } from 'path'
 import { CLI, fakeEnv, hasCli, makeSandbox, startFakeOpenAI } from './harness.js'
 
 const MINIMO_PROMPT =
-  'Eres un agente que trabaja en el directorio actual. Para crear o cambiar ficheros llama SIEMPRE a la herramienta Write o Edit con ruta absoluta; nunca pegues el código en el chat. Responde en español, breve.'
+  'Eres un agente que trabaja en el directorio actual. Para crear o cambiar ficheros llama SIEMPRE a la herramienta Write o Edit con ruta absoluta; nunca pegues el código en el chat. Responde en español, breve. Directorio actual: '
 
 type ChatBody = {
   stream?: boolean
@@ -40,7 +40,7 @@ async function run(args: string[], extraEnv: Record<string, string> = {}, setup?
   const code = await proc.exited
   // La petición del bucle principal es la que lleva herramientas (hay otras auxiliares sin ellas).
   const main = (fake.requests as ChatBody[]).filter(b => (b.tools?.length ?? 0) > 0).pop()
-  return { out, err, code, main }
+  return { out, err, code, main, cwd }
 }
 
 const systemText = (b: ChatBody) =>
@@ -57,7 +57,8 @@ describe.skipIf(!hasCli)('--perfil', () => {
     expect(r.main!.tools!.map(t => t.function.name).sort()).toEqual(['Edit', 'Glob', 'Read', 'Write'])
     // El cliente antepone su cabecera de atribución y la línea de identidad a cualquier prompt propio.
     const sys = systemText(r.main!)
-    expect(sys.endsWith(MINIMO_PROMPT)).toBe(true)
+    expect(sys.startsWith('x-anthropic-billing-header')).toBe(true)
+    expect(sys.endsWith(`${MINIMO_PROMPT}${r.cwd}`)).toBe(true)
     expect(sys).not.toContain('# Environment')
   }, 70_000)
 

@@ -1436,7 +1436,9 @@ async function run(): Promise<CommanderCommand> {
           const eff = effectiveSystemPrompts({
             customSystemPrompt: systemPrompt,
             appendSystemPrompt
-          }, bootPerfil.def);
+          }, bootPerfil.def, {
+            cwd: getCwd()
+          });
           systemPrompt = eff.customSystemPrompt;
           appendSystemPrompt = eff.appendSystemPrompt;
         }

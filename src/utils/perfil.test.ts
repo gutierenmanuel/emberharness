@@ -139,6 +139,11 @@ describe('effectiveSystemPrompts', () => {
     expect(effectiveSystemPrompts({}, replace)).toEqual({ customSystemPrompt: 'perfil' })
     expect(effectiveSystemPrompts({ customSystemPrompt: 'cli' }, replace)).toEqual({ customSystemPrompt: 'cli' })
   })
+  test('{cwd} se sustituye por el directorio de trabajo', () => {
+    const p = { systemPrompt: { mode: 'replace' as const, text: 'Trabaja en {cwd}; no salgas de {cwd}.' } }
+    expect(effectiveSystemPrompts({}, p, { cwd: '/w/x' })).toEqual({ customSystemPrompt: 'Trabaja en /w/x; no salgas de /w/x.' })
+    expect(effectiveSystemPrompts({}, p)).toEqual({ customSystemPrompt: 'Trabaja en {cwd}; no salgas de {cwd}.' })
+  })
   test('append se suma detrás del existente', () => {
     expect(effectiveSystemPrompts({}, append)).toEqual({ appendSystemPrompt: 'extra' })
     expect(effectiveSystemPrompts({ appendSystemPrompt: 'a' }, append)).toEqual({ appendSystemPrompt: 'a\n\nextra' })

@@ -2426,7 +2426,9 @@ export function REPL({
     const perfilPrompts = effectiveSystemPrompts({
       customSystemPrompt,
       appendSystemPrompt
-    }, s.perfil?.def);
+    }, s.perfil?.def, {
+      cwd: getCwd()
+    });
     const computeTools = () => {
       const state = store.getState();
       const assembled = assembleToolPool(state.toolPermissionContext, state.mcp.tools);
@@ -2564,7 +2566,9 @@ export function REPL({
       const perfilPrompts = effectiveSystemPrompts({
         customSystemPrompt,
         appendSystemPrompt
-      }, store.getState().perfil?.def);
+      }, store.getState().perfil?.def, {
+        cwd: getCwd()
+      });
       const systemPrompt = buildEffectiveSystemPrompt({
         mainThreadAgentDefinition,
         toolUseContext,
@@ -2814,7 +2818,9 @@ export function REPL({
     const perfilPrompts = effectiveSystemPrompts({
       customSystemPrompt,
       appendSystemPrompt
-    }, store.getState().perfil?.def);
+    }, store.getState().perfil?.def, {
+        cwd: getCwd()
+      });
     const systemPrompt = buildEffectiveSystemPrompt({
       mainThreadAgentDefinition,
       toolUseContext,
