@@ -13,11 +13,13 @@ import { chmodSync, mkdirSync, unlinkSync } from 'fs'
 import { createServer, type Server, type Socket } from 'net'
 import { tmpdir } from 'os'
 import { join } from 'path'
+import { getSessionId } from '../bootstrap/state.js'
 import { CROSS_SESSION_MESSAGE_TAG } from '../constants/xml.js'
 import { registerCleanup } from './cleanupRegistry.js'
 import { logForDebugging } from './debug.js'
 import { errorMessage } from './errors.js'
 import { enqueue } from './messageQueueManager.js'
+import { appendPeerLog, channelFor, isCyberSession } from './peerLog.js'
 
 /** Largest request accepted from a peer (1 MiB). */
 const MAX_REQUEST_BYTES = 1024 * 1024
@@ -31,6 +33,8 @@ export type UdsInboundMessage = {
   sessionId?: string
   cwd?: string
   name?: string
+  /** El emisor es una sesión cyber (`CLAUDE_CYBER=1`); decide el canal del historial. */
+  cyber?: boolean
 }
 
 let server: Server | null = null
@@ -100,7 +104,27 @@ export function parseInboundRequest(raw: string): UdsInboundMessage | string {
     sessionId: typeof d.sessionId === 'string' ? d.sessionId : undefined,
     cwd: typeof d.cwd === 'string' ? d.cwd : undefined,
     name: typeof d.name === 'string' ? d.name : undefined,
+    cyber: typeof d.cyber === 'boolean' ? d.cyber : undefined,
   }
+}
+
+/**
+ * Anota en el historial un mensaje que acaba de entrar. Va al canal cyber si el
+ * emisor o esta sesión lo son; nunca lanza.
+ */
+function recordInbound(msg: UdsInboundMessage): void {
+  appendPeerLog({
+    ts: Date.now(),
+    channel: channelFor(msg.cyber === true, isCyberSession()),
+    from: { address: msg.from, pid: msg.pid, sessionId: msg.sessionId, name: msg.name },
+    to: {
+      address: socketPath ? `uds:${socketPath}` : undefined,
+      pid: process.pid,
+      sessionId: getSessionId(),
+      name: process.env.CLAUDE_CODE_SESSION_NAME,
+    },
+    text: msg.text,
+  })
 }
 
 export function deliverInboundMessage(msg: UdsInboundMessage): void {
@@ -142,6 +166,7 @@ function handleConnection(conn: Socket): void {
     }
     try {
       deliverInboundMessage(parsed)
+      recordInbound(parsed)
       reply({ ok: true })
     } catch (e) {
       reply({ ok: false, error: errorMessage(e) })

@@ -4,6 +4,7 @@
 
 ### Novedades
 
+- historial de las conversaciones entre sesiones: cada mensaje que una sesión recibe por su socket se anota una sola vez en `<config>/peer-log/<canal>.jsonl` y la nueva herramienta `PeerHistory` lee los últimos (`limit`, `peer`, `scope`); hay dos canales para no mezclar lo cyber: una conversación en la que participa una sesión `CLAUDE_CYBER=1` va a `cyber.jsonl`, el resto a `normal.jsonl`; una sesión normal solo lee el canal normal y una cyber lee los dos
 - las herramientas nativas `WebSearch` y `WebFetch` quedan desactivadas por defecto (solo funcionan con la API de Anthropic y cuestan dinero): se sustituyen por las del MCP `web_search` (`mcp__web_search__web_search` y `mcp__web_search__web_fetch`), que citan ahora los agentes integrados `claude-code-guide` y `verification`; `FNHARNESS_NATIVE_WEB=1` las reactiva
 - `/otel` (alias `/opentelemetry` y `/telemetry`): informe de solo lectura de qué pasa con la telemetría y a dónde se enviaría (estado del build, cuenta, variables `OTEL_*` con su origen, destinos, receptores propios de `telemetry.json`); las cabeceras salen siempre enmascaradas y `--json` da el mismo informe en JSON; no implementa todavía el envío real
 - la barra de estado muestra el correo de la cuenta en la línea de cuenta (cuenta Claude con OAuth; con el binario oficial lo lee de `<config>/.claude.json`) para distinguir de un vistazo la cuenta personal de la de empresa; el bloque `fnharness.account` lleva ahora `email` y `org`
