@@ -29,14 +29,40 @@ CONTEXT_TOTAL=$(echo "$INPUT" | jq -r '.context_window.context_window_size // 0'
 CURRENT_DIR=$(echo "$INPUT" | jq -r '.workspace.current_dir // "~"' | sed "s|$HOME|~|")
 SESSION_ID=$(echo "$INPUT" | jq -r '.session_id // ""')
 
+# Correo del titular de la cuenta. Normalmente llega en .fnharness.account.email; si
+# falta (p. ej. con el binario oficial de claude, que no trae el bloque) y la cuenta es
+# Anthropic, se lee de <config>/.claude.json -> .oauthAccount.emailAddress. La lectura se
+# cachea en /tmp por ruta y mtime del fichero para no lanzar jq en cada repintado.
+# Solo se extrae el correo: nunca se imprime ni se toca ningún token.
+read_account_email() {
+    local f cache mtime cached candidates
+    # Con CLAUDE_CONFIG_DIR puesto solo vale su fichero: caer a otro config mostraría el correo de otra cuenta.
+    if [ -n "${CLAUDE_CONFIG_DIR:-}" ]; then candidates=("$CLAUDE_CONFIG_DIR/.claude.json")
+    else candidates=("$HOME/.claude.json" "$HOME/.claude/.claude.json" "$FNH_DIR/.claude.json"); fi
+    for f in "${candidates[@]}"; do
+        [ -f "$f" ] || continue
+        mtime=$(stat -c %Y "$f" 2>/dev/null) || continue
+        cache="${TMPDIR:-/tmp}/fnh-sl-email-$(id -u)-$(printf '%s' "$f" | cksum | cut -d' ' -f1)"
+        if [ -f "$cache" ]; then
+            cached=$(cat "$cache" 2>/dev/null)
+            if [ "${cached%%$'\t'*}" = "$mtime" ]; then printf '%s' "${cached#*$'\t'}"; return; fi
+        fi
+        cached=$(jq -r '.oauthAccount.emailAddress // ""' "$f" 2>/dev/null)
+        ( umask 077; printf '%s\t%s' "$mtime" "$cached" > "$cache" ) 2>/dev/null
+        printf '%s' "$cached"
+        return
+    done
+}
+
 # Bloque .fnharness del arnés: cuenta activa, ventana REAL del backend, servidor y velocidad.
 # Un solo jq; los valores salen ya entrecomillados para el shell (@sh).
-ACC_ID=""; ACC_LABEL=""; ACC_PROVIDER=""; ACC_URL=""; ACC_LOCAL=false; ACC_MODEL=""; ACC_SRV_MODEL=""
+ACC_ID=""; ACC_LABEL=""; ACC_PROVIDER=""; ACC_URL=""; ACC_LOCAL=false; ACC_MODEL=""; ACC_SRV_MODEL=""; ACC_EMAIL=""; ACC_ORG=""
 WIN_SRC=""; COMPACT_AT=""; MAX_OUT=""; SRV_ONLINE=""; SRV_NCTX=""
 SPD_TTFT=""; SPD_GEN=""; SPD_PROMPT=""; SPD_DRAFT_N=""; SPD_DRAFT_OK=""; COST_KIND=""
 PERFIL_NAME=""; PERFIL_MOD=false
-eval "$(echo "$INPUT" | jq -r '.fnharness // empty | @sh "ACC_ID=\(.account.id // "") ACC_LABEL=\(.account.label // "") ACC_PROVIDER=\(.account.provider // "") ACC_URL=\(.account.base_url // "") ACC_LOCAL=\(.account.local // false) ACC_MODEL=\(.account.model // "") ACC_SRV_MODEL=\(.account.server_model // "") WIN_SRC=\(.context.source // "") COMPACT_AT=\(.context.autocompact_at // "") MAX_OUT=\(.context.max_output_tokens // "") SRV_ONLINE=\(if .server then .server.online else "" end) SRV_NCTX=\(.server.n_ctx // "") SPD_TTFT=\(.speed.ttft_s // "") SPD_GEN=\(.speed.generation_tokens_per_second // "") SPD_PROMPT=\(.speed.prompt_tokens_per_second // "") SPD_DRAFT_N=\(.speed.draft_tokens // "") SPD_DRAFT_OK=\(.speed.draft_accepted_tokens // "") COST_KIND=\(.cost.kind // "") PERFIL_NAME=\(.profile.name // "") PERFIL_MOD=\(.profile.modified // false)"' 2>/dev/null)"
+eval "$(echo "$INPUT" | jq -r '.fnharness // empty | @sh "ACC_ID=\(.account.id // "") ACC_LABEL=\(.account.label // "") ACC_PROVIDER=\(.account.provider // "") ACC_URL=\(.account.base_url // "") ACC_LOCAL=\(.account.local // false) ACC_MODEL=\(.account.model // "") ACC_SRV_MODEL=\(.account.server_model // "") ACC_EMAIL=\(.account.email // "") ACC_ORG=\(.account.org // "") WIN_SRC=\(.context.source // "") COMPACT_AT=\(.context.autocompact_at // "") MAX_OUT=\(.context.max_output_tokens // "") SRV_ONLINE=\(if .server then .server.online else "" end) SRV_NCTX=\(.server.n_ctx // "") SPD_TTFT=\(.speed.ttft_s // "") SPD_GEN=\(.speed.generation_tokens_per_second // "") SPD_PROMPT=\(.speed.prompt_tokens_per_second // "") SPD_DRAFT_N=\(.speed.draft_tokens // "") SPD_DRAFT_OK=\(.speed.draft_accepted_tokens // "") COST_KIND=\(.cost.kind // "") PERFIL_NAME=\(.profile.name // "") PERFIL_MOD=\(.profile.modified // false)"' 2>/dev/null)"
 NOT_CLAUDE=0
+[ -z "$ACC_EMAIL" ] && { [ -z "$ACC_ID" ] || [ "$ACC_ID" = "claude" ]; } && ACC_EMAIL=$(read_account_email)
 [ -n "$ACC_ID" ] && [ "$ACC_ID" != "claude" ] && NOT_CLAUDE=1
 # En cuentas que no son Claude el modelo real es el del servidor o el id, nunca un alias de Claude.
 if [ "$NOT_CLAUDE" = "1" ]; then MODEL="${ACC_SRV_MODEL:-${ACC_MODEL:-$MODEL}}"; fi
@@ -609,11 +635,13 @@ LINE3=""
 if [ -n "$ACC_ID" ]; then
     if [ "$NOT_CLAUDE" = "1" ]; then
         LINE3="${BOLD}${MAGENTA}${ACC_ID}${RESET} ${DIM}${ACC_LABEL}${RESET}"
+        [ -n "$ACC_EMAIL" ] && LINE3="${LINE3} ${CYAN}${ACC_EMAIL}${RESET}"
         [ -n "$ACC_URL" ] && LINE3="${LINE3} ${DIM}@ $(printf '%s' "$ACC_URL" | sed -E 's#^https?://##; s#/v1(beta)?$##')${RESET}"
         if [ "$SRV_ONLINE" = "true" ]; then LINE3="${LINE3} ${GREEN}● en línea${RESET}"
         elif [ "$SRV_ONLINE" = "false" ]; then LINE3="${LINE3} ${RED}○ sin respuesta${RESET}"; fi
     else
         LINE3="${BOLD}${MAGENTA}claude${RESET} ${DIM}Anthropic${RESET}"
+        [ -n "$ACC_EMAIL" ] && LINE3="${LINE3} ${CYAN}${ACC_EMAIL}${RESET}"
     fi
     case "$WIN_SRC" in
         server) SRC_STR="servidor" ;; preset) SRC_STR="preset" ;; catalog) SRC_STR="catálogo" ;;
@@ -639,6 +667,12 @@ if [ -n "$ACC_ID" ]; then
             LINE3="${LINE3} ${GRAY}│${RESET} ${DIM}⚡ sin medidas aún${RESET}"
         fi
     fi
+fi
+
+# Sin bloque .fnharness (binario oficial de claude) no hay línea de cuenta, salvo que
+# se conozca el correo: así se distingue la cuenta personal de la de empresa.
+if [ -z "$LINE3" ] && [ -z "$ACC_ID" ] && [ -n "$ACC_EMAIL" ]; then
+    LINE3="${BOLD}${MAGENTA}claude${RESET} ${DIM}Anthropic${RESET} ${CYAN}${ACC_EMAIL}${RESET}"
 fi
 
 echo -e "$LINE1"
