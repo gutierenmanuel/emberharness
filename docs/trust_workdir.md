@@ -28,6 +28,10 @@ fnharness --dangerously-skip-permissions --trust-workdir <dir> [--session-id ...
   que la contiene (el diálogo guarda la raíz git): una sala solo confía en su propia carpeta.
 - Queda una línea `[trust-workdir] trusted <dir> ...` en el log de depuración (`--debug-file`,
   `--debug`). Si la carpeta ya estaba confiada, `... already trusted ...` y no se escribe nada.
+- `bin/fnharness` acepta el flag en cualquier posición y lo reenvía al CLI en el primer arranque y en
+  cada reinicio por `/perfil` (los reinicios sustituyen los argumentos de la sesión). Un reinicio con
+  `--chdir` a otra carpeta hace que el flag deje de coincidir con el cwd y se ignore: ahí sale el
+  diálogo, que es lo seguro.
 - Sin el flag nada cambia: una sesión humana sigue viendo el diálogo. En modo `-p` el flag no hace
   nada (ese modo ya se salta el diálogo).
 - Los diálogos que vendrían justo después de la confianza y que también necesitan a una persona se

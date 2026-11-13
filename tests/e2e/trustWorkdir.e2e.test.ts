@@ -7,10 +7,10 @@
  */
 
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'fs'
+import { chmodSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
-import { CLI, fakeEnv, hasCli, startFakeOpenAI } from './harness.js'
+import { APP_DIR, CLI, fakeEnv, hasCli, startFakeOpenAI } from './harness.js'
 import { startTui } from './tui.js'
 
 let fake: ReturnType<typeof startFakeOpenAI>
@@ -128,4 +128,41 @@ describe.skipIf(!hasCli)('--trust-workdir e2e', () => {
       await tui.stop()
     }
   }, 60_000)
+})
+
+describe('bin/fnharness forwards --trust-workdir', () => {
+  test('to the CLI at start and again after a /perfil restart, which replaces the session arguments', async () => {
+    const app = mkdtempSync(join(tmpdir(), 'fnh-trustbin-'))
+    mkdirSync(join(app, 'bin'))
+    copyFileSync(join(APP_DIR, 'bin', 'fnharness'), join(app, 'bin', 'fnharness'))
+    chmodSync(join(app, 'bin', 'fnharness'), 0o755)
+    // Fake CLI: first run logs its args and asks for a restart; the second logs and exits.
+    writeFileSync(
+      join(app, 'cli'),
+      `#!/usr/bin/env bash
+LOG="$(dirname "$0")/log.txt"
+echo "args=$*" >> "$LOG"
+if [[ ! -f "$(dirname "$0")/ya" ]]; then
+  touch "$(dirname "$0")/ya"
+  mkdir -p "$CLAUDE_CONFIG_DIR/restart"
+  printf '%s\\n' --resume sid-1 > "$CLAUDE_CONFIG_DIR/restart/$FNHARNESS_LAUNCHER_PID.args"
+  exit 75
+fi
+exit 3
+`,
+    )
+    chmodSync(join(app, 'cli'), 0o755)
+    const config = mkdtempSync(join(tmpdir(), 'fnh-trustbin-cfg-'))
+    const env: Record<string, string> = {}
+    for (const [k, v] of Object.entries(process.env)) if (v !== undefined) env[k] = v
+    for (const k of ['FNHARNESS_NO_RESTART', 'FNHARNESS_LAUNCHER_PID', 'CLAUDE_MULTIMODEL_ACCOUNT']) delete env[k]
+    const proc = Bun.spawn(
+      [join(app, 'bin', 'fnharness'), '--dangerously-skip-permissions', '--trust-workdir', '/x/sala', '--session-id', 'abc'],
+      { env: { ...env, CLAUDE_CONFIG_DIR: config, FNHARNESS_NO_BYPASS: '1', TMUX: '' }, cwd: tmpdir(), stdin: 'ignore', stdout: 'pipe', stderr: 'pipe', timeout: 30_000 },
+    )
+    expect(await proc.exited).toBe(3)
+    const log = readFileSync(join(app, 'log.txt'), 'utf8').trim().split('\n')
+    expect(log[0]).toBe('args=--trust-workdir /x/sala --dangerously-skip-permissions --session-id abc')
+    expect(log[1]).toBe('args=--trust-workdir /x/sala --resume sid-1')
+  }, 40_000)
 })
