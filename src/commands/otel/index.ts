@@ -5,8 +5,8 @@ const otel = {
   name: 'otel',
   aliases: ['opentelemetry', 'telemetry'],
   description:
-    'Show what happens with telemetry (OpenTelemetry) right now and where it would be sent; read-only',
-  argumentHint: '[--json]',
+    'Telemetry (OpenTelemetry): receivers, bound accounts, last send and error; `test <id>` sends a test point, `add` declares a receiver',
+  argumentHint: '[--json] | test <id> | add <id> <endpoint> --accounts <a,b>',
   supportsNonInteractive: true,
   load: () => import('./otel.js'),
 } satisfies Command

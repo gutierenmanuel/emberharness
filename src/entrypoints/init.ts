@@ -205,8 +205,13 @@ export const init = memoize(async (): Promise<void> => {
 })
 
 /**
- * The OSS build does not initialize product telemetry after trust.
+ * Starts telemetry once env vars and trust are settled: installs the counters
+ * and counts the session towards the receivers bound to the session's account
+ * (none when nothing is configured). The OTel SDK itself loads on the first
+ * send, never here.
  */
 export function initializeTelemetryAfterTrust(): void {
-  return
+  void import('../utils/telemetry/instrumentation.js')
+    .then(m => m.initializeTelemetry())
+    .catch(err => logForDebugging(`[telemetry] no se pudo iniciar: ${err instanceof Error ? err.message : String(err)}`))
 }

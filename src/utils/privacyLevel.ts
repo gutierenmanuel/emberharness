@@ -12,7 +12,7 @@
  *
  * The resolved level is the most restrictive signal from:
  *   CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC  →  essential-traffic
- *   DISABLE_TELEMETRY                         →  no-telemetry
+ *   DISABLE_TELEMETRY, FNHARNESS_PROFILE_NO_TELEMETRY  →  no-telemetry
  */
 
 type PrivacyLevel = 'default' | 'no-telemetry' | 'essential-traffic'
@@ -21,7 +21,10 @@ export function getPrivacyLevel(): PrivacyLevel {
   if (process.env.CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC) {
     return 'essential-traffic'
   }
-  if (process.env.DISABLE_TELEMETRY) {
+  // FNHARNESS_PROFILE_NO_TELEMETRY: set by an OpenAI-compatible account to
+  // keep the provider's non-essential analytics off. It is not DISABLE_TELEMETRY,
+  // so it does not switch off the OTLP receivers (see sinkRuntime.ts).
+  if (process.env.DISABLE_TELEMETRY || process.env.FNHARNESS_PROFILE_NO_TELEMETRY) {
     return 'no-telemetry'
   }
   return 'default'

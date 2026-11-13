@@ -510,6 +510,15 @@ export async function gracefulShutdown(
     // Ignore analytics shutdown errors
   }
 
+  // Flush OTLP receivers: at most 2 s each, in parallel, and a receiver that
+  // is down only leaves a debug line (sinkRuntime.ts).
+  try {
+    const { flushTelemetry } = await import('./telemetry/instrumentation.js')
+    await flushTelemetry()
+  } catch {
+    // Telemetry must never hold the exit back.
+  }
+
   if (options?.finalMessage) {
     try {
       // eslint-disable-next-line custom-rules/no-sync-fs -- must flush before forceExit

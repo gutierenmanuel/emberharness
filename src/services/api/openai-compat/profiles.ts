@@ -373,7 +373,12 @@ export function setActiveProfile(
   env.FNHARNESS_MODEL_BACKEND = profile?.baseUrl ?? 'api.anthropic.com'
   if (profile) {
     env.CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC ||= '1'
-    env.DISABLE_TELEMETRY ||= '1'
+    // The provider's own non-essential analytics stay off. This is NOT
+    // DISABLE_TELEMETRY: that one is the person's switch for the OTLP
+    // receivers of telemetry.json, and an account must not flip it.
+    env.FNHARNESS_PROFILE_NO_TELEMETRY = '1'
+  } else {
+    delete env.FNHARNESS_PROFILE_NO_TELEMETRY
   }
   // Learn the real window of a local server in the background (cached, TTL).
   refreshServerInfo(profile?.baseUrl, env)

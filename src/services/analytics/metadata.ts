@@ -20,6 +20,7 @@ import {
   getParentSessionId as getParentSessionIdFromState,
 } from '../../bootstrap/state.js'
 import { isEnvTruthy } from '../../utils/envUtils.js'
+import { toolDetailsWanted } from '../../utils/telemetry/sinkRuntime.js'
 import { isOfficialMcpUrl } from '../mcp/officialRegistry.js'
 import { isClaudeAISubscriber, getSubscriptionType } from '../../utils/auth.js'
 import { getRepoRemoteHash } from '../../utils/git.js'
@@ -84,7 +85,7 @@ export function sanitizeToolNameForAnalytics(
  * Enable with OTEL_LOG_TOOL_DETAILS=1
  */
 export function isToolDetailsLoggingEnabled(): boolean {
-  return isEnvTruthy(process.env.OTEL_LOG_TOOL_DETAILS)
+  return isEnvTruthy(process.env.OTEL_LOG_TOOL_DETAILS) || toolDetailsWanted()
 }
 
 /**

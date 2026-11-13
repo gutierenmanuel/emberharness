@@ -1,11 +1,12 @@
 /**
- * Report behind `/otel`: what happens with telemetry right now and where it
- * WOULD be sent. Read-only; it implements no exporter.
+ * Report behind `/otel` and `/telemetry`: which receivers exist, which
+ * accounts are bound to each, what the session sends right now, and the last
+ * successful send and error of each receiver. Read-only.
  *
  * Everything here is pure. The command (commands/otel/otel.ts) gathers the
- * inputs (settings layers, process env, account, <config>/telemetry.json) and
- * hands them over; this module decides origins, resolves destinations and
- * masks secrets. Nothing in the output ever carries a header value: headers
+ * inputs (the live receivers from sinkRuntime, settings layers, process env,
+ * account) and hands them over; this module decides origins, resolves the
+ * OTEL_* view and masks secrets. Nothing in the output ever carries a header value: headers
  * are reduced to `name=***` at the moment they are read (maskOtelHeaders), so
  * neither the text nor the JSON form can leak one.
  *
@@ -15,6 +16,8 @@
  *   remote-settings / managed policy  >  settings.json env (flag > local >
  *   project > user)  >  ~/.claude.json env  >  account profile  >  shell env.
  */
+
+import { isTruthy, type SinkInfo } from './sinks.js'
 
 export type Env = Record<string, string | undefined>
 
@@ -59,20 +62,15 @@ export type OtelDestination = {
   intervalIsDefault: boolean
 }
 
-export type OwnSink = {
-  id: string
-  endpoint: string | null
-  protocol: string | null
-  accounts: string
-  schema: string | null
-  hasHeaders: boolean
-}
-
-export type OwnSinks = {
+export type SinksBlock = {
+  /** telemetry.json path. */
   path: string
   present: boolean
-  error: string | null
-  sinks: OwnSink[]
+  /** Problems found reading it (a bad receiver is skipped, never half used). */
+  errors: string[]
+  sinks: SinkInfo[]
+  /** DISABLE_TELEMETRY set by the person: switches off the `user` receivers. */
+  humanDisabled: boolean
 }
 
 export type OtelAccount = {
@@ -90,11 +88,11 @@ export type OtelAccount = {
 }
 
 export type OtelReport = {
-  /** Does this build have telemetry compiled in (isTelemetryEnabled()). */
+  /** Does this build carry the telemetry code (isTelemetryEnabled()). */
   buildEnabled: boolean
   /** Settings ask for telemetry (CLAUDE_CODE_ENABLE_TELEMETRY truthy, DISABLE_TELEMETRY not). */
   requested: boolean
-  /** Would leave the machine: build enabled, requested and some OTLP exporter selected. */
+  /** Something leaves the machine for the session account: an enabled receiver is bound to it. */
   sends: boolean
   verdict: string
   account: OtelAccount
@@ -102,7 +100,7 @@ export type OtelReport = {
   vars: OtelVar[]
   destinations: OtelDestination[]
   resourceAttributes: { key: string; value: string }[]
-  ownSinks: OwnSinks
+  sinksBlock: SinksBlock
 }
 
 export type OtelReportInput = {
@@ -114,7 +112,7 @@ export type OtelReportInput = {
   /** Vars an account profile sets by default (profiles.ts); empty when no profile is active. */
   profileEnv?: Env
   profileLabel?: string
-  ownSinks: OwnSinks
+  sinksBlock: SinksBlock
 }
 
 const SIGNALS: OtelSignal[] = ['metrics', 'logs', 'traces']
@@ -138,13 +136,12 @@ const EXTRA_VARS = [
   'DISABLE_TELEMETRY',
   'CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC',
   'CLAUDE_CODE_ENHANCED_TELEMETRY_BETA',
+  'FNHARNESS_PROFILE_NO_TELEMETRY',
 ]
 
 const SECRET_NAME = /(key|token|secret|password|passwd|auth|credential)/i
 
-export function isTruthy(v: string | undefined): boolean {
-  return v !== undefined && ['1', 'true', 'yes', 'on'].includes(v.trim().toLowerCase())
-}
+export { isTruthy }
 
 /** `dd-api-key=abc, x-org=7` -> `dd-api-key=***,x-org=***`. Never keeps a value. */
 export function maskOtelHeaders(raw: string): string {
@@ -309,25 +306,20 @@ export function buildOtelReport(input: OtelReportInput): OtelReport {
   const disable = vars.find(v => v.name === 'DISABLE_TELEMETRY') ?? null
   const requested = isTruthy(rawEffective('CLAUDE_CODE_ENABLE_TELEMETRY', input)) && !isTruthy(rawEffective('DISABLE_TELEMETRY', input))
   const destinations = SIGNALS.map(s => resolveDestination(s, input))
-  const anyOtlp = destinations.some(d => d.otlp)
-  const sends = input.buildEnabled && requested && anyOtlp
   const attrs = parseResourceAttributes(rawEffective('OTEL_RESOURCE_ATTRIBUTES', input))
 
-  const targets = [...new Set(destinations.filter(d => d.otlp && d.endpoint).map(d => d.endpoint!))]
+  const b = input.sinksBlock
+  const active = b.sinks.filter(s => s.enabled && s.activeForSession)
+  const sends = input.buildEnabled && active.length > 0
   let verdict: string
   if (!input.buildEnabled) {
-    verdict = 'No se envía nada: telemetría desactivada en este build (isTelemetryEnabled() = false).'
-    if (requested && anyOtlp) {
-      verdict += ` Con esta configuración se enviaría a ${targets.join(', ') || 'un receptor OTLP sin endpoint'} si el build la activara.`
-    }
+    verdict = 'No se envía nada: este build no lleva la telemetría (isTelemetryEnabled() = false).'
   } else if (sends) {
-    verdict = `Se envía telemetría OTLP a ${targets.join(', ') || 'un receptor OTLP sin endpoint'}.`
-  } else if (!requested) {
-    verdict = isTruthy(rawEffective('DISABLE_TELEMETRY', input))
-      ? 'No se envía nada: DISABLE_TELEMETRY está activo.'
-      : 'No se envía nada: CLAUDE_CODE_ENABLE_TELEMETRY no está activo.'
+    verdict = `Se envía telemetría de la cuenta ${input.account.id} a: ${active.map(s => `${s.id} (${s.endpoint})`).join(', ')}.`
+  } else if (b.humanDisabled && b.sinks.some(s => s.origin === 'user')) {
+    verdict = 'No se envía nada: DISABLE_TELEMETRY está activo (apaga los receptores propios; los de una organización no dependen de él).'
   } else {
-    verdict = 'No se envía nada: ningún exportador OTLP seleccionado (OTEL_*_EXPORTER).'
+    verdict = `No se envía nada: ningún receptor está ligado a la cuenta ${input.account.id}.`
   }
 
   return {
@@ -340,38 +332,33 @@ export function buildOtelReport(input: OtelReportInput): OtelReport {
     vars,
     destinations,
     resourceAttributes: attrs,
-    ownSinks: input.ownSinks,
+    sinksBlock: b,
   }
-}
-
-/** Pure: reads `<config>/telemetry.json` text into the own-sinks block. Header refs are never shown. */
-export function parseOwnSinks(path: string, text: string | null): OwnSinks {
-  if (text === null) return { path, present: false, error: null, sinks: [] }
-  let data: unknown
-  try {
-    data = JSON.parse(text)
-  } catch (e) {
-    return { path, present: true, error: `JSON inválido (${(e as Error).message})`, sinks: [] }
-  }
-  const raw = (data as { sinks?: unknown } | null)?.sinks
-  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
-    return { path, present: true, error: 'falta el objeto "sinks"', sinks: [] }
-  }
-  const sinks = Object.entries(raw as Record<string, Record<string, unknown>>).map(([id, s]) => {
-    const accounts = s?.accounts
-    return {
-      id,
-      endpoint: typeof s?.endpoint === 'string' ? maskUrl(s.endpoint) : null,
-      protocol: typeof s?.protocol === 'string' ? s.protocol : null,
-      accounts: Array.isArray(accounts) ? accounts.join(', ') : typeof accounts === 'string' ? accounts : '*',
-      schema: typeof s?.schema === 'string' ? s.schema : null,
-      hasHeaders: Boolean(s?.headersRef) || Boolean(s?.headers),
-    }
-  })
-  return { path, present: true, error: null, sinks }
 }
 
 const secs = (ms: number) => (ms % 1000 === 0 ? `${ms / 1000} s` : `${ms} ms`)
+
+/** Pure: the receivers block of the text report. */
+function formatSinks(r: OtelReport): string[] {
+  const L: string[] = []
+  const o = r.sinksBlock
+  L.push(`Receptores (${o.sinks.length}):`)
+  if (o.sinks.length === 0) L.push(`  (ninguno; los propios se declaran en ${o.path}${o.present ? '' : ', que no existe'})`)
+  for (const s of o.sinks) {
+    const kind = s.origin === 'managed' ? 'organización' : 'propio'
+    const state = !s.enabled ? `desactivado${s.disabledReason ? `: ${s.disabledReason}` : ''}` : s.activeForSession ? 'recibe esta sesión' : 'ligado, no recibe esta sesión'
+    L.push(`  ${s.id} [${kind} · ${state}]`)
+    L.push(`    ${s.endpoint} · ${s.protocol} · esquema ${s.schema} · señales ${s.signals.join(', ') || 'ninguna'}`)
+    L.push(`    cuentas ligadas: ${s.accounts.join(', ')}`)
+    L.push(`    prompts: ${s.prompts ? 'sí' : 'no (<REDACTED>)'} · detalle de herramientas: ${s.toolDetails ? 'sí' : 'no'} · credenciales: ${s.hasCredentials ? 'sí (ocultas)' : 'no'}`)
+    const st = s.status
+    const when = (t: number | null) => (t ? new Date(t).toISOString().slice(11, 19) + ' UTC' : null)
+    L.push(`    último envío correcto: ${when(st?.lastOkAt ?? null) ?? 'ninguno en esta sesión'} · último error: ${st?.lastError ? `${st.lastError} (${when(st.lastErrorAt)})` : 'ninguno'}${st?.blocked ? ` · sin iniciar: ${st.blocked}` : ''}`)
+  }
+  for (const e of o.errors) L.push(`  aviso en ${o.path}: ${e}`)
+  if (o.humanDisabled) L.push('  DISABLE_TELEMETRY activo: los receptores propios no reciben nada.')
+  return L
+}
 
 /** Pure: human text of the report. */
 export function formatOtelReport(r: OtelReport): string {
@@ -379,7 +366,7 @@ export function formatOtelReport(r: OtelReport): string {
   L.push('Telemetría (OpenTelemetry)')
   L.push('')
   L.push(r.verdict)
-  L.push(`Build: telemetría ${r.buildEnabled ? 'ACTIVA' : 'desactivada'} · ajustes la ${r.requested ? 'piden' : 'no piden'}${r.sends ? ' · SE ENVÍA' : ' · no se envía'}`)
+  L.push(`Build: telemetría ${r.buildEnabled ? 'con código de envío' : 'desactivada'}${r.sends ? ' · SE ENVÍA' : ' · no se envía'}`)
   L.push('')
   const a = r.account
   L.push(`Cuenta: ${a.id}${a.label ? ` (${a.label})` : ''}${a.provider ? ` · ${a.provider}` : ''}`)
@@ -388,12 +375,14 @@ export function formatOtelReport(r: OtelReport): string {
     L.push(`  remote-settings de la cuenta Claude ${a.managedFrom}: sus OTEL_* son un receptor de esa cuenta y no se aplican a process.env`)
   }
   L.push('')
-  L.push('Variables efectivas y su origen:')
+  L.push(...formatSinks(r))
+  L.push('')
+  L.push('Variables OTEL_* vistas (las de la organización se aplican solo a su receptor; el entorno del proceso no crea receptores):')
   if (r.vars.length === 0) L.push('  (ninguna)')
   const w = Math.max(0, ...r.vars.map(v => v.name.length))
   for (const v of r.vars) L.push(`  ${v.name.padEnd(w)} = ${v.value}   ← ${v.originLabel}`)
   L.push('')
-  L.push('Destinos:')
+  L.push('Destinos que dicta la organización de la cuenta activa:')
   for (const d of r.destinations) {
     const ex = d.exporters.length ? d.exporters.join(',') : 'ninguno'
     if (!d.otlp) {
@@ -405,19 +394,9 @@ export function formatOtelReport(r: OtelReport): string {
     L.push(`    cabeceras: ${d.headers.length ? d.headers.map(h => `${h}=***`).join(', ') : 'ninguna'}`)
   }
   L.push('')
-  L.push('Atributos de recurso:')
+  L.push('Atributos de recurso (de la organización):')
   if (r.resourceAttributes.length === 0) L.push('  (ninguno)')
   for (const t of r.resourceAttributes) L.push(`  ${t.key}=${t.value}`)
   L.push('')
-  const o = r.ownSinks
-  if (o.error) L.push(`Receptores propios (${o.path}): ${o.error}`)
-  else if (!o.present) L.push(`Receptores propios: no hay ninguno configurado (no existe ${o.path}).`)
-  else if (o.sinks.length === 0) L.push(`Receptores propios (${o.path}): el fichero no declara ninguno.`)
-  else {
-    L.push(`Receptores propios (${o.path}):`)
-    for (const s of o.sinks) {
-      L.push(`  ${s.id}: ${s.endpoint ?? '(sin endpoint)'} · ${s.protocol ?? 'protocolo por defecto'} · cuentas ${s.accounts}${s.schema ? ` · esquema ${s.schema}` : ''}${s.hasHeaders ? ' · con cabeceras (ocultas)' : ''}`)
-    }
-  }
   return L.join('\n')
 }
