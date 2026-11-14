@@ -146,7 +146,7 @@ import { validateUuid } from './utils/uuid.js';
 import { registerMcpAddCommand } from 'src/commands/mcp/addCommand.js';
 import { registerMcpXaaIdpCommand } from 'src/commands/mcp/xaaIdpCommand.js';
 import { logPermissionContextForAnts } from 'src/services/internalLogging.js';
-import { fetchClaudeAIMcpConfigsIfEligible } from 'src/services/mcp/claudeai.js';
+import { fetchClaudeAIMcpConfigsCachedFirst } from 'src/services/mcp/claudeai.js';
 import { clearServerCache } from 'src/services/mcp/client.js';
 import { areMcpConfigsAllowedWithEnterpriseMcpConfig, dedupClaudeAiMcpServers, doesEnterpriseMcpConfigExist, filterMcpServersByPolicy, getClaudeCodeMcpConfigs, getMcpServerSignature, parseMcpConfig, parseMcpConfigFromFilePath } from 'src/services/mcp/config.js';
 import { excludeCommandsByServer, excludeResourcesByServer } from 'src/services/mcp/utils.js';
@@ -1860,7 +1860,7 @@ async function run(): Promise<CommanderCommand> {
     // --bare / SIMPLE: skip claude.ai proxy servers (datadog, Gmail,
     // Slack, BigQuery, PubMed — 6-14s each to connect). Scripted calls
     // that need MCP pass --mcp-config explicitly.
-    !isBareMode() && !isSafeMode() ? fetchClaudeAIMcpConfigsIfEligible().then(configs => {
+    !isBareMode() && !isSafeMode() ? fetchClaudeAIMcpConfigsCachedFirst().then(configs => {
       const {
         allowed,
         blocked
@@ -2825,8 +2825,13 @@ async function run(): Promise<CommanderCommand> {
       // fetch was kicked off early (line ~2558) so only residual time blocks
       // here. --bare skips claude.ai entirely for perf-sensitive scripts.
       profileCheckpoint('before_connectMcp');
-      await connectMcpBatch(regularMcpConfigs, 'regular');
-      profileCheckpoint('after_connectMcp');
+      // Local MCP servers and claude.ai connectors connect in parallel: awaiting the first batch before
+      // starting the second added the slowest local server (a Python MCP takes ~1 s) on top of the connectors.
+      // The one case that still has to wait is a plugin server that duplicates a connector, because the
+      // dedup below removes it from the store after it connected.
+      const regularConnect = connectMcpBatch(regularMcpConfigs, 'regular');
+      const claudeaiMustWaitForRegular = Object.keys(regularMcpConfigs).some(name => name.startsWith('plugin:'));
+      if (claudeaiMustWaitForRegular) await regularConnect;
       // Dedup: suppress plugin MCP servers that duplicate a claude.ai
       // connector (connector wins), then connect claude.ai servers.
       // Bounded wait — #23725 made this blocking so single-turn -p sees
@@ -2898,6 +2903,8 @@ async function run(): Promise<CommanderCommand> {
         return connectMcpBatch(dedupedClaudeAi, 'claudeai');
       });
       let claudeaiTimer: ReturnType<typeof setTimeout> | undefined;
+      await regularConnect;
+      profileCheckpoint('after_connectMcp');
       const claudeaiTimedOut = await Promise.race([claudeaiConnect.then(() => false), new Promise<boolean>(resolve => {
         claudeaiTimer = setTimeout(r => r(true), CLAUDE_AI_MCP_TIMEOUT_MS, resolve);
       })]);

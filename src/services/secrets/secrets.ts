@@ -14,7 +14,7 @@
  * injectable `Runner` so the backends can be tested without pass or a keyring.
  */
 
-import { spawnSync } from 'child_process'
+import { spawn, spawnSync } from 'child_process'
 import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'fs'
 import { homedir } from 'os'
 import { dirname, join } from 'path'
@@ -34,6 +34,33 @@ export const defaultRunner: Runner = (cmd, args, input) => {
   const r = spawnSync(cmd, args, { input: input ?? '', encoding: 'utf8', timeout: RUN_TIMEOUT_MS })
   return { status: r.error ? null : r.status, stdout: r.stdout ?? '', stderr: r.error ? String(r.error.message) : (r.stderr ?? '') }
 }
+
+/** Same as Runner but without blocking the event loop (a gpg round trip is ~0.4 s). */
+type AsyncRunner = (cmd: string, args: string[], input?: string) => Promise<RunResult>
+
+const defaultAsyncRunner: AsyncRunner = (cmd, args, input) =>
+  new Promise(resolve => {
+    let stdout = ''
+    let stderr = ''
+    let settled = false
+    const finish = (r: RunResult): void => {
+      if (settled) return
+      settled = true
+      clearTimeout(timer)
+      resolve(r)
+    }
+    const child = spawn(cmd, args, { stdio: ['pipe', 'pipe', 'pipe'] })
+    const timer = setTimeout(() => {
+      child.kill('SIGKILL')
+      finish({ status: null, stdout, stderr: `timeout tras ${RUN_TIMEOUT_MS} ms` })
+    }, RUN_TIMEOUT_MS)
+    child.stdout.setEncoding('utf8').on('data', d => (stdout += d))
+    child.stderr.setEncoding('utf8').on('data', d => (stderr += d))
+    child.on('error', e => finish({ status: null, stdout, stderr: String(e.message) }))
+    child.on('close', code => finish({ status: code, stdout, stderr }))
+    child.stdin.on('error', () => {})
+    child.stdin.end(input ?? '')
+  })
 
 let activeRunner: Runner = defaultRunner
 
@@ -269,6 +296,25 @@ const cache = new Map<string, string>()
 /** Forget every resolved value (after /secrets changes something). */
 export function clearSecretCache(): void {
   cache.clear()
+}
+
+/**
+ * Like resolveRef, but a `pass` entry is decrypted without blocking the event loop. For code that
+ * runs while the UI is alive (telemetry receivers): the sync version freezes input for the gpg round trip.
+ * With a runner injected for tests it behaves exactly like resolveRef.
+ */
+export async function resolveRefAsync(text: string, ctx: Ctx = defaultCtx()): Promise<string> {
+  const hit = cache.get(text)
+  if (hit) return hit
+  const { backend, ref } = parseRef(text)
+  if (backend.id !== 'pass' || ctx.run !== defaultRunner) return resolveRef(text, ctx)
+  assertPassRef(ref)
+  const r = await defaultAsyncRunner('pass', ['show', ref])
+  if (r.status !== 0) throw new SecretError(`pass show ${ref} falló${r.stderr ? `: ${firstLine(r.stderr)}` : ''}`)
+  const value = firstLine(r.stdout)
+  if (!value) throw new SecretError(`la entrada ${ref} de pass está vacía`)
+  cache.set(text, value)
+  return value
 }
 
 /** Resolves a reference to its value; each reference is read from its backend once per process. */
