@@ -556,10 +556,13 @@ export async function runHeadless(
   headlessProfilerStartTurn()
   headlessProfilerCheckpoint('runHeadless_entry')
 
-  // Check Grove requirements for non-interactive consumer subscribers
-  if (await isQualifiedForGrove()) {
-    await checkGroveForNonInteractive()
-  }
+  // Check Grove requirements for non-interactive consumer subscribers. The check makes network calls
+  // (150-500 ms), so it runs while the rest of the setup does and is awaited right before the first
+  // model request (see groveCheck below): the terms gate still comes before anything is sent.
+  const groveCheck: Promise<void> = (await isQualifiedForGrove())
+    ? checkGroveForNonInteractive()
+    : Promise.resolve()
+  groveCheck.catch(() => {}) // an early failure is reported where it is awaited, not as an unhandled rejection
   headlessProfilerCheckpoint('after_grove_check')
 
   // Initialize GrowthBook so feature flags take effect in headless mode.
@@ -862,6 +865,7 @@ export async function runHeadless(
       ? createStreamlinedTransformer()
       : null
 
+  await groveCheck
   headlessProfilerCheckpoint('before_runHeadlessStreaming')
   // Matrix event channel (docs/matrix_events.md): no-op unless FNHARNESS_EVENTS is set.
   matrixSessionStart({ resumed: initialMessages.length > 0 })

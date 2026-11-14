@@ -67,7 +67,8 @@ export type SummaryDeps = ListDeps & {
 export async function connectedAccountIds(env: Env, deps: SummaryDeps = {}): Promise<string[]> {
   const store = deps.store ?? loadStore(accountsFilePath(env))
   const probe = deps.probe ?? probeBackend
-  const accounts = listAccounts(store, env)
+  // Peek: this only asks "is it ready", so key references are not decrypted (no gpg at startup).
+  const accounts = listAccounts(store, env, true)
   const flags = await Promise.all(
     accounts.map(async a => {
       if (!a.ready) return false
@@ -81,6 +82,6 @@ export async function connectedAccountIds(env: Env, deps: SummaryDeps = {}): Pro
 export async function computeConnectedSummary(env: Env = process.env, deps: SummaryDeps = {}): Promise<ConnectedSummary> {
   const store = deps.store ?? loadStore(accountsFilePath(env))
   const ids = await connectedAccountIds(env, { ...deps, store })
-  const models = await countModels(ids, store, env, { ...deps, remote: false })
+  const models = await countModels(ids, store, env, { ...deps, remote: false, peekKeys: true })
   return { accounts: ids.length, models }
 }

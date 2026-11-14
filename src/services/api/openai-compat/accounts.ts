@@ -13,7 +13,7 @@
 import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'fs'
 import { homedir } from 'os'
 import { dirname, join } from 'path'
-import { SecretError, defaultCtx, resolveRef } from '../../secrets/secrets.js'
+import { SecretError, defaultCtx, parseRef, resolveRef } from '../../secrets/secrets.js'
 import { findProvider } from './catalog.js'
 import { loadCatalog } from './catalogStore.js'
 import { getProviderPresets, providerKeyRef } from '../../config/providers.js'
@@ -127,6 +127,7 @@ export function accountEnv(
   id: string,
   store: AccountStore,
   base: Env,
+  peek = false,
 ): Env {
   const stored = store.accounts[id] ?? {}
   const provider = stored.provider ?? id
@@ -134,7 +135,7 @@ export function accountEnv(
     ...base,
     CLAUDE_MULTIMODEL_PROVIDER: provider,
     CLAUDE_MULTIMODEL_BASE_URL: stored.baseUrl,
-    CLAUDE_MULTIMODEL_API_KEY: stored.apiKey ?? keyFromRef(id, stored, provider, base),
+    CLAUDE_MULTIMODEL_API_KEY: stored.apiKey ?? keyFromRef(id, stored, provider, base, peek),
     CLAUDE_MULTIMODEL_MODEL: stored.model,
     CLAUDE_MULTIMODEL_SMALL_MODEL: stored.smallModel ?? stored.model,
   }
@@ -150,8 +151,17 @@ export function providerKeyEnv(provider: string, base: Env = process.env): strin
  * wins over the reference, so it is not even read; a literal `apiKey` in the
  * store still wins over both (older behaviour). A reference that cannot be read
  * aborts with the reason instead of the generic "needs an API key".
+ *
+ * `peek` only checks that the reference exists, without decrypting it (a `pass`
+ * entry costs a gpg round trip of ~0.4 s, run synchronously). It returns a
+ * placeholder that is NOT the key, so a peeked profile is only good for "is this
+ * account ready" questions (header counters), never for talking to the server.
+ * References of local servers are still read for real: those may need the key
+ * to list their models.
  */
-function keyFromRef(id: string, stored: StoredAccount, provider: string, base: Env): string | undefined {
+export const PEEKED_KEY = 'peeked-not-the-key'
+
+function keyFromRef(id: string, stored: StoredAccount, provider: string, base: Env, peek = false): string | undefined {
   // The account's own reference wins; else the one providers.json gives its
   // provider (a preset `keyRef` or the `keyRefTemplate`), except for local
   // servers that need no key.
@@ -160,6 +170,12 @@ function keyFromRef(id: string, stored: StoredAccount, provider: string, base: E
   const envName = providerKeyEnv(provider, base)
   if (envName && base[envName]) return undefined
   try {
+    if (peek && !isLocalUrl(stored.baseUrl ?? getProviderPresets()[provider]?.baseUrl ?? null)) {
+      // Not refState(): its availability probe would spawn `pass --version` just to count accounts.
+      const parsed = parseRef(ref)
+      if (!parsed.backend.exists(parsed.ref, defaultCtx(base))) throw new SecretError(`no existe ${ref}`)
+      return PEEKED_KEY
+    }
     return resolveRef(ref, defaultCtx(base))
   } catch (err) {
     const why = err instanceof SecretError ? err.message : String(err)
@@ -172,6 +188,7 @@ export function profileForAccount(
   id: string,
   store: AccountStore,
   base: Env,
+  peek = false,
 ): MultimodelProfile | null {
   if (isAnthropicAccount(id, store)) return null
   const known = id in getProviderPresets() || id in store.accounts
@@ -180,10 +197,10 @@ export function profileForAccount(
       `Unknown account "${id}". Use /account list to see the available ones.`,
     )
   }
-  return resolveProfile(accountEnv(id, store, base))
+  return resolveProfile(accountEnv(id, store, base, peek))
 }
 
-export function listAccounts(store: AccountStore, base: Env): Account[] {
+export function listAccounts(store: AccountStore, base: Env, peek = false): Account[] {
   const ids = [
     CLAUDE_ACCOUNT_ID,
     ...Object.keys(getProviderPresets()).filter(id => id !== 'custom'),
@@ -191,10 +208,10 @@ export function listAccounts(store: AccountStore, base: Env): Account[] {
       id => id !== CLAUDE_ACCOUNT_ID && !(id in getProviderPresets()),
     ),
   ]
-  return ids.map(id => describeAccount(id, store, base))
+  return ids.map(id => describeAccount(id, store, base, peek))
 }
 
-function describeAccount(id: string, store: AccountStore, base: Env): Account {
+function describeAccount(id: string, store: AccountStore, base: Env, peek = false): Account {
   if (isAnthropicAccount(id, store)) {
     const stored = store.accounts[id]
     return {
@@ -211,7 +228,7 @@ function describeAccount(id: string, store: AccountStore, base: Env): Account {
   }
   const stored = store.accounts[id]
   try {
-    const profile = profileForAccount(id, store, base)!
+    const profile = profileForAccount(id, store, base, peek)!
     return {
       id,
       label: stored?.label ?? profile.label,

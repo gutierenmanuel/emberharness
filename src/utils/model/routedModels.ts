@@ -260,7 +260,8 @@ export async function gatherAccountModelGroups(opts: GatherOptions = {}): Promis
   const env = opts.env ?? process.env
   const session = sessionAccountId(env)
   const store = loadStore(accountsFilePath(env))
-  const labels = new Map(listAccounts(store, env).map(a => [a.id, a.label]))
+  // Labels only need the account to exist, so key references are never decrypted for them.
+  const labels = new Map(listAccounts(store, env, true).map(a => [a.id, a.label]))
   let ids: string[]
   try {
     ids = await connectedAccountIds(env, { store })
@@ -269,6 +270,9 @@ export async function gatherAccountModelGroups(opts: GatherOptions = {}): Promis
   }
   if (!ids.includes(session)) ids.unshift(session)
   const remote = opts.remote !== false && env.FNHARNESS_DISABLE_MODELS_FETCH !== '1'
+  // Without remote queries (the Agent tool prompt, built at startup) the key is never sent anywhere:
+  // peek instead of decrypting it, which would block the main thread ~0.4 s per `pass` entry.
+  const peek = !remote
 
   const groups = await Promise.all(
     ids.map(async (id): Promise<AccountModelGroup> => {
@@ -285,7 +289,7 @@ export async function gatherAccountModelGroups(opts: GatherOptions = {}): Promis
         }
       }
       try {
-        const target = targetForAccount(id, store, env)
+        const target = targetForAccount(id, store, env, peek)
         if (!target) return { accountId: id, label, active, models: [] }
         const models: ModelEntry[] = (await listAccountModels(target, { remote })).map(m => {
           const shown = displayModelId(m.id)

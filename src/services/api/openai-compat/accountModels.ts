@@ -6,6 +6,7 @@
  */
 
 import {
+  PEEKED_KEY,
   accountsFilePath,
   isLocalUrl,
   loadStore,
@@ -38,6 +39,8 @@ export type ListDeps = {
   catalog?: Catalog
   /** Query hosted servers too (default true). The header counter passes false: no key leaves the machine at startup. */
   remote?: boolean
+  /** Check key references without decrypting them (header counter): the targets carry no real key. */
+  peekKeys?: boolean
   now?: number
 }
 
@@ -66,9 +69,12 @@ export function targetFromProfile(id: string, p: MultimodelProfile): ModelTarget
 }
 
 /** Resolves an account id to a target, or null for the native Claude account. */
-export function targetForAccount(id: string, store: AccountStore, env: Env): ModelTarget | null {
-  const p = profileForAccount(id, store, env)
-  return p ? targetFromProfile(id, p) : null
+export function targetForAccount(id: string, store: AccountStore, env: Env, peek = false): ModelTarget | null {
+  const p = profileForAccount(id, store, env, peek)
+  if (!p) return null
+  const t = targetFromProfile(id, p)
+  // A peeked key is a placeholder: never let it travel as a bearer token.
+  return peek && t.apiKey === PEEKED_KEY ? { ...t, apiKey: undefined } : t
 }
 
 const num = (x: unknown): number | undefined => (typeof x === 'number' && x > 0 ? x : undefined)
@@ -236,7 +242,7 @@ export async function countModels(
   const counts = await Promise.all(
     ids.map(async id => {
       try {
-        const t = targetForAccount(id, store, env)
+        const t = targetForAccount(id, store, env, deps.peekKeys)
         return t ? (await listAccountModels(t, deps)).length : 0
       } catch {
         return 0

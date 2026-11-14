@@ -1,3 +1,4 @@
+import { profileCheckpoint } from './utils/startupProfiler.js';
 import { feature } from 'bun:bundle';
 import { isMultimodelActive } from './services/api/openai-compat/profiles.js';
 import { appendFileSync } from 'fs';
@@ -108,6 +109,7 @@ export async function showSetupScreens(root: Root, permissionMode: PermissionMod
   ) {
     return false;
   }
+  profileCheckpoint('setup_screens_start');
   const config = getGlobalConfig();
   let onboardingShown = false;
   if (!config.theme || !config.hasCompletedOnboarding // always show onboarding at least once
@@ -141,6 +143,7 @@ export async function showSetupScreens(root: Root, permissionMode: PermissionMod
       await showSetupDialog(root, done => <TrustDialog commands={commands} onDone={done} />);
     }
 
+    profileCheckpoint('setup_trust_checked');
     // Signal that trust has been verified for this session.
     // GrowthBook checks this to decide whether to include auth headers.
     setSessionTrustAccepted(true);
@@ -174,6 +177,7 @@ export async function showSetupScreens(root: Root, permissionMode: PermissionMod
 
   // Track current repo path for teleport directory switching (fire-and-forget)
   // This must happen AFTER trust to prevent untrusted directories from poisoning the mapping
+  profileCheckpoint('setup_after_mcpjson_and_includes');
   void updateGithubRepoPathMapping();
   if (feature('LODESTONE')) {
     updateDeepLinkTerminalPreference();
@@ -183,13 +187,16 @@ export async function showSetupScreens(root: Root, permissionMode: PermissionMod
   // In bypass mode (CI/CD, automation), we trust the environment so apply all variables
   // In normal mode, this happens after the trust dialog is accepted
   // This includes potentially dangerous environment variables from untrusted sources
+  profileCheckpoint('setup_before_applyenv');
   applyConfigEnvironmentVariables();
+  profileCheckpoint('setup_after_applyenv');
 
   // Initialize telemetry after env vars are applied so OTEL endpoint env vars and
   // otelHeadersHelper (which requires trust to execute) are available.
   // Defer to next tick so the OTel dynamic import resolves after first render
   // instead of during the pre-render microtask queue.
   setImmediate(() => initializeTelemetryAfterTrust());
+  profileCheckpoint('setup_before_grove');
   if (await isQualifiedForGrove()) {
     const {
       GroveDialog
@@ -202,6 +209,7 @@ export async function showSetupScreens(root: Root, permissionMode: PermissionMod
     }
   }
 
+  profileCheckpoint('setup_after_grove');
   // Check for custom API key
   // On homespace, ANTHROPIC_API_KEY is preserved in process.env for child
   // processes but ignored by Claude Code itself (see auth.ts).
@@ -297,6 +305,7 @@ export async function showSetupScreens(root: Root, permissionMode: PermissionMod
     } = await import('./components/ClaudeInChromeOnboarding.js');
     await showSetupDialog(root, done => <ClaudeInChromeOnboarding onDone={done} />);
   }
+  profileCheckpoint('setup_screens_end');
   return onboardingShown;
 }
 export function getRenderContext(exitOnCtrlC: boolean): {

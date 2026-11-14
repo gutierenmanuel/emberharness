@@ -1,14 +1,16 @@
 import axios from 'axios'
+import { mkdirSync, readFileSync, renameSync, writeFileSync } from 'fs'
+import { join } from 'path'
 import memoize from 'lodash-es/memoize.js'
 import { getOauthConfig } from 'src/constants/oauth.js'
 import {
   type AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS,
   logEvent,
 } from 'src/services/analytics/index.js'
-import { getClaudeAIOAuthTokens } from 'src/utils/auth.js'
+import { getClaudeAIOAuthTokens, getOauthAccountInfo } from 'src/utils/auth.js'
 import { getGlobalConfig, saveGlobalConfig } from 'src/utils/config.js'
 import { logForDebugging } from 'src/utils/debug.js'
-import { isEnvDefinedFalsy } from 'src/utils/envUtils.js'
+import { getClaudeConfigHomeDir, isEnvDefinedFalsy } from 'src/utils/envUtils.js'
 import { clearMcpAuthCache } from './client.js'
 import { normalizeNameForMCP } from './normalization.js'
 import type { ScopedMcpServerConfig } from './types.js'
@@ -28,6 +30,47 @@ type ClaudeAIMcpServersResponse = {
 }
 
 const FETCH_TIMEOUT_MS = 5000
+
+// Disk copy of the last successful list, for -p mode only (see fetchClaudeAIMcpConfigsCachedFirst).
+const CACHE_MAX_AGE_MS = 14 * 24 * 60 * 60 * 1000
+
+type ListCache = { at: number; account: string; baseUrl: string; configs: Record<string, ScopedMcpServerConfig> }
+
+function listCachePath(): string {
+  return join(getClaudeConfigHomeDir(), 'claudeai-mcp-cache.json')
+}
+
+/** Which account and API the cached list belongs to; a different one invalidates it. */
+function listCacheOwner(): { account: string; baseUrl: string } {
+  return { account: getOauthAccountInfo()?.accountUuid ?? '', baseUrl: getOauthConfig().BASE_API_URL }
+}
+
+function readListCache(): Record<string, ScopedMcpServerConfig> | null {
+  try {
+    const c = JSON.parse(readFileSync(listCachePath(), 'utf8')) as ListCache
+    const { account, baseUrl } = listCacheOwner()
+    if (!account || c.account !== account || c.baseUrl !== baseUrl) return null
+    if (Date.now() - c.at > CACHE_MAX_AGE_MS) return null
+    if (!c.configs || typeof c.configs !== 'object' || Object.keys(c.configs).length === 0) return null
+    return c.configs
+  } catch {
+    return null
+  }
+}
+
+function writeListCache(configs: Record<string, ScopedMcpServerConfig>): void {
+  try {
+    const { account, baseUrl } = listCacheOwner()
+    if (!account || Object.keys(configs).length === 0) return
+    const path = listCachePath()
+    mkdirSync(getClaudeConfigHomeDir(), { recursive: true })
+    const tmp = `${path}.${process.pid}.tmp`
+    writeFileSync(tmp, JSON.stringify({ at: Date.now(), account, baseUrl, configs } satisfies ListCache), { mode: 0o600 })
+    renameSync(tmp, path)
+  } catch {
+    // A cache that cannot be written only costs the next start its speed-up.
+  }
+}
 const MCP_SERVERS_BETA_HEADER = 'mcp-servers-2025-12-04'
 
 /**
@@ -125,6 +168,7 @@ export const fetchClaudeAIMcpConfigsIfEligible = memoize(
         state:
           'eligible' as AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS,
       })
+      writeListCache(configs)
       return configs
     } catch {
       logForDebugging(`[claudeai-mcp] Fetch failed`)
@@ -132,6 +176,23 @@ export const fetchClaudeAIMcpConfigsIfEligible = memoize(
     }
   },
 )
+
+/**
+ * -p mode: the connector list without waiting for the network. The list rarely changes and fetching it
+ * costs 0.3-0.8 s that sat on the critical path before the first turn, so a copy from the last
+ * successful fetch is used right away while the real fetch refreshes it in the background (a connector
+ * added or removed on claude.ai shows up one run later). With no usable copy it waits for the fetch as before.
+ * `FNHARNESS_CLAUDEAI_MCP_NO_CACHE=1` forces the old behaviour.
+ */
+export function fetchClaudeAIMcpConfigsCachedFirst(): Promise<Record<string, ScopedMcpServerConfig>> {
+  const fresh = fetchClaudeAIMcpConfigsIfEligible()
+  if (process.env.FNHARNESS_CLAUDEAI_MCP_NO_CACHE === '1') return fresh
+  const cached = readListCache()
+  if (!cached) return fresh
+  logForDebugging(`[claudeai-mcp] Using cached list (${Object.keys(cached).length} servers); refreshing in the background`)
+  void fresh.catch(() => {})
+  return Promise.resolve(cached)
+}
 
 /**
  * Clears the memoized cache for fetchClaudeAIMcpConfigsIfEligible.

@@ -10,6 +10,7 @@ import {
   purgeSecret,
   refState,
   resolveRef,
+  resolveRefAsync,
   storeSecret,
   type Ctx,
   type Runner,
@@ -60,6 +61,15 @@ describe('secret references', () => {
     expect(resolveRef('pass:apis/venice', ctx)).toBe('secret-1')
     expect(resolveRef('pass:apis/venice', ctx)).toBe('secret-1')
     expect(calls.filter(c => c.args[0] === 'show').length).toBe(1)
+  })
+
+  test('resolveRefAsync gives the same value as resolveRef and shares its cache', async () => {
+    const { ctx, calls, pass } = fakeCtx()
+    pass.set('apis/venice', 'secret-1')
+    expect(await resolveRefAsync('pass:apis/venice', ctx)).toBe('secret-1')
+    expect(resolveRef('pass:apis/venice', ctx)).toBe('secret-1')
+    expect(calls.filter(c => c.args[0] === 'show').length).toBe(1)
+    await expect(resolveRefAsync('pass:apis/nada', ctx)).rejects.toThrow(/pass show apis\/nada falló/)
   })
 
   test('pass: refs that could be options or escape the store are refused before running anything', () => {

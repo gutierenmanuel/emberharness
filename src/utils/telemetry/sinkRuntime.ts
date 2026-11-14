@@ -28,7 +28,7 @@ import { readAccountInfo } from '../../services/accounts/anthropicAccounts.js'
 import { telemetryEnvOf } from '../../services/accounts/managedPolicy.js'
 import { getMultimodelProfile, getScopedAccountId } from '../../services/api/openai-compat/profiles.js'
 import { getAccountRemoteSettings } from '../../services/remoteManagedSettings/syncCacheState.js'
-import { resolveRef } from '../../services/secrets/secrets.js'
+import { resolveRefAsync } from '../../services/secrets/secrets.js'
 import { getAgentContext } from '../agentContext.js'
 import { getGlobalConfig, getOrCreateUserID } from '../config.js'
 import { logForDebugging } from '../debug.js'
@@ -260,7 +260,7 @@ function note(rt: Runtime, signal: Signal, r: ExportResult): void {
 }
 
 /** Resolves the receiver's credentials. Throws a message that never carries the value. */
-function headersOf(def: SinkDef, rt: Runtime): Record<string, string> {
+async function headersOf(def: SinkDef, rt: Runtime): Promise<Record<string, string>> {
   if (def.origin === 'managed') {
     const h = def.headersList ? parseHeaderList(def.headersList) : {}
     rt.secrets.push(...Object.values(h))
@@ -269,7 +269,7 @@ function headersOf(def: SinkDef, rt: Runtime): Record<string, string> {
   if (!def.headersRef) return {}
   let value: string
   try {
-    value = resolveRef(def.headersRef)
+    value = await resolveRefAsync(def.headersRef)
   } catch (e) {
     throw new Error(`secreto ${def.headersRef} no disponible (${(e as Error).message.split('\n')[0]})`)
   }
@@ -283,7 +283,7 @@ function ensureBuilt(rt: Runtime): Promise<void> {
   if (rt.building) return rt.building
   rt.building = (async () => {
     try {
-      const headers = headersOf(rt.def, rt)
+      const headers = await headersOf(rt.def, rt)
       const { buildProviders } = await import('./sinkProviders.js')
       rt.providers = buildProviders(rt.def, headers, MACRO.VERSION, (signal, r) => note(rt, signal, r))
     } catch (e) {
@@ -459,7 +459,7 @@ export async function testSink(id: string): Promise<TestResult> {
   const rt = runtimeOf(def)
   let headers: Record<string, string>
   try {
-    headers = headersOf(def, rt)
+    headers = await headersOf(def, rt)
   } catch (e) {
     const msg = scrubSecrets((e as Error).message, rt.secrets)
     rt.status.blocked = msg
