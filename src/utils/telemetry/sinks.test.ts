@@ -2,12 +2,17 @@ import { describe, expect, test } from 'bun:test'
 import type { TelemetryCtx } from './context.js'
 import {
   PROMPT_MARK,
+  editUserSinkInText,
   eventMetadataFor,
   headersFromSecret,
   managedSinkFromEnv,
   parseHeaderList,
   parseUserSinks,
   scrubSecrets,
+  setSinkAccountsInText,
+  setSinkEnabledInText,
+  setSinkFlagsInText,
+  setSinkSignalsInText,
   sinkAttributes,
   sinksFor,
   type SinkDef,
@@ -214,5 +219,65 @@ describe('headers and secrets', () => {
     const out = scrubSecrets(msg, ['SECRETO-DD-1234'])
     expect(out).not.toContain('abcDEF123xyz')
     expect(out).not.toContain('SECRETO-DD-1234')
+  })
+})
+
+describe('editUserSinkInText and the toggle helpers', () => {
+  const parse = (text: string | null) => (text === null ? null : parseUserSinks(text))
+  const find = (text: string | null, id: string) => parse(text)?.sinks.find(s => s.id === id)
+
+  test('editUserSinkInText changes one entry and keeps the rest', () => {
+    const two = JSON.stringify({ sinks: { a: { endpoint: 'http://a', accounts: ['x'] }, b: { endpoint: 'http://b', accounts: '*' } } })
+    const r = editUserSinkInText(two, 'a', raw => ({ ...raw, schema: 'official' }))
+    expect(find(r.text, 'a')?.schema).toBe('official')
+    expect(find(r.text, 'b')?.accounts).toBe('*')
+  })
+
+  test('setSinkEnabledInText toggles and clears cleanly (absent = on)', () => {
+    const off = setSinkEnabledInText(USER_JSON, 'otel-3amdata', false)
+    expect(find(off.text, 'otel-3amdata')?.enabled).toBe(false)
+    const back = setSinkEnabledInText(off.text, 'otel-3amdata', true)
+    const parsed = JSON.parse(back.text!)
+    expect(parsed.sinks['otel-3amdata']).not.toHaveProperty('enabled')
+    expect(find(back.text, 'otel-3amdata')?.enabled).toBe(true)
+  })
+
+  test('setSinkAccountsInText swaps the list and accepts "*"', () => {
+    const r = setSinkAccountsInText(USER_JSON, 'otel-3amdata', ['claude'])
+    expect(find(r.text, 'otel-3amdata')?.accounts).toEqual(['claude'])
+    const star = setSinkAccountsInText(r.text, 'otel-3amdata', '*')
+    expect(find(star.text, 'otel-3amdata')?.accounts).toBe('*')
+  })
+
+  test('setSinkFlagsInText sets and unsets prompt/tool flags', () => {
+    const on = setSinkFlagsInText(USER_JSON, 'otel-3amdata', { logUserPrompts: true, logToolDetails: true })
+    expect(find(on.text, 'otel-3amdata')).toMatchObject({ logUserPrompts: true, logToolDetails: true })
+    const off = setSinkFlagsInText(on.text, 'otel-3amdata', { logUserPrompts: false, logToolDetails: false })
+    const parsed = JSON.parse(off.text!)
+    expect(parsed.sinks['otel-3amdata']).not.toHaveProperty('logUserPrompts')
+    expect(parsed.sinks['otel-3amdata']).not.toHaveProperty('logToolDetails')
+  })
+
+  test('setSinkSignalsInText: false writes the switch, true removes it (default on)', () => {
+    const noMetrics = setSinkSignalsInText(USER_JSON, 'otel-3amdata', { metrics: false })
+    expect(find(noMetrics.text, 'otel-3amdata')?.signals.metrics).toBeUndefined()
+    expect(find(noMetrics.text, 'otel-3amdata')?.signals.logs).toBeDefined()
+    const back = setSinkSignalsInText(noMetrics.text, 'otel-3amdata', { metrics: true })
+    const parsed = JSON.parse(back.text!)
+    expect(parsed.sinks['otel-3amdata']).not.toHaveProperty('metrics')
+    expect(find(back.text, 'otel-3amdata')?.signals.metrics).toBeDefined()
+  })
+
+  test('refuses unknown ids, broken JSON and a sink that would stop parsing', () => {
+    expect(editUserSinkInText(USER_JSON, 'nope', r => r).error).toContain('no existe')
+    expect(editUserSinkInText('{', 'otel-3amdata', r => r).error).toContain('JSON')
+    const bad = setSinkAccountsInText(USER_JSON, 'otel-3amdata', [])
+    expect(bad.text).toBeNull()
+    expect(bad.error).toContain('otel-3amdata')
+  })
+
+  test('a disabled sink missing endpoint stays refused (validation is the runtime parser)', () => {
+    const broken = JSON.stringify({ sinks: { a: { accounts: ['x'] } } })
+    expect(setSinkEnabledInText(broken, 'a', true).text).toBeNull()
   })
 })
