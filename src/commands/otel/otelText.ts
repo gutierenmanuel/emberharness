@@ -105,7 +105,7 @@ export function collectOtelReportInput() {
 }
 
 /** Writes telemetry.json (0600, atomic), keeping a dated backup of the previous one. */
-function writeUserSinks(text: string): { path: string; backup: string | null } {
+export function writeUserSinks(text: string): { path: string; backup: string | null } {
   const path = userSinksPath()
   mkdirSync(dirname(path), { recursive: true })
   let backup: string | null = null

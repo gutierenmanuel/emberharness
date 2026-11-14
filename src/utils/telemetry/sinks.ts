@@ -463,3 +463,73 @@ export function addUserSinkToText(existing: string | null, spec: AddSinkSpec): {
   }
   return { text, error: null }
 }
+
+// ── /telemetry edits (TUI) ──────────────────────────────────────────────
+
+/**
+ * Pure: telemetry.json text with one user sink's raw entry passed through
+ * `edit` (an object spread over the current raw entry, or a full replacement).
+ * Re-validates with parseUserSinks so a file we write is always one we read.
+ * Managed receivers never appear here: the organisation owns them.
+ */
+export function editUserSinkInText(
+  existing: string | null,
+  id: string,
+  edit: (raw: Record<string, unknown>) => Record<string, unknown>,
+): { text: string | null; error: string | null } {
+  let doc: { sinks?: Record<string, unknown> } = {}
+  if (existing !== null) {
+    try {
+      doc = JSON.parse(existing)
+    } catch (e) {
+      return { text: null, error: `telemetry.json actual no es JSON válido (${(e as Error).message}); arréglalo a mano antes` }
+    }
+    if (!doc || typeof doc !== 'object' || Array.isArray(doc)) return { text: null, error: 'telemetry.json actual no es un objeto' }
+  }
+  const sinks = { ...(doc.sinks ?? {}) }
+  if (!(id in sinks)) return { text: null, error: `no existe el receptor "${id}" en telemetry.json` }
+  const raw = sinks[id]
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return { text: null, error: `"${id}" no es un objeto; arréglalo a mano` }
+  sinks[id] = edit(raw as Record<string, unknown>)
+  const text = JSON.stringify({ ...doc, sinks }, null, 2) + '\n'
+  const parsed = parseUserSinks(text)
+  if (!parsed.sinks.some(s => s.id === id)) {
+    return { text: null, error: parsed.errors.find(e => e.startsWith(`${id}:`)) ?? parsed.errors[0] ?? 'receptor no válido tras el cambio' }
+  }
+  return { text, error: null }
+}
+
+/** Pure: `enabled` on/off for a user sink (absent = on). */
+export function setSinkEnabledInText(existing: string | null, id: string, enabled: boolean): { text: string | null; error: string | null } {
+  return editUserSinkInText(existing, id, raw => {
+    const { enabled: _omit, ...rest } = raw
+    return enabled ? rest : { ...rest, enabled: false }
+  })
+}
+
+/** Pure: the account binding of a user sink (`'*'` or an explicit list). */
+export function setSinkAccountsInText(existing: string | null, id: string, accounts: '*' | string[]): { text: string | null; error: string | null } {
+  return editUserSinkInText(existing, id, raw => ({ ...raw, accounts }))
+}
+
+/** Pure: `logUserPrompts` / `logToolDetails` of a user sink (absent = false). */
+export function setSinkFlagsInText(existing: string | null, id: string, flags: { logUserPrompts?: boolean; logToolDetails?: boolean }): { text: string | null; error: string | null } {
+  return editUserSinkInText(existing, id, raw => {
+    const next = { ...raw }
+    for (const [k, v] of Object.entries(flags)) {
+      if (v) next[k] = true
+      else delete next[k]
+    }
+    return next
+  })
+}
+
+/** Pure: which signals a user sink exports (absent = on; `false` switches it off). */
+export function setSinkSignalsInText(existing: string | null, id: string, signals: { metrics?: boolean; logs?: boolean }): { text: string | null; error: string | null } {
+  return editUserSinkInText(existing, id, raw => {
+    const next = { ...raw }
+    if (signals.metrics !== undefined) signals.metrics ? delete next.metrics : (next.metrics = false)
+    if (signals.logs !== undefined) signals.logs ? delete next.logs : (next.logs = false)
+    return next
+  })
+}
