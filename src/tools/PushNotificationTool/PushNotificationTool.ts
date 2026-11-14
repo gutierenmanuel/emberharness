@@ -12,6 +12,7 @@ import {
   MAX_TITLE_CHARS,
   PUSH_NOTIFICATION_TOOL_NAME,
 } from './pushNotification.js'
+import { renderToolResultMessage } from './UI.js'
 
 const inputSchema = lazySchema(() =>
   z.strictObject({
@@ -102,7 +103,5 @@ export const PushNotificationTool = buildTool({
   renderToolUseMessage(input: Partial<{ message: string }>) {
     return input.message ?? ''
   },
-  renderToolResultMessage(output: PushNotificationOutput) {
-    return output.message
-  },
+  renderToolResultMessage,
 } satisfies ToolDef<InputSchema, PushNotificationOutput>)
