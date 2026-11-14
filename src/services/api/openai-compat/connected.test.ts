@@ -1,8 +1,9 @@
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test'
-import { mkdtempSync } from 'fs'
+import { mkdirSync, mkdtempSync, writeFileSync } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
 import { resetProvidersForTesting } from '../../config/providers.js'
+import { clearSecretCache, setRunnerForTesting, type Runner } from '../../secrets/secrets.js'
 import { applyMockOverride, computeConnectedSummary, connectedAccountIds, formatConnectedLine, isAccountConnected } from './connected.js'
 
 // Presets come from providers.json: keep the developer's real one out of these tests.
@@ -34,6 +35,29 @@ describe('connected accounts', () => {
     )
     expect(ids.sort()).toEqual(['claude', 'groq', 'qwen36'])
     expect(probed.every(u => u.startsWith('http://localhost'))).toBe(true)
+  })
+
+  test('the header counters never decrypt a pass reference (no gpg at startup)', async () => {
+    const store = mkdtempSync(join(tmpdir(), 'fnh-pass-'))
+    mkdirSync(join(store, 'apis'), { recursive: true })
+    writeFileSync(join(store, 'apis', 'present.gpg'), 'x')
+    const calls: string[] = []
+    const runner: Runner = (cmd, args) => (calls.push(`${cmd} ${args.join(' ')}`), { status: 0, stdout: 'real-key\n', stderr: '' })
+    setRunnerForTesting(runner)
+    try {
+      const env = { PASSWORD_STORE_DIR: store }
+      const accounts = {
+        okacct: { provider: 'custom', baseUrl: 'https://x.example/v1', model: 'm', apiKeyRef: 'pass:apis/present' },
+        gone: { provider: 'custom', baseUrl: 'https://y.example/v1', model: 'm', apiKeyRef: 'pass:apis/absent' },
+      }
+      const ids = await connectedAccountIds(env, { store: { accounts }, probe: async () => false })
+      expect(ids).toContain('okacct')
+      expect(ids).not.toContain('gone')
+      expect(calls.filter(c => c.startsWith('pass show'))).toEqual([])
+    } finally {
+      setRunnerForTesting(null)
+      clearSecretCache()
+    }
   })
 
   test('summary counts accounts and models; offline locals are excluded', async () => {
