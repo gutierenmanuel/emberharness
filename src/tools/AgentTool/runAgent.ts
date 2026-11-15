@@ -27,6 +27,7 @@ import type {
 } from '../../services/mcp/types.js'
 import type { Tool, Tools, ToolUseContext } from '../../Tool.js'
 import { killShellTasksForAgent } from '../../tasks/LocalShellTask/killShellTasks.js'
+import { killLocalToolTasksForAgent } from '../../tasks/LocalToolTask/LocalToolTask.js'
 import type { Command } from '../../types/command.js'
 import type { AgentId } from '../../types/ids.js'
 import type {
@@ -860,6 +861,14 @@ export async function* runAgent({
     // Kill any background bash tasks this agent spawned. Without this, a
     // `run_in_background` shell loop (e.g. test fixture fake-logs.sh) outlives
     // the agent as a PPID=1 zombie once the main session eventually exits.
+    // Same for generic background tool calls (local_tool tasks). The query
+    // loop already waited for them before finishing (bounded by
+    // FNHARNESS_SUBAGENT_BG_WAIT_MS); whatever is left is stopped here.
+    killLocalToolTasksForAgent(
+      agentId,
+      toolUseContext.getAppState,
+      rootSetAppState,
+    )
     killShellTasksForAgent(agentId, toolUseContext.getAppState, rootSetAppState)
     /* eslint-disable @typescript-eslint/no-require-imports */
     if (feature('MONITOR_TOOL')) {

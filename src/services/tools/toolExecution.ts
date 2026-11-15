@@ -132,6 +132,8 @@ import {
   buildBackgroundedToolResultText,
   runBackgroundableToolCall,
 } from '../../tasks/LocalToolTask/runBackgroundable.js'
+import { collectDeferredHooksSection } from '../../tasks/LocalToolTask/deferredHooks.js'
+import { createAbortController } from '../../utils/abortController.js'
 import {
   resolveHookPermissionDecision,
   runPostToolUseFailureHooks,
@@ -140,15 +142,17 @@ import {
 } from './toolHooks.js'
 
 /**
- * Generic background support applies to the main thread only: a subagent's
- * turn can end before a detached call finishes, and its notification would
- * have nowhere to go.
+ * Generic background support applies to the main thread and to subagents.
+ * A subagent's task and notification carry its agentId: its query loop
+ * drains them, waits for still-running ones before finishing
+ * (query/subagentBackgroundWait.ts) and runAgent kills leftovers on exit.
+ * Ctrl+B only targets main-thread calls (isCtrlBTargetLocalToolTask).
  */
 function shouldRunAsBackgroundableCall(
   tool: Tool,
-  toolUseContext: ToolUseContext,
+  _toolUseContext: ToolUseContext,
 ): boolean {
-  return toolUseContext.agentId === undefined && isToolBackgroundable(tool)
+  return isToolBackgroundable(tool)
 }
 
 /** Short label for the task list / notification: the tool name plus a hint of its input. */
@@ -1300,6 +1304,48 @@ async function checkPermissionsAndCallTool(
             },
           ),
         formatResult: r => toolResultDataToText(tool, r.data, toolUseID),
+        // Deferred PostToolUse / PostToolUseFailure hooks: the synchronous
+        // path below returns the synthetic tool_result WITHOUT running them,
+        // so they run exactly once, here, with the launch-time input and
+        // context and the real result. They cannot rewrite the result the
+        // model already got (updatedMCPToolOutput is ignored); their output
+        // only goes into the <task-notification>. A fresh AbortController
+        // keeps a later Esc on an unrelated turn from cancelling them.
+        afterBackgroundSettled: settled => {
+          const hookContext: ToolUseContext = {
+            ...toolUseContext,
+            abortController: createAbortController(),
+          }
+          if (settled.status === 'completed') {
+            return collectDeferredHooksSection('PostToolUse', () =>
+              runPostToolUseHooks(
+                hookContext,
+                tool,
+                toolUseID,
+                assistantMessage.message.id,
+                processedInput,
+                settled.result.data,
+                requestId,
+                mcpServerType,
+                mcpServerBaseUrl,
+              ),
+            )
+          }
+          return collectDeferredHooksSection('PostToolUseFailure', () =>
+            runPostToolUseFailureHooks(
+              hookContext,
+              tool,
+              toolUseID,
+              messageId,
+              processedInput,
+              formatError(settled.error),
+              false,
+              requestId,
+              mcpServerType,
+              mcpServerBaseUrl,
+            ),
+          )
+        },
       })
       if (outcome.kind === 'stopped') {
         throw new Error(
@@ -1315,7 +1361,9 @@ async function checkPermissionsAndCallTool(
         logForDebugging(
           `${tool.name} moved to background as ${outcome.taskId} (${outcome.reason}) after ${durationMs}ms`,
         )
-        // PostToolUse hooks are skipped: the real output does not exist yet.
+        // PostToolUse hooks are skipped here on purpose: the real output does
+        // not exist yet. They run once the call settles (afterBackgroundSettled
+        // above) and their output is appended to the task notification.
         resultingMessages.push({
           message: createUserMessage({
             content: [

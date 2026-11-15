@@ -16,7 +16,7 @@ import { registerTask, updateTaskState } from '../../utils/task/framework.js';
 import { escapeXml } from '../../utils/xml.js';
 import { backgroundAgentTask, isLocalAgentTask } from '../LocalAgentTask/LocalAgentTask.js';
 import { isMainSessionTask } from '../LocalMainSessionTask.js';
-import { backgroundAllLocalToolTasks, isLocalToolTask } from '../LocalToolTask/LocalToolTask.js';
+import { backgroundAllLocalToolTasks, isCtrlBTargetLocalToolTask } from '../LocalToolTask/LocalToolTask.js';
 import { type BashTaskKind, isLocalShellTask, type LocalShellTaskState } from './guards.js';
 import { killTask } from './killShellTasks.js';
 
@@ -385,8 +385,8 @@ export function hasForegroundTasks(state: AppState): boolean {
     if (isLocalAgentTask(task) && !task.isBackgrounded && !isMainSessionTask(task)) {
       return true;
     }
-    // Generic tool calls (MCP, WebFetch, ...) running in the foreground
-    if (isLocalToolTask(task) && !task.isBackgrounded && task.status === 'running') {
+    // Generic tool calls (MCP, WebFetch, ...) of the main thread running in the foreground
+    if (isCtrlBTargetLocalToolTask(task)) {
       return true;
     }
     return false;

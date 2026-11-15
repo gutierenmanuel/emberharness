@@ -66,6 +66,17 @@ export type RunBackgroundableOptions<R> = {
   call: (ctx: BackgroundableCallContext) => Promise<R>
   /** Text written to the output file (and notification) once a backgrounded call resolves. */
   formatResult: (result: R) => string
+  /**
+   * Runs once a backgrounded call settles and before its notification is
+   * sent (deferred PostToolUse hooks). The returned text is appended to the
+   * output file and the notification. Skipped when the task was stopped;
+   * errors are caught and reported in the notification instead.
+   */
+  afterBackgroundSettled?: (
+    settled:
+      | { status: 'completed'; result: R }
+      | { status: 'failed'; error: unknown },
+  ) => Promise<string | undefined>
   /** 0 disables auto-background. */
   autoBackgroundMs: number
   registerDelayMs?: number
@@ -192,28 +203,51 @@ export async function runBackgroundableToolCall<R>(
 
   backgrounded = true
   detachParent()
+  const runAfterSettled = async (
+    settled:
+      | { status: 'completed'; result: R }
+      | { status: 'failed'; error: unknown },
+  ): Promise<string | undefined> => {
+    if (!opts.afterBackgroundSettled) return undefined
+    const current = getAppState().tasks[taskId]
+    // Stopped (TaskStop, agent exit): no result to hand to the hooks.
+    if (!isLocalToolTask(current) || current.status !== 'running') {
+      return undefined
+    }
+    try {
+      return await opts.afterBackgroundSettled(settled)
+    } catch (e) {
+      logError(e)
+      return `PostToolUse hooks failed to run: ${errorMessage(e)}`
+    }
+  }
   void callPromise.then(
-    result => {
+    async result => {
       let resultText: string
       try {
         resultText = opts.formatResult(result)
       } catch (e) {
         resultText = `(could not format tool result: ${errorMessage(e)})`
       }
+      const extra = await runAfterSettled({ status: 'completed', result })
       return completeLocalToolTask(
         taskId,
         { status: 'completed', resultText },
         getAppState,
         setAppState,
+        extra,
       )
     },
-    error =>
-      completeLocalToolTask(
+    async error => {
+      const extra = await runAfterSettled({ status: 'failed', error })
+      return completeLocalToolTask(
         taskId,
         { status: 'failed', error: errorMessage(error) },
         getAppState,
         setAppState,
-      ),
+        extra,
+      )
+    },
   ).catch(logError)
 
   return {

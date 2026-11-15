@@ -24,7 +24,12 @@ import type { AppState } from '../../state/AppState.js'
 import type { SetAppState, Task, TaskStateBase } from '../../Task.js'
 import { createTaskStateBase } from '../../Task.js'
 import type { AgentId } from '../../types/ids.js'
-import { enqueuePendingNotification } from '../../utils/messageQueueManager.js'
+import type { QueuedCommand } from '../../types/textInputTypes.js'
+import { logForDebugging } from '../../utils/debug.js'
+import {
+  dequeueAllMatching,
+  enqueuePendingNotification,
+} from '../../utils/messageQueueManager.js'
 import {
   appendTaskOutput,
   evictTaskOutput,
@@ -135,22 +140,36 @@ export function backgroundLocalToolTask(
   return true
 }
 
-/** True if some local_tool task is running in the foreground. */
-export function hasForegroundLocalToolTasks(state: AppState): boolean {
-  return Object.values(state.tasks).some(
-    t => isLocalToolTask(t) && !t.isBackgrounded && t.status === 'running',
+/**
+ * True when Ctrl+B (backgroundAll) may target this task: a foreground call of
+ * the main thread. Subagent calls are left alone, like subagent shell
+ * commands (BashTool only registers a Ctrl+B target when it has setToolJSX,
+ * which subagents never get); they still auto-background on the timer.
+ */
+export function isCtrlBTargetLocalToolTask(
+  task: unknown,
+): task is LocalToolTaskState {
+  return (
+    isLocalToolTask(task) &&
+    !task.isBackgrounded &&
+    task.status === 'running' &&
+    task.agentId === undefined
   )
 }
 
-/** Background every foreground local_tool task (Ctrl+B). */
+/** True if some main-thread local_tool task is running in the foreground. */
+export function hasForegroundLocalToolTasks(state: AppState): boolean {
+  return Object.values(state.tasks).some(isCtrlBTargetLocalToolTask)
+}
+
+/** Background every main-thread foreground local_tool task (Ctrl+B). */
 export function backgroundAllLocalToolTasks(
   getAppState: () => AppState,
   setAppState: SetAppState,
 ): void {
-  const ids = Object.keys(getAppState().tasks).filter(id => {
-    const t = getAppState().tasks[id]
-    return isLocalToolTask(t) && !t.isBackgrounded && t.status === 'running'
-  })
+  const ids = Object.keys(getAppState().tasks).filter(id =>
+    isCtrlBTargetLocalToolTask(getAppState().tasks[id]),
+  )
   for (const id of ids) backgroundLocalToolTask(id, getAppState, setAppState)
 }
 
@@ -203,10 +222,23 @@ export function appendLocalToolOutput(taskId: string, text: string): void {
 
 const NOTIFICATION_PREVIEW_CHARS = 2_000
 
+/** Marker every local_tool notification carries; see isLocalToolTaskNotification. */
+const LOCAL_TOOL_TYPE_MARKER = `<${TASK_TYPE_TAG}>local_tool</${TASK_TYPE_TAG}>`
+
+/** True for a queued <task-notification> produced by a local_tool task. */
+export function isLocalToolTaskNotification(cmd: QueuedCommand): boolean {
+  return (
+    cmd.mode === 'task-notification' &&
+    typeof cmd.value === 'string' &&
+    cmd.value.includes(LOCAL_TOOL_TYPE_MARKER)
+  )
+}
+
 function enqueueLocalToolNotification(
   task: LocalToolTaskState,
   status: 'completed' | 'failed' | 'killed',
   preview: string | undefined,
+  extraSections?: string,
 ): void {
   const outputPath = getTaskOutputPath(task.id)
   const toolUseIdLine = task.toolUseId
@@ -221,7 +253,7 @@ function enqueueLocalToolNotification(
   const summary = `Background tool ${task.toolName} "${task.description}" ${verb}`
   let message = `<${TASK_NOTIFICATION_TAG}>
 <${TASK_ID_TAG}>${task.id}</${TASK_ID_TAG}>${toolUseIdLine}
-<${TASK_TYPE_TAG}>local_tool</${TASK_TYPE_TAG}>
+${LOCAL_TOOL_TYPE_MARKER}
 <${OUTPUT_FILE_TAG}>${outputPath}</${OUTPUT_FILE_TAG}>
 <${STATUS_TAG}>${status}</${STATUS_TAG}>
 <${SUMMARY_TAG}>${escapeXml(summary)}</${SUMMARY_TAG}>
@@ -229,6 +261,9 @@ function enqueueLocalToolNotification(
   if (preview) {
     const truncated = preview.length > NOTIFICATION_PREVIEW_CHARS
     message += `\nResult${truncated ? ' (truncated, full result in the output file)' : ''}:\n${truncated ? `${preview.slice(0, NOTIFICATION_PREVIEW_CHARS)}…` : preview}`
+  }
+  if (extraSections) {
+    message += `\n\n${extraSections}`
   }
   enqueuePendingNotification({
     value: message,
@@ -269,6 +304,8 @@ export async function completeLocalToolTask(
     | { status: 'failed'; error: string },
   getAppState: () => AppState,
   setAppState: SetAppState,
+  /** Extra text (e.g. deferred PostToolUse hook output) appended to the output file and the notification. */
+  extraSections?: string,
 ): Promise<void> {
   clearLocalToolBackgroundSignal(taskId)
   const current = getAppState().tasks[taskId]
@@ -280,6 +317,7 @@ export async function completeLocalToolTask(
       ? `--- result ---\n${outcome.resultText}`
       : `--- error ---\n${outcome.error}`
   appendLocalToolOutput(taskId, body)
+  if (extraSections) appendLocalToolOutput(taskId, extraSections)
   await flushTaskOutput(taskId)
   const task = claimNotification(taskId, setAppState, {
     status: outcome.status,
@@ -291,6 +329,7 @@ export async function completeLocalToolTask(
       task,
       outcome.status,
       outcome.status === 'completed' ? outcome.resultText : outcome.error,
+      extraSections,
     )
   }
   void evictTaskOutput(taskId)
@@ -332,6 +371,36 @@ export function killLocalToolTask(
     enqueueLocalToolNotification(killed, 'killed', undefined)
     void evictTaskOutput(taskId)
   }
+}
+
+/**
+ * Kill every running local_tool task started by a subagent. Called from the
+ * runAgent cleanup so a detached call cannot outlive the agent that launched
+ * it (same rationale as killShellTasksForAgent). Queued local_tool
+ * notifications addressed to the agent are purged too: its query loop has
+ * exited and nothing would drain them.
+ */
+export function killLocalToolTasksForAgent(
+  agentId: AgentId,
+  getAppState: () => AppState,
+  setAppState: SetAppState,
+): void {
+  const tasks = getAppState().tasks ?? {}
+  for (const [taskId, task] of Object.entries(tasks)) {
+    if (
+      isLocalToolTask(task) &&
+      task.agentId === agentId &&
+      task.status === 'running'
+    ) {
+      logForDebugging(
+        `killLocalToolTasksForAgent: killing tool task ${taskId} (agent ${agentId} exiting)`,
+      )
+      killLocalToolTask(taskId, setAppState)
+    }
+  }
+  dequeueAllMatching(
+    cmd => cmd.agentId === agentId && isLocalToolTaskNotification(cmd),
+  )
 }
 
 export const LocalToolTask: Task = {

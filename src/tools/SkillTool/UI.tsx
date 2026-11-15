@@ -20,6 +20,11 @@ const INITIALIZING_TEXT = 'Initializing…';
 export function renderToolResultMessage(output: Output): React.ReactNode {
   // Handle forked skill result
   if ('status' in output && output.status === 'forked') {
+    if (output.backgrounded) {
+      return <MessageResponse height={1}>
+          <Text dimColor>Running in background</Text>
+        </MessageResponse>;
+    }
     return <MessageResponse height={1}>
         <Text>
           <Byline>{['Done']}</Byline>
