@@ -4,6 +4,9 @@ import * as React from 'react';
 import type { Tools } from '../../../Tool.js';
 import type { NormalizedUserMessage, ProgressMessage } from '../../../types/message.js';
 import { type buildMessageLookups, CANCEL_MESSAGE, INTERRUPT_MESSAGE_FOR_TOOL_USE, REJECT_MESSAGE } from '../../../utils/messages.js';
+import { BACKGROUND_TOOL_RESULT_PREFIX } from '../../../tasks/LocalToolTask/LocalToolTask.js';
+import { MessageResponse } from '../../MessageResponse.js';
+import { Text } from '../../../ink.js';
 import { UserToolCanceledMessage } from './UserToolCanceledMessage.js';
 import { UserToolErrorMessage } from './UserToolErrorMessage.js';
 import { UserToolRejectMessage } from './UserToolRejectMessage.js';
@@ -67,6 +70,11 @@ export function UserToolResultMessage(t0) {
       t2 = $[9];
     }
     return t2;
+  }
+  if (typeof param.content === "string" && param.content.startsWith(BACKGROUND_TOOL_RESULT_PREFIX)) {
+    // Generic tool call moved to the background (local_tool task): the tool's
+    // own result renderer would get a plain string, so show a fixed line.
+    return <MessageResponse height={1}><Text dimColor={true}>Running in background</Text></MessageResponse>;
   }
   if (param.is_error) {
     let t1;

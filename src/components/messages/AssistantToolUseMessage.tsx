@@ -18,6 +18,7 @@ import { useSelectedMessageBg } from '../messageActions.js';
 import { SentryErrorBoundary } from '../SentryErrorBoundary.js';
 import { ToolUseLoader } from '../ToolUseLoader.js';
 import { HookProgressMessage } from './HookProgressMessage.js';
+import { LocalToolBackgroundHint } from '../LocalToolBackgroundHint.js';
 type Props = {
   param: ToolUseBlockParam;
   addMargin: boolean;
@@ -351,6 +352,7 @@ function renderToolUseProgressMessage(tool: Tool, tools: Tools, lookups: ReturnT
           <HookProgressMessage hookEvent="PreToolUse" lookups={lookups} toolUseID={toolUseID} verbose={verbose} isTranscriptMode={isTranscriptMode} />
         </SentryErrorBoundary>
         {toolMessages}
+        <LocalToolBackgroundHint toolUseID={toolUseID} />
       </>;
   } catch (error) {
     logError(new Error(`Error rendering tool use progress message for ${tool.name}: ${error}`));

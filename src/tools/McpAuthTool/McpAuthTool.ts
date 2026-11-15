@@ -62,6 +62,9 @@ export function createMcpAuthTool(
   return {
     name: buildMcpToolName(serverName, 'authenticate'),
     isMcp: true,
+    // Starts an interactive OAuth flow and swaps the server's tools in place;
+    // never run it as a detached local_tool task.
+    backgroundable: false,
     mcpInfo: { serverName, toolName: 'authenticate' },
     isEnabled: () => true,
     isConcurrencySafe: () => false,

@@ -293,6 +293,8 @@ export function BackgroundTask(t0) {
         }
         return t5;
       }
+    case "local_tool":
+      return <Text>{truncate(task.description, activityLimit, true)}{" "}<TaskStatusText status={task.status} label={task.status === "completed" ? "done" : undefined} suffix={task.status === "completed" && !task.notified ? ", unread" : undefined} /></Text>;
     case "dream":
       {
         const n = task.filesTouched.length;

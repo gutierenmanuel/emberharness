@@ -125,11 +125,69 @@ import {
   isMcpTool,
 } from '../mcp/utils.js'
 import {
+  getToolAutoBackgroundMs,
+  isToolBackgroundable,
+} from '../../tasks/LocalToolTask/backgroundable.js'
+import {
+  buildBackgroundedToolResultText,
+  runBackgroundableToolCall,
+} from '../../tasks/LocalToolTask/runBackgroundable.js'
+import {
   resolveHookPermissionDecision,
   runPostToolUseFailureHooks,
   runPostToolUseHooks,
   runPreToolUseHooks,
 } from './toolHooks.js'
+
+/**
+ * Generic background support applies to the main thread only: a subagent's
+ * turn can end before a detached call finishes, and its notification would
+ * have nowhere to go.
+ */
+function shouldRunAsBackgroundableCall(
+  tool: Tool,
+  toolUseContext: ToolUseContext,
+): boolean {
+  return toolUseContext.agentId === undefined && isToolBackgroundable(tool)
+}
+
+/** Short label for the task list / notification: the tool name plus a hint of its input. */
+function describeToolCallForTask(tool: Tool, input: unknown): string {
+  let hint = ''
+  if (input && typeof input === 'object') {
+    const obj = input as Record<string, unknown>
+    const first =
+      ['description', 'url', 'query', 'prompt', 'path', 'name']
+        .map(k => obj[k])
+        .find(v => typeof v === 'string' && v.length > 0) ??
+      Object.values(obj).find(v => typeof v === 'string' && v.length > 0)
+    if (typeof first === 'string') hint = first.replace(/\s+/g, ' ').trim()
+  }
+  let label = tool.name
+  try {
+    label = tool.userFacingName(undefined) || tool.name
+  } catch {
+    // userFacingName may require input; fall back to the raw name
+  }
+  const MAX = 80
+  if (hint.length > MAX) hint = `${hint.slice(0, MAX)}…`
+  return hint ? `${label}: ${hint}` : label
+}
+
+/** Plain-text rendering of a tool result for the background task output file. */
+function toolResultDataToText(
+  tool: Tool,
+  data: unknown,
+  toolUseID: string,
+): string {
+  const block = tool.mapToolResultToToolResultBlockParam(data, toolUseID)
+  const content = block.content
+  if (content === undefined) return ''
+  if (typeof content === 'string') return content
+  return content
+    .map(b => (b.type === 'text' ? b.text : `[${b.type} block omitted]`))
+    .join('\n')
+}
 
 /** Minimum total hook duration (ms) to show inline timing summary */
 export const HOOK_TIMING_DISPLAY_THRESHOLD_MS = 500
@@ -1205,22 +1263,80 @@ async function checkPermissionsAndCallTool(
     callInput = processedInput
   }
   try {
-    const result = await tool.call(
-      callInput,
-      {
-        ...toolUseContext,
+    const callContext: ToolUseContext = {
+      ...toolUseContext,
+      toolUseId: toolUseID,
+      userModified: permissionDecision.userModified ?? false,
+    }
+    const forwardProgress = (progress: ToolProgress<ToolProgressData>) => {
+      onToolProgress({
+        toolUseID: progress.toolUseID,
+        data: progress.data,
+      })
+    }
+    let result: Awaited<ReturnType<typeof tool.call>>
+    if (shouldRunAsBackgroundableCall(tool, toolUseContext)) {
+      // Generic Ctrl+B / auto-background for tools without their own
+      // background mechanism (MCP, WebFetch, ...). See tasks/LocalToolTask.
+      const autoBackgroundMs = getToolAutoBackgroundMs()
+      const outcome = await runBackgroundableToolCall({
+        toolName: tool.name,
+        description: describeToolCallForTask(tool, processedInput),
         toolUseId: toolUseID,
-        userModified: permissionDecision.userModified ?? false,
-      },
-      canUseTool,
-      assistantMessage,
-      progress => {
-        onToolProgress({
-          toolUseID: progress.toolUseID,
-          data: progress.data,
+        agentId: toolUseContext.agentId,
+        parentAbortController: toolUseContext.abortController,
+        getAppState: toolUseContext.getAppState,
+        setAppState:
+          toolUseContext.setAppStateForTasks ?? toolUseContext.setAppState,
+        autoBackgroundMs,
+        call: ({ abortController, recordProgress }) =>
+          tool.call(
+            callInput,
+            { ...callContext, abortController },
+            canUseTool,
+            assistantMessage,
+            progress => {
+              if (recordProgress(progress.data)) forwardProgress(progress)
+            },
+          ),
+        formatResult: r => toolResultDataToText(tool, r.data, toolUseID),
+      })
+      if (outcome.kind === 'stopped') {
+        throw new Error(
+          `Tool call was stopped (task ${outcome.taskId}) before it finished.`,
+        )
+      }
+      if (outcome.kind === 'backgrounded') {
+        const durationMs = Date.now() - startTime
+        addToToolDuration(durationMs)
+        endToolExecutionSpan({ success: true })
+        const text = buildBackgroundedToolResultText(outcome, autoBackgroundMs)
+        endToolSpan(text)
+        logForDebugging(
+          `${tool.name} moved to background as ${outcome.taskId} (${outcome.reason}) after ${durationMs}ms`,
+        )
+        // PostToolUse hooks are skipped: the real output does not exist yet.
+        resultingMessages.push({
+          message: createUserMessage({
+            content: [
+              { type: 'tool_result', content: text, tool_use_id: toolUseID },
+            ],
+            toolUseResult: text,
+            sourceToolAssistantUUID: assistantMessage.uuid,
+          }),
         })
-      },
-    )
+        return resultingMessages
+      }
+      result = outcome.result
+    } else {
+      result = await tool.call(
+        callInput,
+        callContext,
+        canUseTool,
+        assistantMessage,
+        forwardProgress,
+      )
+    }
     const durationMs = Date.now() - startTime
     addToToolDuration(durationMs)
 

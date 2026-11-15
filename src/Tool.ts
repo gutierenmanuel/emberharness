@@ -442,6 +442,15 @@ export type Tool<
   }
   isOpenWorld?(input: z.infer<Input>): boolean
   requiresUserInteraction?(): boolean
+  /**
+   * Whether a running call of this tool can be moved to the background
+   * (Ctrl+B or the auto-background timer) as a `local_tool` task. When
+   * undefined, the central policy in tasks/LocalToolTask/backgroundable.ts
+   * decides: MCP and most built-in tools are backgroundable, while the
+   * explicit exclusion list (instant tools, tools that mutate turn state or
+   * already have their own background mechanism) is not.
+   */
+  backgroundable?: boolean
   isMcp?: boolean
   isLsp?: boolean
   /**
