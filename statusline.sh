@@ -603,10 +603,13 @@ if [ -n "$SESSION_ID" ] && [ -f "$GOAL_FILE" ]; then
 fi
 
 # Comando para retomar esta sesion desde otra terminal, siempre visible si hay SESSION_ID.
-# Detras va el alias hablable de la sesion (animal + adjetivo, p. ej. "🐶 perro grande"): es el
-# nombre que Anna entiende por voz ("Anna, dile al Claude perro grande que ..."). Lo asigna y
+# Detras va el alias hablable de la sesion (animal + color, p. ej. "🐶 perro rojo"): es el
+# nombre que Anna entiende por voz ("Anna, dile al Claude perro rojo que ..."). Lo asigna y
 # mantiene get_session_alias del registry (registro pid -> alias en $XDG_RUNTIME_DIR); si no
-# esta disponible o falla, la linea queda exactamente como antes.
+# esta disponible o falla, la linea queda exactamente como antes. El alias se pinta en el
+# hex de su color (truecolor); sin color (alias antiguo o script viejo) sale en cian como antes.
+# Ademas, una sola vez por sesion y pestana, el mismo hex tinta el fondo de la pestana de Orca
+# (`orca-ide tab set-color`, en segundo plano y sin bloquear nunca la status line).
 # Si la sesion esta en modo cyber (marca de cyber_session_state o CLAUDE_CYBER=1), el
 # marcador [CYBER] rojo va a la derecha del alias: nombre intacto, modo visible.
 if [ -n "$SESSION_ID" ]; then
@@ -616,8 +619,38 @@ if [ -n "$SESSION_ID" ]; then
     [ -x "$ALIAS_PY" ] || ALIAS_PY=python3
     ALIAS_SCRIPT="$FN_ROOT/python/functions/infra/get_session_alias.py"
     SESSION_ALIAS=""
-    [ -f "$ALIAS_SCRIPT" ] && SESSION_ALIAS=$(timeout 2 "$ALIAS_PY" "$ALIAS_SCRIPT" --from-pid $$ 2>/dev/null)
-    [ -n "$SESSION_ALIAS" ] && RESUME_LINE="${RESUME_LINE} ${GRAY}│${RESET} ${BOLD}${CYAN}${SESSION_ALIAS}${RESET}"
+    SESSION_COLOR=""
+    if [ -f "$ALIAS_SCRIPT" ]; then
+        # --color anade "\t#RRGGBB"; si el script es anterior y no lo conoce, se reintenta sin el.
+        SESSION_ALIAS=$(timeout 2 "$ALIAS_PY" "$ALIAS_SCRIPT" --color --from-pid $$ 2>/dev/null)
+        [ -z "$SESSION_ALIAS" ] && SESSION_ALIAS=$(timeout 2 "$ALIAS_PY" "$ALIAS_SCRIPT" --from-pid $$ 2>/dev/null)
+        case "$SESSION_ALIAS" in
+            *$'\t'*) SESSION_COLOR="${SESSION_ALIAS#*$'\t'}"; SESSION_ALIAS="${SESSION_ALIAS%%$'\t'*}" ;;
+        esac
+        printf '%s' "$SESSION_COLOR" | grep -Eq '^#[0-9A-Fa-f]{6}$' || SESSION_COLOR=""
+    fi
+    if [ -n "$SESSION_ALIAS" ]; then
+        ALIAS_PAINT="${CYAN}"
+        if [ -n "$SESSION_COLOR" ]; then
+            ALIAS_PAINT="\033[38;2;$((16#${SESSION_COLOR:1:2}));$((16#${SESSION_COLOR:3:2}));$((16#${SESSION_COLOR:5:2}))m"
+        fi
+        RESUME_LINE="${RESUME_LINE} ${GRAY}│${RESET} ${BOLD}${ALIAS_PAINT}${SESSION_ALIAS}${RESET}"
+    fi
+    # Fondo de la pestana de Orca: una vez por sesion y pestana (marca en $XDG_RUNTIME_DIR, que se
+    # crea solo si orca-ide acepta el comando); un intento reciente (<30 s) no se repite.
+    if [ -n "$SESSION_COLOR" ] && [ -n "${ORCA_TAB_ID:-}" ] && command -v orca-ide >/dev/null 2>&1; then
+        TAB_RT="${XDG_RUNTIME_DIR:-/tmp}"
+        TAB_MARK="${TAB_RT}/fnharness-orca-tabcolor-${SESSION_ID}-${ORCA_TAB_ID}"
+        if [ ! -e "$TAB_MARK" ]; then
+            TAB_NOW=$(date +%s)
+            TAB_TRY=$(stat -c %Y "${TAB_MARK}.try" 2>/dev/null || echo 0)
+            if [ $((TAB_NOW - TAB_TRY)) -ge 30 ]; then
+                : > "${TAB_MARK}.try" 2>/dev/null
+                ( timeout 2 orca-ide tab set-color --tab-id "$ORCA_TAB_ID" --color "$SESSION_COLOR" >/dev/null 2>&1 \
+                    && : > "$TAB_MARK" ) >/dev/null 2>&1 &
+            fi
+        fi
+    fi
     CYBER_SCRIPT="$FN_ROOT/python/functions/infra/cyber_session_state.py"
     IS_CYBER=0
     if [ "${CLAUDE_CYBER:-0}" = "1" ]; then
