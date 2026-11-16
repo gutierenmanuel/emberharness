@@ -1,5 +1,5 @@
 /**
- * Spoken session aliases ("🦊 zorro rojo"): reading the registry written by
+ * Spoken session aliases (animal + color, "🦊 zorro rojo"): reading the registry written by
  * `python/functions/infra/get_session_alias.py` and matching what a person
  * says ("zorro", "zorrito", "gatita", "zorrito rojo") against it.
  *
@@ -16,6 +16,8 @@ export type SessionAlias = {
   adjective: string
   emoji: string
   alias: string
+  /** "#RRGGBB" of the alias color; absent in registry entries written before colors existed. */
+  color?: string
 }
 
 const REGISTRY_FILE = 'fnharness-session-names.json'
@@ -65,6 +67,7 @@ export function readSessionAliases(
       adjective: typeof e.adjective === 'string' ? e.adjective : '',
       emoji: typeof e.emoji === 'string' ? e.emoji : '',
       alias: e.alias,
+      ...(typeof e.color === 'string' && /^#[0-9a-fA-F]{6}$/.test(e.color) ? { color: e.color } : {}),
     })
   }
   return out

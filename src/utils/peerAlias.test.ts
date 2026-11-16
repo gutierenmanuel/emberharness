@@ -121,4 +121,18 @@ describe('readSessionAliases', () => {
     expect([...m.keys()]).toEqual([10])
     expect(m.get(10)).toEqual({ animal: 'zorro', adjective: 'rojo', emoji: '🦊', alias: 'zorro rojo' })
   })
+  test('reads the optional color and ignores malformed ones', () => {
+    const d = mkdtempSync(join(tmpdir(), 'fnh-alias-'))
+    const e = (color: unknown) => ({
+      animal: 'zorro', adjective: 'rojo', emoji: '🦊', alias: 'zorro rojo', start: '555', color,
+    })
+    writeFileSync(
+      join(d, 'fnharness-session-names.json'),
+      JSON.stringify({ '10': e('#E53935'), '11': e('rojo') }),
+    )
+    const m = readSessionAliases({ runtimeDir: d, startTicks: ticks })
+    expect(m.get(10)?.color).toBe('#E53935')
+    expect(m.get(11)).toBeDefined()
+    expect(m.get(11)?.color).toBeUndefined()
+  })
 })
