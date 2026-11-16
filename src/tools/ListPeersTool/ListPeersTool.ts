@@ -11,9 +11,9 @@ const DESCRIPTION =
 
 const PROMPT = `List the other fnharness CLI sessions alive on this machine that can receive messages.
 
-Each entry shows the pid, session id, optional name, status (busy, idle, waiting), working directory, and the \`to\` address. Entries marked [parent] launched this session; entries marked [child] were launched by it.
+Each entry shows the pid, session id, the spoken alias (animal and adjective, e.g. "🦊 zorro rojo"), optional name, status (busy, idle, waiting), working directory, and the \`to\` address. Entries marked [parent] launched this session; entries marked [child] were launched by it.
 
-To talk to a peer, call SendMessage with \`to\` set to its address (\`uds:/...\`), or to its pid, its session id (or a prefix of at least 4 characters), its name, or \`parent\`. The message lands in that session's prompt queue and it handles it at its next tool round, or right away if idle. Replies arrive here as \`<cross-session-message from="...">\`; answer by sending to that \`from\` value. To read what sessions have said to each other recently, use PeerHistory.`
+To talk to a peer, call SendMessage with \`to\` set to its address (\`uds:/...\`), or to its alias (\`to: "zorro rojo"\`), just its animal (\`to: "zorro"\`; diminutives like "zorrito" work too), its pid, its session id (or a prefix of at least 4 characters), its name, or \`parent\`. When the person says "talk to zorrito" or "ask the cat", send to that animal; if several sessions share it you get an error listing them, so then use the full alias. The message lands in that session's prompt queue and it handles it at its next tool round, or right away if idle. Replies arrive here as \`<cross-session-message from="...">\`; answer by sending to that \`from\` value. To read what sessions have said to each other recently, use PeerHistory.`
 
 const inputSchema = lazySchema(() =>
   z.strictObject({
