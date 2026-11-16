@@ -68,7 +68,7 @@ const inputSchema = lazySchema(() =>
       .string()
       .describe(
         feature('UDS_INBOX')
-          ? 'Recipient: a subagent id (from the Agent result) or name, a teammate name, "*" for broadcast, another session on this machine as "uds:<socket-path>", "peer:<pid|session-id|name>" or "parent" (use ListPeers to discover)'
+          ? 'Recipient: a subagent id (from the Agent result) or name, a teammate name, "*" for broadcast, another session on this machine as "uds:<socket-path>", "peer:<pid|session-id|name>", "parent", or a session\'s spoken alias or animal such as "zorro rojo" / "zorro" / "zorrito" (use ListPeers to discover)'
           : 'Recipient: teammate name, or "*" for broadcast to all teammates',
       ),
     summary: z
@@ -835,13 +835,46 @@ export const SendMessageTool: Tool<InputSchema, SendMessageToolOutput> =
         }
       }
 
+      // A bare spoken alias ("zorro", "zorrito", "zorro rojo") designates another
+      // session on this machine. Only reached when no subagent has that name.
+      if (
+        feature('UDS_INBOX') &&
+        typeof input.message === 'string' &&
+        input.to !== '*'
+      ) {
+        /* eslint-disable @typescript-eslint/no-require-imports */
+        const { resolvePeerAliasSocket, sendToUdsSocket } =
+          require('../../utils/udsClient.js') as typeof import('../../utils/udsClient.js')
+        /* eslint-enable @typescript-eslint/no-require-imports */
+        try {
+          const socket = await resolvePeerAliasSocket(input.to)
+          if (socket) {
+            await sendToUdsSocket(socket, input.message)
+            const preview = input.summary || truncate(input.message, 50)
+            return {
+              data: {
+                success: true,
+                message: `“${preview}” → ${input.to}`,
+              },
+            }
+          }
+        } catch (e) {
+          return {
+            data: {
+              success: false,
+              message: `Failed to send to ${input.to}: ${errorMessage(e)}`,
+            },
+          }
+        }
+      }
+
       // Without agent teams there is no mailbox: an unknown name would be
       // written to a team inbox nobody reads, so say so instead.
       if (!isAgentSwarmsEnabled()) {
         return {
           data: {
             success: false,
-            message: `No subagent or session called "${input.to}". Use the agentId returned by Agent to continue a subagent, or ListPeers for other sessions (to: "uds:...", "peer:<pid>" or "parent").`,
+            message: `No subagent or session called "${input.to}". Use the agentId returned by Agent to continue a subagent, or ListPeers for other sessions (to: "uds:...", "peer:<pid>", "parent" or a spoken alias such as "zorro").`,
           },
         }
       }

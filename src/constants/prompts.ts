@@ -3,6 +3,7 @@ import { existsSync } from 'fs'
 import { type as osType, version as osVersion, release as osRelease } from 'os'
 import { env } from '../utils/env.js'
 import { getIsGit } from '../utils/git.js'
+import { getOwnSessionAlias } from '../utils/peerAlias.js'
 import { buildCompactSystemPrompt, isCompactToolSet } from './compactPrompts.js'
 import { getCwd } from '../utils/cwd.js'
 import { getIsNonInteractiveSession } from '../bootstrap/state.js'
@@ -445,9 +446,13 @@ function getPeerMessagingSection(): string | null {
   /* eslint-enable @typescript-eslint/no-require-imports */
   const mine = uds.getUdsMessagingSocketPath()
   if (!mine) return null
+  const own = getOwnSessionAlias()
+  const aliasPart = own
+    ? `, alias "${own.emoji ? `${own.emoji} ` : ''}${own.alias}"`
+    : ''
   const lines = [
     '# Other sessions',
-    `Other fnharness sessions on this machine can message this one (pid ${process.pid}, address "uds:${mine}"). Their messages arrive as <cross-session-message from="..."> blocks; answer with SendMessage using that from value as \`to\`, because your plain text is not visible to them. ListPeers lists the live sessions with their ids.`,
+    `Other fnharness sessions on this machine can message this one (pid ${process.pid}${aliasPart}, address "uds:${mine}"). ${own ? `Your spoken name is "${own.alias}": introduce yourself that way and answer to it. ` : ''}Their messages arrive as <cross-session-message from="..."> blocks; answer with SendMessage using that from value as \`to\`, because your plain text is not visible to them. ListPeers lists the live sessions with their ids and aliases; \`to\` also accepts a session's alias or animal ("zorro rojo", "zorro", "zorrito").`,
   ]
   const parent = uds.getParentUdsSocketPath()
   if (parent && existsSync(parent)) {

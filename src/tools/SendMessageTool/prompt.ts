@@ -15,6 +15,7 @@ export function getPrompt(): string {
     ? `
 | \`"uds:/path/to.sock"\` | Another fnharness session on this machine (address from \`ListPeers\`) |
 | \`"peer:<pid>"\`, \`"peer:<session-id or prefix>"\`, \`"peer:<name>"\` | The same, resolved from the live session list |
+| \`"zorro"\`, \`"zorro rojo"\`, \`"zorrito"\` | A session by its spoken alias (animal + adjective, shown by \`ListPeers\`) or just its animal, diminutives included; ambiguous animals return an error listing the candidates |
 | \`"parent"\` | The session that launched this one, if any |`
     : ''
   const udsSection = feature('UDS_INBOX')
@@ -22,10 +23,11 @@ export function getPrompt(): string {
 
 ## Other sessions (CLIs) on this machine
 
-Use \`ListPeers\` to see the other live sessions with their pid, session id, name, status, cwd and address, then:
+Use \`ListPeers\` to see the other live sessions with their pid, session id, alias, name, status, cwd and address. When the person says "talk to zorrito" or "ask the cat", send to that animal: \`to\` accepts the alias ("zorro rojo") or just the animal name, diminutives included. Examples:
 
 \`\`\`json
 {"to": "peer:48213", "message": "do the tests pass on your branch?"}
+{"to": "zorro", "summary": "ask about tests", "message": "do the tests pass on your branch?"}
 {"to": "uds:/tmp/fnharness-socks/48213.sock", "message": "done, see reports/x.md"}
 \`\`\`
 

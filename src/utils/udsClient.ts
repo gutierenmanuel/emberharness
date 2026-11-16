@@ -6,6 +6,7 @@ import { getOriginalCwd, getSessionId } from '../bootstrap/state.js'
 import type { SessionKind, SessionStatus } from './concurrentSessions.js'
 import { getClaudeConfigHomeDir } from './envUtils.js'
 import { isProcessRunning } from './genericProcessUtils.js'
+import { matchAliasRef, readSessionAliases } from './peerAlias.js'
 import { isCyberSession } from './peerLog.js'
 
 export type LiveSession = {
@@ -58,6 +59,11 @@ export type Peer = LiveSession & {
   isParent: boolean
   /** The current session launched this peer. */
   isChild: boolean
+  /** Spoken alias ("zorro rojo"), from the session alias registry. */
+  alias?: string
+  /** Animal of the alias ("zorro"). */
+  animal?: string
+  emoji?: string
 }
 
 /** Live sessions with a reachable inbox socket, oldest first. */
@@ -69,10 +75,14 @@ export async function listPeers(): Promise<Peer[]> {
   const mine = uds.getUdsMessagingSocketPath()
   const parent = uds.getParentUdsSocketPath()
   const sessions = await listAllLiveSessions()
+  const aliases = readSessionAliases()
   return sessions
     .filter(s => s.messagingSocketPath && existsSync(s.messagingSocketPath))
     .map(s => ({
       ...s,
+      alias: aliases.get(s.pid)?.alias,
+      animal: aliases.get(s.pid)?.animal,
+      emoji: aliases.get(s.pid)?.emoji,
       address: `uds:${s.messagingSocketPath}`,
       isSelf: s.pid === process.pid,
       isParent: parent !== undefined && s.messagingSocketPath === parent,
@@ -82,9 +92,35 @@ export async function listPeers(): Promise<Peer[]> {
 }
 
 /**
+ * Peer a spoken alias designates ("zorro", "zorrito", "zorro rojo"), or
+ * undefined when none matches. Throws when several do, listing them.
+ */
+function pickPeerByAlias(peers: Peer[], ref: string): Peer | undefined {
+  const matches = matchAliasRef(ref, peers)
+  if (matches.length === 0) return undefined
+  if (matches.length === 1) return matches[0]
+  const list = matches.map(p => `"${p.alias}" (pid ${p.pid})`).join(', ')
+  throw new Error(
+    `"${ref}" matches several sessions: ${list} — use the full alias or the pid`,
+  )
+}
+
+/**
+ * Socket of the other live session that a bare spoken alias designates, or
+ * undefined when none does (the caller may then treat `ref` as something else).
+ */
+export async function resolvePeerAliasSocket(
+  ref: string,
+): Promise<string | undefined> {
+  const peers = (await listPeers()).filter(p => !p.isSelf)
+  return pickPeerByAlias(peers, ref)?.messagingSocketPath
+}
+
+/**
  * Resolve a peer reference to its socket path. Accepts `uds:<path>`, a bare
  * socket path, `parent`, a pid, a session id (or a prefix of at least 4
- * characters) or a session name.
+ * characters), a session name or a spoken alias (full "zorro rojo", animal
+ * "zorro" or a diminutive "zorrito").
  */
 export async function resolvePeerSocket(ref: string): Promise<string> {
   const r = ref.trim().replace(/^peer:/, '')
@@ -105,6 +141,8 @@ export async function resolvePeerSocket(ref: string): Promise<string> {
   )
   if (matches.length === 1) return matches[0]!.messagingSocketPath!
   if (matches.length === 0) {
+    const byAlias = pickPeerByAlias(peers, r)
+    if (byAlias) return byAlias.messagingSocketPath!
     throw new Error(`no live session matches "${ref}" (use ListPeers)`)
   }
   throw new Error(
@@ -180,7 +218,7 @@ function formatAge(ms: number): string {
   return `${Math.round(s / 3600)}h`
 }
 
-/** One line per peer: pid, session id, name, status, cwd and address. */
+/** One line per peer: pid, session id, alias, name, status, cwd and address. */
 export function formatPeers(peers: Peer[], now = Date.now()): string {
   return peers
     .map(p => {
@@ -192,6 +230,7 @@ export function formatPeers(peers: Peer[], now = Date.now()): string {
       const parts = [
         `pid ${p.pid}`,
         p.sessionId ? `session ${p.sessionId}` : undefined,
+        p.alias ? `alias "${p.emoji ? `${p.emoji} ` : ''}${p.alias}"` : undefined,
         p.name ? `name "${p.name}"` : undefined,
         p.kind && p.kind !== 'interactive' ? p.kind : undefined,
         p.status
