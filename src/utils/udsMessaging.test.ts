@@ -5,7 +5,7 @@ import { join } from 'path'
 import { clearCommandQueue, getCommandQueueSnapshot } from './messageQueueManager.js'
 import { parseAddress } from './peerAddress.js'
 import { readPeerLog } from './peerLog.js'
-import { sendToUdsSocket } from './udsClient.js'
+import { formatPeers, sendToUdsSocket } from './udsClient.js'
 import {
   getUdsMessagingSocketPath,
   parseInboundRequest,
@@ -115,5 +115,23 @@ describe('UDS inbox round trip', () => {
       else process.env.CLAUDE_CONFIG_DIR = prevCfg
       if (prevCyber !== undefined) process.env.CLAUDE_CYBER = prevCyber
     }
+  })
+})
+
+describe('formatPeers', () => {
+  test('shows the spoken alias with its emoji', () => {
+    const out = formatPeers([
+      {
+        pid: 7, address: 'uds:/tmp/7.sock', isSelf: false, isParent: false, isChild: false,
+        alias: 'zorro rojo', animal: 'zorro', emoji: '🦊',
+      },
+    ])
+    expect(out).toContain('alias "🦊 zorro rojo"')
+  })
+  test('omits it when the session has none', () => {
+    const out = formatPeers([
+      { pid: 7, address: 'uds:/tmp/7.sock', isSelf: false, isParent: false, isChild: false },
+    ])
+    expect(out).not.toContain('alias')
   })
 })
