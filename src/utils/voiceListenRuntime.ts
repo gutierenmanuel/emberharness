@@ -488,9 +488,26 @@ export function createVoiceListener(opts: VoiceListenOptions = {}): VoiceListene
 
 let active: VoiceListener | null = null
 let speechStartHandler: ((e: { mic: string; t0?: number }) => void) | undefined
+let stopHandler: (() => void) | undefined
 
+/** Registers a hook run when listening stops (the spoken output cancels what is queued). */
+export function setStopHandler(fn: (() => void) | undefined): void {
+  stopHandler = fn
+}
+
+/** True when the environment asks this process to start listening (boot request only). */
 export function voiceListenEnabled(): boolean {
   return process.env.FNHARNESS_VOICE_LISTEN === '1'
+}
+
+/**
+ * True only while THIS process has a listener running (the REPL started it and it
+ * holds the voice lock). Spoken output is gated on this, never on the inherited
+ * environment variable: a child that merely inherits FNHARNESS_VOICE_LISTEN=1, a
+ * `-p` run, or a session after `/escucha off` must stay silent.
+ */
+export function voiceListenActive(): boolean {
+  return active?.status().running === true
 }
 
 /** Registers the (future) barge-in hook; called on every `speech_start`. */
@@ -507,8 +524,10 @@ export function startVoiceListen(opts: VoiceListenOptions = {}): VoiceStartResul
 }
 
 export function stopVoiceListen(): void {
+  const wasActive = active !== null
   active?.stop()
   active = null
+  if (wasActive) stopHandler?.()
 }
 
 export function voiceListenStatus(): VoiceStatus {
