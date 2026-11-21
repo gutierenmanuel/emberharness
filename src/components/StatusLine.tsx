@@ -36,6 +36,7 @@ import { getLastSpeedSummary } from '../services/api/openai-compat/speedStats.js
 import { buildAccountStatus, contextSource, getServerInfo, refreshServerInfo } from '../services/api/openai-compat/statusInfo.js';
 import { getModelMaxOutputTokens } from '../utils/context.js';
 import { getOauthAccountInfo } from '../utils/auth.js';
+import { voiceListenStatus, voiceStatusJson } from '../utils/voiceListenRuntime.js';
 
 /** The `fnharness` block of the status bar input: account, real window, server and speed. */
 function buildFnharnessStatus(runtimeModel: string, contextWindowSize: number, perfil?: {
@@ -57,7 +58,7 @@ function buildFnharnessStatus(runtimeModel: string, contextWindowSize: number, p
   } catch {}
   // Titular de la cuenta: solo la cuenta Anthropic nativa (OAuth) lo expone; las OpenAI-compatibles no.
   const holder = profile ? undefined : getOauthAccountInfo();
-  return buildAccountStatus({
+  const account = buildAccountStatus({
     email: holder?.emailAddress ?? null,
     org: holder?.organizationName ?? null,
     accountId: process.env.FNHARNESS_ACCOUNT ?? 'claude',
@@ -80,6 +81,11 @@ function buildFnharnessStatus(runtimeModel: string, contextWindowSize: number, p
     pricePerMtok: priced?.costInput !== undefined && priced.costOutput !== undefined ? { input: priced.costInput, output: priced.costOutput } : null,
     now: Date.now()
   });
+  // Estado del micrófono (/escucha): listening, speaking y last (mic + hora); nunca el texto oído.
+  return {
+    ...account,
+    voice: voiceStatusJson(voiceListenStatus())
+  };
 }
 export function statusLineShouldDisplay(settings: ReadonlySettings): boolean {
   // Assistant mode: statusline fields (model, permission mode, cwd) reflect the

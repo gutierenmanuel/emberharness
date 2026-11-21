@@ -197,6 +197,38 @@ export type VoiceStatus = {
   restarts: number
   utterances: number
   lockHeld: boolean
+  /** Between `speech_start` and the next `utterance`: the person is talking. */
+  speaking: boolean
+  /** Mic and time (epoch ms) of the last utterance. Never what was said. */
+  lastMic: string | null
+  lastAt: number | null
+}
+
+/** The `voice` block of the status bar: microphone state, never text. */
+export type VoiceStatusJson = {
+  listening: boolean
+  speaking: boolean
+  last: { mic: string; at: number } | null
+}
+
+export function voiceStatusJson(s: VoiceStatus): VoiceStatusJson {
+  return {
+    listening: s.running && s.ready,
+    speaking: s.speaking,
+    last: s.lastMic !== null && s.lastAt !== null ? { mic: s.lastMic, at: s.lastAt } : null,
+  }
+}
+
+const IDLE_STATUS: VoiceStatus = {
+  running: false,
+  ready: false,
+  pid: null,
+  restarts: 0,
+  utterances: 0,
+  lockHeld: false,
+  speaking: false,
+  lastMic: null,
+  lastAt: null,
 }
 
 export type VoiceStartResult = { started: true } | { started: false; reason: 'locked' | 'already_running' | 'empty_cmd' }
@@ -222,6 +254,9 @@ export function createVoiceListener(opts: VoiceListenOptions = {}): VoiceListene
   let ready = false
   let restarts = 0
   let utterances = 0
+  let speaking = false
+  let lastMic: string | null = null
+  let lastAt: number | null = null
   let attempt = 0
   let timer: ReturnType<typeof setTimeout> | null = null
   let startedAt = 0
@@ -234,9 +269,13 @@ export function createVoiceListener(opts: VoiceListenOptions = {}): VoiceListene
         ready = true
         log('[voice] hijo listo')
       } else if (ev.type === 'speech_start') {
+        speaking = true
         opts.onSpeechStart?.({ mic: ev.mic, t0: ev.t0 })
       } else {
         utterances += 1
+        speaking = false
+        lastMic = ev.mic
+        lastAt = Date.now()
         enqueueFn(buildVoiceCommand(ev.text, ev.mic))
         log(`[voice] frase #${utterances} (${ev.text.length} car.)`)
         opts.onUtterance?.({ mic: ev.mic, chars: ev.text.length })
@@ -260,6 +299,7 @@ export function createVoiceListener(opts: VoiceListenOptions = {}): VoiceListene
     }
     child = c
     ready = false
+    speaking = false
     startedAt = Date.now()
     let dead = false
     const onDeath = (why: string) => {
@@ -267,6 +307,7 @@ export function createVoiceListener(opts: VoiceListenOptions = {}): VoiceListene
       dead = true
       if (child === c) child = null
       ready = false
+      speaking = false
       log(`[voice] hijo terminado (${why})`)
       if (running) scheduleRestart()
     }
@@ -313,6 +354,7 @@ export function createVoiceListener(opts: VoiceListenOptions = {}): VoiceListene
       const c = child
       child = null
       ready = false
+      speaking = false
       try {
         c?.kill('SIGTERM')
       } catch {}
@@ -327,6 +369,9 @@ export function createVoiceListener(opts: VoiceListenOptions = {}): VoiceListene
         restarts,
         utterances,
         lockHeld: lock !== null,
+        speaking,
+        lastMic,
+        lastAt,
       }
     },
     noteSpoken(text) {
@@ -370,9 +415,7 @@ export function stopVoiceListen(): void {
 }
 
 export function voiceListenStatus(): VoiceStatus {
-  return (
-    active?.status() ?? { running: false, ready: false, pid: null, restarts: 0, utterances: 0, lockHeld: false }
-  )
+  return active?.status() ?? IDLE_STATUS
 }
 
 /** Tells the child what the assistant said aloud (anti-echo). False when nothing is listening. */
