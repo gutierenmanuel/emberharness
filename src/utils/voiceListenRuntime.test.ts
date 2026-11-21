@@ -8,6 +8,7 @@ import {
   buildVoiceCommand,
   createVoiceListener,
   defaultBackoff,
+  glueVoiceContinuation,
   parseVoiceLine,
   splitCommand,
   voiceStatusJson,
@@ -102,6 +103,42 @@ describe('lock', () => {
     expect(b).not.toBeNull()
     expect(readFileSync(p, 'utf8')).toBe(String(process.pid))
     b!.release()
+  })
+})
+
+describe('continuation', () => {
+  test('glueVoiceContinuation pega a la anterior de la misma mic que sigue en cola', () => {
+    const a = buildVoiceCommand('quiero que mires', 'omi')
+    const other = buildVoiceCommand('quiero que mires', 'pc')
+    let queue = [other, a]
+    const q = { getAll: () => [...queue], remove: (cs: QueuedCommand[]) => (queue = queue.filter(c => !cs.includes(c))) }
+    const g = glueVoiceContinuation(q, 'quiero que mires', 'el panel', 'omi')
+    expect(g?.value).toBe('quiero que mires el panel')
+    expect(queue).toEqual([other])
+    expect(glueVoiceContinuation(q, 'quiero que mires', 'otra', 'omi')).toBeNull()
+    expect(glueVoiceContinuation(q, null, 'x', 'omi')).toBeNull()
+  })
+
+  test('listener: la cola queda con un solo mensaje y si ya se consumio va aparte', async () => {
+    clearCommandQueue()
+    const cmd = script(`
+import json, time
+print(json.dumps({"type":"ready"}), flush=True)
+print(json.dumps({"type":"utterance","text":"quiero que mires","mic":"omi"}), flush=True)
+print(json.dumps({"type":"utterance","text":"el panel","mic":"omi","continuation":True}), flush=True)
+time.sleep(0.6)
+print(json.dumps({"type":"utterance","text":"y otra","mic":"omi","continuation":True}), flush=True)
+time.sleep(5)
+`)
+    const l = createVoiceListener({ cmd, lockPath: join(dir, 'c.lock'), log: () => {} })
+    expect(l.start()).toEqual({ started: true })
+    await until(() => l.status().glued === 1)
+    expect(getCommandQueue().map(c => c.value)).toEqual(['quiero que mires el panel'])
+    clearCommandQueue() // el modelo ya la tomo
+    await until(() => getCommandQueue().length === 1)
+    expect(getCommandQueue().map(c => c.value)).toEqual(['y otra'])
+    expect(l.status().glued).toBe(1)
+    l.stop()
   })
 })
 

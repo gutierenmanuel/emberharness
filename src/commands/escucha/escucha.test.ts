@@ -9,7 +9,7 @@ import { clearCommandQueue, getCommandQueue } from '../../utils/messageQueueMana
 import { stopVoiceListen, voiceListenStatus, voiceStatusJson, type VoiceStatus } from '../../utils/voiceListenRuntime.js'
 
 const SECRET = 'texto secreto que no debe salir'
-const base: VoiceStatus = { running: true, ready: true, pid: 1, restarts: 0, utterances: 0, lockHeld: true, speaking: false, lastMic: null, lastAt: null, focus: null, routed: 0 }
+const base: VoiceStatus = { running: true, ready: true, pid: 1, restarts: 0, utterances: 0, lockHeld: true, speaking: false, lastMic: null, lastAt: null, focus: null, routed: 0, glued: 0 }
 
 const saved = { cmd: process.env.FNHARNESS_VOICE_CMD, xdg: process.env.XDG_RUNTIME_DIR }
 let dir: string | null = null
