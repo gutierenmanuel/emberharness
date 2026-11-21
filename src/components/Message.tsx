@@ -538,7 +538,10 @@ function AssistantMessageBlock(t0) {
       }
     case "thinking":
       {
-        if (!isTranscriptMode && !verbose) {
+        // En fullscreen el thinking se pinta colapsado ("∴ Thinking") y se
+        // expande con clic (Messages.isItemClickable); fuera de fullscreen
+        // sigue oculto salvo transcript/verbose.
+        if (!isTranscriptMode && !verbose && !isFullscreenEnvEnabled()) {
           return null;
         }
         const isLastThinking = !lastThinkingBlockId || thinkingBlockId === lastThinkingBlockId;

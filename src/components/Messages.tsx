@@ -582,6 +582,7 @@ const MessagesImpl = ({
   const isItemClickable = useCallback((msg_6: RenderableMessage): boolean => {
     if (msg_6.type === 'collapsed_read_search') return true;
     if (msg_6.type === 'assistant') {
+      if (msg_6.message.content[0]?.type === 'thinking') return true;
       const b = msg_6.message.content[0] as unknown as AdvisorBlock | undefined;
       return b != null && isAdvisorBlock(b) && b.type === 'advisor_tool_result' && b.content.type === 'advisor_result';
     }
