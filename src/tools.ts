@@ -127,6 +127,12 @@ const SnipTool = feature('HISTORY_SNIP')
 const ListPeersTool = feature('UDS_INBOX')
   ? require('./tools/ListPeersTool/ListPeersTool.js').ListPeersTool
   : null
+// FnHarness: la tool SessionConfig solo existe con FNHARNESS_SESSION_CONFIG=1 (utils/sessionConfig.ts).
+// Se evalúa al listar las tools, no al importar: el env de settings.json se aplica después.
+const getSessionConfigTool = () =>
+  process.env.FNHARNESS_SESSION_CONFIG === '1'
+    ? (require('./tools/SessionConfigTool/SessionConfigTool.js').SessionConfigTool as Tool)
+    : null
 const PeerHistoryTool = feature('UDS_INBOX')
   ? require('./tools/PeerHistoryTool/PeerHistoryTool.js').PeerHistoryTool
   : null
@@ -233,6 +239,7 @@ export function getAllBaseTools(): Tools {
     getSendMessageTool(),
     ...(ListPeersTool ? [ListPeersTool] : []),
     ...(PeerHistoryTool ? [PeerHistoryTool] : []),
+    ...(getSessionConfigTool() ? [getSessionConfigTool()!] : []),
     ...(isAgentSwarmsEnabled()
       ? [getTeamCreateTool(), getTeamDeleteTool()]
       : []),
