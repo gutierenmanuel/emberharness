@@ -14,7 +14,7 @@ import {
 
 export const SESSION_CONFIG_TOOL_NAME = 'SessionConfig'
 
-const DESCRIPTION = 'Read or change the settings of THIS session in place (model, effort, thinking, permission mode, profile)'
+const DESCRIPTION = 'Read or change the settings of THIS session in place (model, effort, thinking, permission mode, profile, voice listening)'
 
 const PROMPT = `Read or change settings of the current fnharness session without the person typing anything. Changes apply to this session only and are never saved to the user's settings.
 
@@ -25,6 +25,7 @@ Input: \`op\` and, to change it, \`value\`. Allowed ops (anything else is reject
 - \`thinking\` — on | off.
 - \`permissionMode\` — default | plan | acceptEdits | dontAsk | auto | bypassPermissions. Raising permissions (acceptEdits, dontAsk, auto, bypassPermissions) asks the person first.
 - \`perfil\` — name of a /perfil profile. Always asks the person first; if it cannot apply live the session restarts.
+- \`voiceListen\` — on | off. Turns the microphone listening of this session on or off (the person's speech arrives as their own messages). \`off\` needs no confirmation; \`on\` asks the person first.
 
 Reading and lowering model/effort need no confirmation. If the person asks for a change on ANOTHER session, do not use this tool: send it a control message over its socket instead.`
 

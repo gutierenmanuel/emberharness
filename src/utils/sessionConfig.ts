@@ -10,8 +10,8 @@
  *
  * Reglas:
  *  - Allowlist cerrada (`SESSION_CONFIG_OPS`); cualquier otra clave se rechaza.
- *  - Subir permisos (`acceptEdits`, `dontAsk`, `auto`, `bypassPermissions`) y
- *    cambiar de perfil exigen confirmación de la persona. Desde el socket nunca
+ *  - Subir permisos (`acceptEdits`, `dontAsk`, `auto`, `bypassPermissions`),
+ *    cambiar de perfil y encender el micrófono (`voiceListen` on) exigen confirmación de la persona. Desde el socket nunca
  *    se aplican sin ella: `applySessionConfig` devuelve `needsConfirm`.
  *  - Cada cambio (o petición pendiente) se anota en
  *    `<config dir>/peer-log/session-config.jsonl`.
@@ -21,8 +21,9 @@ import { appendFileSync, mkdirSync } from 'fs'
 import { join } from 'path'
 import type { AppState } from '../state/AppStateStore.js'
 import { getPeerLogDir } from './peerLog.js'
+import { voiceListenStatus } from './voiceListenRuntime.js'
 
-export const SESSION_CONFIG_OPS = ['model', 'effort', 'thinking', 'permissionMode', 'perfil'] as const
+export const SESSION_CONFIG_OPS = ['model', 'effort', 'thinking', 'permissionMode', 'perfil', 'voiceListen'] as const
 export type SessionConfigOp = (typeof SESSION_CONFIG_OPS)[number]
 export type SessionConfigOrigin = 'tool' | 'socket'
 
@@ -86,6 +87,12 @@ export function normalizeValue(op: string, raw: unknown): NormalizedValue {
       }
       return { ok: true, value: text }
     }
+    case 'voiceListen': {
+      const v = text.toLowerCase()
+      if (['on', 'true', 'enabled', '1'].includes(v)) return { ok: true, value: 'on' }
+      if (['off', 'false', 'disabled', '0'].includes(v)) return { ok: true, value: 'off' }
+      return { ok: false, error: `voiceListen no válido: "${text}". Opciones: on, off` }
+    }
     case 'perfil':
       if (!/^[\w.-]+$/.test(text)) return { ok: false, error: `Nombre de perfil no válido: "${text}"` }
       if (RESTRICTED_NAME.test(text)) return { ok: false, error: 'Ese perfil no es accesible desde SessionConfig' }
@@ -93,9 +100,10 @@ export function normalizeValue(op: string, raw: unknown): NormalizedValue {
   }
 }
 
-/** ¿Hay que preguntar a la persona antes de aplicar? Solo subir permisos y cambiar de perfil. */
+/** ¿Hay que preguntar a la persona antes de aplicar? Subir permisos, cambiar de perfil y encender el micrófono. */
 export function requiresConfirmation(op: string, value: unknown): boolean {
   if (op === 'perfil') return true
+  if (op === 'voiceListen') return value === 'on'
   if (op === 'permissionMode') return typeof value === 'string' && RAISING_PERMISSION_MODES.includes(value)
   return false
 }
@@ -108,6 +116,7 @@ export function readSessionConfig(state: AppState): Record<SessionConfigOp, stri
     thinking: state.thinkingEnabled !== false,
     permissionMode: state.toolPermissionContext.mode,
     perfil: state.perfil ? `${state.perfil.name}${state.perfil.modified ? '*' : ''}` : 'ninguno',
+    voiceListen: voiceListenStatus().running ? 'on' : 'off',
   }
 }
 
@@ -215,7 +224,29 @@ export async function applySessionConfig(
       return applyPermissionMode(String(value), host, before, req, log)
     case 'perfil':
       return applyPerfilOp(String(value), host, before, log)
+    case 'voiceListen':
+      return applyVoiceListenOp(String(value), before, log)
   }
+}
+
+/** Enciende o apaga la escucha por voz de esta sesión (la misma función que usa /escucha). */
+async function applyVoiceListenOp(
+  value: string,
+  before: string | boolean,
+  log: (applied: boolean, pending?: boolean) => void,
+): Promise<SessionConfigResult> {
+  const op = 'voiceListen'
+  const { startVoiceListen, stopVoiceListen } = await import('./voiceListenRuntime.js')
+  if (value === 'off') {
+    stopVoiceListen()
+    log(true)
+    return { ok: true, applied: true, needsConfirm: false, op, from: before, to: 'off', message: 'Escucha por voz apagada.' }
+  }
+  const r = startVoiceListen()
+  if (!r.started && r.reason === 'locked') return fail(op, 'Otra sesión ya está escuchando (lock tomado); apágala allí primero')
+  if (!r.started && r.reason === 'empty_cmd') return fail(op, 'FNHARNESS_VOICE_CMD está vacío')
+  log(true)
+  return { ok: true, applied: true, needsConfirm: false, op, from: before, to: 'on', message: 'Escucha por voz encendida: lo que diga la persona llegará como mensaje suyo.' }
 }
 
 async function applyPermissionMode(
