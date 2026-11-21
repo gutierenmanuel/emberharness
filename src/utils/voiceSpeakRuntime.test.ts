@@ -1,3 +1,4 @@
+import { voiceListenActive } from './voiceListenRuntime.js'
 import { describe, expect, test } from 'bun:test'
 import {
   MAX_SPOKEN_CHARS,
@@ -267,5 +268,29 @@ describe('createProcessQueue streaming', () => {
     const flat = calls.map(c => c.join(' '))
     expect(flat.some(c => c.endsWith('--prioridad respuesta --stream m:0 -- Hola'))).toBe(true)
     expect(flat.some(c => c.includes('--stream m:0 --fin --'))).toBe(true)
+  })
+})
+
+describe('gate de la salida hablada', () => {
+  test('una variable FNHARNESS_VOICE_LISTEN heredada sin listener propio no activa el habla', () => {
+    const prev = process.env.FNHARNESS_VOICE_LISTEN
+    process.env.FNHARNESS_VOICE_LISTEN = '1'
+    try {
+      expect(voiceListenActive()).toBe(false)
+      const spoken: string[] = []
+      // Sin `enabled` explícito, el locutor usa voiceListenActive (no la variable de entorno).
+      const sp = createVoiceSpeaker({
+        queue: { say: t => void spoken.push(t), cancel: () => {} },
+        noteSpoken: () => true,
+        log: () => {},
+      })
+      sp.onEntry({ type: 'assistant', message: { id: 'm1', content: [{ type: 'text', text: 'Hola mundo.' }] } })
+      sp.onDelta('m2', 0, 'Hola de nuevo.\n\n')
+      sp.onBlockEnd('m2', 0)
+      expect(spoken).toEqual([])
+    } finally {
+      if (prev === undefined) delete process.env.FNHARNESS_VOICE_LISTEN
+      else process.env.FNHARNESS_VOICE_LISTEN = prev
+    }
   })
 })

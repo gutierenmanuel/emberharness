@@ -1,7 +1,7 @@
 /**
  * Native listening mode, step 4: the assistant's SPOKEN OUTPUT.
  *
- * Only while native listening is on (FNHARNESS_VOICE_LISTEN=1): when the main
+ * Only while native listening is on (a listener running in this process): when the main
  * transcript records an assistant entry, the first paragraph of each text
  * block is read aloud through the speech queue (`enqueue_speech.py`, priority
  * `respuesta`). Code, tables and long paths are never spoken, and the text is
@@ -36,7 +36,7 @@ import { openSync } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
 import { logForDebugging } from './debug.js'
-import { noteSpoken as realNoteSpoken, setSpeechStartHandler, voiceListenEnabled } from './voiceListenRuntime.js'
+import { noteSpoken as realNoteSpoken, setSpeechStartHandler, setStopHandler, voiceListenActive } from './voiceListenRuntime.js'
 
 const PY = '/home/user/fn_registry/python/.venv/bin/python3'
 const INFRA = '/home/user/fn_registry/python/functions/infra'
@@ -285,7 +285,7 @@ export type VoiceSpeaker = {
 export function createVoiceSpeaker(opts: VoiceSpeakerOptions = {}): VoiceSpeaker {
   const queue = opts.queue ?? createProcessQueue()
   const noteSpoken = opts.noteSpoken ?? realNoteSpoken
-  const enabled = opts.enabled ?? voiceListenEnabled
+  const enabled = opts.enabled ?? voiceListenActive
   const log = opts.log ?? logForDebugging
   const seen = new Set<string>()
   /** Message ids that streamed: the transcript hook must not speak them again. */
@@ -460,7 +460,7 @@ function speaker(): VoiceSpeaker {
 
 /** Called by the transcript writer for every main-thread entry; no-op without the flag. */
 export function voiceSpeakEntry(entry: Record<string, unknown>): void {
-  if (!voiceListenEnabled()) return
+  if (!voiceListenActive()) return
   try {
     speaker().onEntry(entry)
   } catch (e) {
@@ -470,7 +470,7 @@ export function voiceSpeakEntry(entry: Record<string, unknown>): void {
 
 /** Streaming hook (claude.ts, main thread only): one text delta. No-op without the flag. */
 export function voiceSpeakDelta(msgId: string | undefined, index: number, text: string): void {
-  if (!voiceListenEnabled() || !msgId) return
+  if (!voiceListenActive() || !msgId) return
   try {
     speaker().onDelta(msgId, index, text)
   } catch (e) {
@@ -480,7 +480,7 @@ export function voiceSpeakDelta(msgId: string | undefined, index: number, text: 
 
 /** Streaming hook (claude.ts, main thread only): a text block ended. No-op without the flag. */
 export function voiceSpeakBlockEnd(msgId: string | undefined, index: number): void {
-  if (!voiceListenEnabled() || !msgId) return
+  if (!voiceListenActive() || !msgId) return
   try {
     speaker().onBlockEnd(msgId, index)
   } catch (e) {
@@ -491,5 +491,9 @@ export function voiceSpeakBlockEnd(msgId: string | undefined, index: number): vo
 /** Hooks barge-in to the listener's `speech_start`. Returns the uninstall function. */
 export function installVoiceSpeak(): () => void {
   setSpeechStartHandler(() => speaker().bargeIn())
-  return () => setSpeechStartHandler(undefined)
+  setStopHandler(() => speaker().bargeIn()) // /escucha off: silence whatever is still queued
+  return () => {
+    setSpeechStartHandler(undefined)
+    setStopHandler(undefined)
+  }
 }

@@ -1439,7 +1439,7 @@ async function run(): Promise<CommanderCommand> {
     }
 
     // Native listening mode (step 4): the first paragraph is read aloud, so ask for it to be speakable.
-    if (voiceListenEnabled()) {
+    if (voiceListenEnabled() && !isNonInteractiveSession) {
       appendSystemPrompt = appendSystemPrompt ? `${appendSystemPrompt}\n\n${VOICE_SPEAK_PROMPT}` : VOICE_SPEAK_PROMPT;
     }
 
