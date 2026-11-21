@@ -145,6 +145,7 @@ import {
   TASK_BUDGETS_BETA_HEADER,
 } from 'src/constants/betas.js'
 import type { QuerySource } from 'src/constants/querySource.js'
+import { voiceSpeakBlockEnd, voiceSpeakDelta } from 'src/utils/voiceSpeakRuntime.js'
 import type { Notification } from 'src/context/notifications.js'
 import { addToTotalSessionCost } from 'src/cost-tracker.js'
 import {
@@ -1993,6 +1994,9 @@ async function* queryModel(
       const STALL_THRESHOLD_MS = 30_000 // 30 seconds
       let totalStallTime = 0
       let stallCount = 0
+      // Native listening mode: speak the main thread's text while it streams (no-op without the flag).
+      const voiceStream =
+        !options.agentId && (options.querySource?.startsWith('repl_main_thread') ?? false)
 
       for await (const part of stream) {
         resetStreamIdleTimer()
@@ -2180,6 +2184,7 @@ async function* queryModel(
                     throw new Error('Content block is not a text block')
                   }
                   contentBlock.text += delta.text
+                  if (voiceStream) voiceSpeakDelta(partialMessage?.id, part.index, delta.text)
                   break
                 case 'signature_delta':
                   if (
@@ -2245,6 +2250,9 @@ async function* queryModel(
                   part.type as AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS,
               })
               throw new Error('Message not found')
+            }
+            if (voiceStream && contentBlock.type === 'text') {
+              voiceSpeakBlockEnd(partialMessage.id, part.index)
             }
             const m: AssistantMessage = {
               message: {
