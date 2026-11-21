@@ -10,6 +10,7 @@ import {
   defaultBackoff,
   parseVoiceLine,
   splitCommand,
+  voiceStatusJson,
 } from './voiceListenRuntime.js'
 import { unwrapVoiceText, voiceDisplayText, wrapVoiceText } from './voiceOrigin.js'
 import { wrapCommandText } from './messages.js'
@@ -101,6 +102,42 @@ describe('lock', () => {
     expect(b).not.toBeNull()
     expect(readFileSync(p, 'utf8')).toBe(String(process.pid))
     b!.release()
+  })
+})
+
+describe('enfoque de voz', () => {
+  test('parseVoiceLine acepta focus y routed sin texto, y limpia la etiqueta', () => {
+    expect(parseVoiceLine('{"type":"focus","target":"session:12","label":"oso naranja"}')).toEqual({
+      type: 'focus',
+      target: 'session:12',
+      label: 'oso naranja',
+    })
+    expect(parseVoiceLine('{"type":"routed","target":"page:calibrar","label":"cal\\u001bibración"}')).toEqual({
+      type: 'routed',
+      target: 'page:calibrar',
+      label: 'calibración',
+    })
+    expect(parseVoiceLine('{"type":"focus","label":"x"}')).toBeNull()
+  })
+
+  test('routed no llega a la cola y focus va al estado y al json de la statusline', async () => {
+    clearCommandQueue()
+    const cmd = script(`
+import json
+print(json.dumps({"type":"ready"}), flush=True)
+print(json.dumps({"type":"focus","target":"self","label":""}), flush=True)
+print(json.dumps({"type":"speech_start","mic":"omi"}), flush=True)
+print(json.dumps({"type":"routed","target":"session:42","label":"oso naranja"}), flush=True)
+print(json.dumps({"type":"utterance","text":"fin","mic":"omi"}), flush=True)
+import time; time.sleep(5)
+`)
+    const l = createVoiceListener({ cmd, lockPath: join(dir, 'f.lock'), log: () => {} })
+    expect(l.start()).toEqual({ started: true })
+    await until(() => getCommandQueue().length >= 1)
+    expect(getCommandQueue().map(c => c.value)).toEqual(['fin'])
+    expect(l.status()).toMatchObject({ routed: 1, focus: { target: 'session:42', label: 'oso naranja' } })
+    expect(voiceStatusJson(l.status()).focus).toEqual({ target: 'session:42', label: 'oso naranja' })
+    l.stop()
   })
 })
 

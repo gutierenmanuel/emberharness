@@ -60,7 +60,8 @@ ACC_ID=""; ACC_LABEL=""; ACC_PROVIDER=""; ACC_URL=""; ACC_LOCAL=false; ACC_MODEL
 WIN_SRC=""; COMPACT_AT=""; MAX_OUT=""; SRV_ONLINE=""; SRV_NCTX=""
 SPD_TTFT=""; SPD_GEN=""; SPD_PROMPT=""; SPD_DRAFT_N=""; SPD_DRAFT_OK=""; COST_KIND=""
 PERFIL_NAME=""; PERFIL_MOD=false
-eval "$(echo "$INPUT" | jq -r '.fnharness // empty | @sh "ACC_ID=\(.account.id // "") ACC_LABEL=\(.account.label // "") ACC_PROVIDER=\(.account.provider // "") ACC_URL=\(.account.base_url // "") ACC_LOCAL=\(.account.local // false) ACC_MODEL=\(.account.model // "") ACC_SRV_MODEL=\(.account.server_model // "") ACC_EMAIL=\(.account.email // "") ACC_ORG=\(.account.org // "") WIN_SRC=\(.context.source // "") COMPACT_AT=\(.context.autocompact_at // "") MAX_OUT=\(.context.max_output_tokens // "") SRV_ONLINE=\(if .server then .server.online else "" end) SRV_NCTX=\(.server.n_ctx // "") SPD_TTFT=\(.speed.ttft_s // "") SPD_GEN=\(.speed.generation_tokens_per_second // "") SPD_PROMPT=\(.speed.prompt_tokens_per_second // "") SPD_DRAFT_N=\(.speed.draft_tokens // "") SPD_DRAFT_OK=\(.speed.draft_accepted_tokens // "") COST_KIND=\(.cost.kind // "") PERFIL_NAME=\(.profile.name // "") PERFIL_MOD=\(.profile.modified // false)"' 2>/dev/null)"
+VOICE_ON=false; VOICE_TGT=""; VOICE_LBL=""
+eval "$(echo "$INPUT" | jq -r '.fnharness // empty | @sh "ACC_ID=\(.account.id // "") ACC_LABEL=\(.account.label // "") ACC_PROVIDER=\(.account.provider // "") ACC_URL=\(.account.base_url // "") ACC_LOCAL=\(.account.local // false) ACC_MODEL=\(.account.model // "") ACC_SRV_MODEL=\(.account.server_model // "") ACC_EMAIL=\(.account.email // "") ACC_ORG=\(.account.org // "") WIN_SRC=\(.context.source // "") COMPACT_AT=\(.context.autocompact_at // "") MAX_OUT=\(.context.max_output_tokens // "") SRV_ONLINE=\(if .server then .server.online else "" end) SRV_NCTX=\(.server.n_ctx // "") SPD_TTFT=\(.speed.ttft_s // "") SPD_GEN=\(.speed.generation_tokens_per_second // "") SPD_PROMPT=\(.speed.prompt_tokens_per_second // "") SPD_DRAFT_N=\(.speed.draft_tokens // "") SPD_DRAFT_OK=\(.speed.draft_accepted_tokens // "") COST_KIND=\(.cost.kind // "") PERFIL_NAME=\(.profile.name // "") PERFIL_MOD=\(.profile.modified // false) VOICE_ON=\(.voice.listening // false) VOICE_TGT=\(.voice.focus.target // "") VOICE_LBL=\(.voice.focus.label // "")"' 2>/dev/null)"
 NOT_CLAUDE=0
 [ -z "$ACC_EMAIL" ] && { [ -z "$ACC_ID" ] || [ "$ACC_ID" = "claude" ]; } && ACC_EMAIL=$(read_account_email)
 [ -n "$ACC_ID" ] && [ "$ACC_ID" != "claude" ] && NOT_CLAUDE=1
@@ -446,6 +447,15 @@ if [ -n "$GIT_BRANCH" ]; then
 fi
 
 # 5. Hora actual
+# Modo escucha (/escucha): micrófono activo y, si la voz está enfocada a otro destino
+# («enfoca a oso naranja»), adónde va. Nunca el texto oído.
+if [ "$VOICE_ON" = "true" ]; then
+    if [ -n "$VOICE_TGT" ] && [ "$VOICE_TGT" != "self" ]; then
+        LINE1="${LINE1} ${GRAY}│${RESET} ${BOLD}${YELLOW}🎙 → ${VOICE_LBL:-$VOICE_TGT}${RESET}"
+    else
+        LINE1="${LINE1} ${GRAY}│${RESET} ${GREEN}🎙${RESET}"
+    fi
+fi
 LINE1="${LINE1} ${GRAY}│${RESET} ${WHITE}${CURRENT_TIME}${RESET}"
 
 # ===== LÍNEA 2: Detalles =====

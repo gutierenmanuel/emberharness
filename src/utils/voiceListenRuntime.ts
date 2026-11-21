@@ -9,6 +9,9 @@
  *   {"type":"speech_start","mic":"omi","t0":...}
  *   {"type":"utterance","text":"...","mic":"omi","t0":...,"t1":...,"fragments":3}
  *
+ *   {"type":"focus","target":"session:123","label":"oso naranja"}   (voice focus changed / at start)
+ *   {"type":"routed","target":"page:calibrar","label":"calibración"} (a phrase went elsewhere; no text)
+ *
  * and accepts `{"spoken":"text"}\n` on stdin (anti-echo: what the assistant
  * says aloud). This module spawns it, parses its output tolerantly, restarts
  * it with backoff when it dies and enqueues every utterance in the command
@@ -40,6 +43,17 @@ export type VoiceEvent =
   | { type: 'ready' }
   | { type: 'speech_start'; mic: string; t0?: number }
   | { type: 'utterance'; text: string; mic: string; t0?: number; t1?: number; fragments?: number }
+  | { type: 'focus'; target: string; label: string }
+  | { type: 'routed'; target: string; label: string }
+
+/** Where the person's voice goes ("enfoca a <destino>"): `self` = this session. Never what was said. */
+export type VoiceFocus = { target: string; label: string }
+
+const MAX_FOCUS_CHARS = 120
+
+function focusField(v: unknown): string {
+  return typeof v === 'string' ? v.replace(/[\u0000-\u001f\u007f]/g, '').trim().slice(0, MAX_FOCUS_CHARS) : ''
+}
 
 /** One stdout line → event, or null for anything that is not a well-formed event (never throws). */
 export function parseVoiceLine(line: string): VoiceEvent | null {
@@ -71,6 +85,12 @@ export function parseVoiceLine(line: string): VoiceEvent | null {
         t1: num(r.t1),
         fragments: num(r.fragments),
       }
+    }
+    case 'focus':
+    case 'routed': {
+      const target = focusField(r.target)
+      if (!target) return null
+      return { type: r.type, target, label: focusField(r.label) }
     }
     default:
       return null
@@ -202,6 +222,10 @@ export type VoiceStatus = {
   /** Mic and time (epoch ms) of the last utterance. Never what was said. */
   lastMic: string | null
   lastAt: number | null
+  /** Current voice focus as reported by the child; null until it says. */
+  focus: VoiceFocus | null
+  /** Phrases the child sent to another destination instead of this session. */
+  routed: number
 }
 
 /** The `voice` block of the status bar: microphone state, never text. */
@@ -209,6 +233,8 @@ export type VoiceStatusJson = {
   listening: boolean
   speaking: boolean
   last: { mic: string; at: number } | null
+  /** Destination of the voice ("self" = this session); null when unknown. */
+  focus: VoiceFocus | null
 }
 
 export function voiceStatusJson(s: VoiceStatus): VoiceStatusJson {
@@ -216,6 +242,7 @@ export function voiceStatusJson(s: VoiceStatus): VoiceStatusJson {
     listening: s.running && s.ready,
     speaking: s.speaking,
     last: s.lastMic !== null && s.lastAt !== null ? { mic: s.lastMic, at: s.lastAt } : null,
+    focus: s.focus,
   }
 }
 
@@ -229,6 +256,8 @@ const IDLE_STATUS: VoiceStatus = {
   speaking: false,
   lastMic: null,
   lastAt: null,
+  focus: null,
+  routed: 0,
 }
 
 export type VoiceStartResult = { started: true } | { started: false; reason: 'locked' | 'already_running' | 'empty_cmd' }
@@ -257,6 +286,8 @@ export function createVoiceListener(opts: VoiceListenOptions = {}): VoiceListene
   let speaking = false
   let lastMic: string | null = null
   let lastAt: number | null = null
+  let focus: VoiceFocus | null = null
+  let routed = 0
   let attempt = 0
   let timer: ReturnType<typeof setTimeout> | null = null
   let startedAt = 0
@@ -271,6 +302,14 @@ export function createVoiceListener(opts: VoiceListenOptions = {}): VoiceListene
       } else if (ev.type === 'speech_start') {
         speaking = true
         opts.onSpeechStart?.({ mic: ev.mic, t0: ev.t0 })
+      } else if (ev.type === 'focus') {
+        focus = { target: ev.target, label: ev.label }
+        log(`[voice] enfoque: ${ev.target}`)
+      } else if (ev.type === 'routed') {
+        routed += 1
+        speaking = false
+        focus = { target: ev.target, label: ev.label }
+        log(`[voice] frase enviada a ${ev.target} (#${routed})`)
       } else {
         utterances += 1
         speaking = false
@@ -372,6 +411,8 @@ export function createVoiceListener(opts: VoiceListenOptions = {}): VoiceListene
         speaking,
         lastMic,
         lastAt,
+        focus,
+        routed,
       }
     },
     noteSpoken(text) {
