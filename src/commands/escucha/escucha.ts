@@ -33,7 +33,9 @@ export function formatEstado(s: VoiceStatus): string {
   const state = s.speaking ? 'hablando' : s.ready ? 'escuchando' : 'arrancando el micrófono'
   const last = s.lastMic !== null && s.lastAt !== null ? `última frase: ${s.lastMic} a las ${hhmmss(s.lastAt)}` : 'sin frases todavía'
   const restarts = s.restarts > 0 ? ` · reinicios del hijo: ${s.restarts}` : ''
-  return `Escucha: ${state} · frases: ${s.utterances} · ${last}${restarts}`
+  const focus = s.focus && s.focus.target !== 'self' ? ` · voz enfocada a ${s.focus.label || s.focus.target}` : ''
+  const routed = s.routed > 0 ? ` (enviadas: ${s.routed})` : ''
+  return `Escucha: ${state} · frases: ${s.utterances} · ${last}${restarts}${focus}${routed}`
 }
 
 export function describeStart(r: VoiceStartResult): string {

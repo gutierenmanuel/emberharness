@@ -9,7 +9,7 @@ import { clearCommandQueue, getCommandQueue } from '../../utils/messageQueueMana
 import { stopVoiceListen, voiceListenStatus, voiceStatusJson, type VoiceStatus } from '../../utils/voiceListenRuntime.js'
 
 const SECRET = 'texto secreto que no debe salir'
-const base: VoiceStatus = { running: true, ready: true, pid: 1, restarts: 0, utterances: 0, lockHeld: true, speaking: false, lastMic: null, lastAt: null }
+const base: VoiceStatus = { running: true, ready: true, pid: 1, restarts: 0, utterances: 0, lockHeld: true, speaking: false, lastMic: null, lastAt: null, focus: null, routed: 0 }
 
 const saved = { cmd: process.env.FNHARNESS_VOICE_CMD, xdg: process.env.XDG_RUNTIME_DIR }
 let dir: string | null = null
@@ -67,8 +67,8 @@ describe('formatEstado / voiceStatusJson', () => {
     const talking = formatEstado({ ...base, speaking: true, utterances: 2, lastMic: 'omi', lastAt: at })
     expect(talking).toContain('hablando')
     expect(talking).toContain('omi a las 09:05:07')
-    expect(voiceStatusJson({ ...base, speaking: true, lastMic: 'omi', lastAt: at })).toEqual({ listening: true, speaking: true, last: { mic: 'omi', at } })
-    expect(voiceStatusJson({ ...base, running: false })).toEqual({ listening: false, speaking: false, last: null })
+    expect(voiceStatusJson({ ...base, speaking: true, lastMic: 'omi', lastAt: at })).toEqual({ listening: true, speaking: true, last: { mic: 'omi', at }, focus: null })
+    expect(voiceStatusJson({ ...base, running: false })).toEqual({ listening: false, speaking: false, last: null, focus: null })
     expect(voiceStatusJson({ ...base, ready: false }).listening).toBe(false)
   })
   test('describeStart cubre cada motivo', () => {
@@ -121,5 +121,14 @@ describe('op voiceListen en SessionConfig', () => {
     const off = await applySessionConfig({ op: 'voiceListen', value: 'off', origin: 'socket', confirmed: false }, host, deps)
     expect(off).toMatchObject({ ok: true, applied: true, needsConfirm: false, to: 'off' })
     expect(voiceListenStatus().running).toBe(false)
+  })
+})
+
+describe('formatEstado con enfoque de voz', () => {
+  test('muestra el destino si no es esta sesion', () => {
+    expect(formatEstado({ ...base, focus: { target: 'session:9', label: 'oso naranja' }, routed: 2 })).toContain(
+      'voz enfocada a oso naranja (enviadas: 2)',
+    )
+    expect(formatEstado({ ...base, focus: { target: 'self', label: '' } })).not.toContain('enfocada')
   })
 })
