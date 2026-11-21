@@ -83,10 +83,19 @@ export async function setup(
     switchSession(asSessionId(customSessionId))
   }
 
-  // --bare / SIMPLE: skip UDS messaging server and teammate snapshot.
-  // Scripted calls don't receive injected messages and don't use swarm teammates.
-  // Explicit --messaging-socket-path is the escape hatch (per #23222 gate pattern).
-  if (!isBareMode() || messagingSocketPath !== undefined) {
+  // --bare / SIMPLE: skip the UDS messaging server for scripted calls (-p,
+  // SDK, piped stdout), which don't receive injected messages, and the
+  // teammate snapshot below (swarm not used in bare). Interactive bare
+  // sessions (e.g. the `minimo` profile with local models) DO start it: the
+  // socket is what makes them addressable via SendMessage and what lets the
+  // statusline resolve their animal alias. getIsNonInteractiveSession() is
+  // already set by main.tsx before setup() runs. An explicit
+  // --messaging-socket-path also forces it on (per #23222 gate pattern).
+  if (
+    !isBareMode() ||
+    messagingSocketPath !== undefined ||
+    !getIsNonInteractiveSession()
+  ) {
     // Start UDS messaging server (Mac/Linux only).
     // Enabled by default for ants — creates a socket in tmpdir if no
     // --messaging-socket-path is passed. Awaited so the server is bound
