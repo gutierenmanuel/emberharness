@@ -8,6 +8,8 @@
  *   {"type":"ready"}
  *   {"type":"speech_start","mic":"omi","t0":...}
  *   {"type":"utterance","text":"...","mic":"omi","t0":...,"t1":...,"fragments":3}
+ *   (with "continuation":true when it is a late tail of the previous phrase:
+ *    glued to the previous voice message if that one is still waiting in the queue)
  *
  *   {"type":"focus","target":"session:123","label":"oso naranja"}   (voice focus changed / at start)
  *   {"type":"routed","target":"page:calibrar","label":"calibración"} (a phrase went elsewhere; no text)
@@ -28,7 +30,7 @@ import { join } from 'path'
 import { createInterface } from 'readline'
 import type { QueuedCommand } from '../types/textInputTypes.js'
 import { logForDebugging } from './debug.js'
-import { enqueue as realEnqueue } from './messageQueueManager.js'
+import { enqueue as realEnqueue, getCommandQueue, remove as removeQueued } from './messageQueueManager.js'
 import { sanitizeMic, type VoiceOrigin } from './voiceOrigin.js'
 
 export const DEFAULT_VOICE_CMD =
@@ -42,7 +44,15 @@ export const MAX_UTTERANCE_CHARS = 8000
 export type VoiceEvent =
   | { type: 'ready' }
   | { type: 'speech_start'; mic: string; t0?: number }
-  | { type: 'utterance'; text: string; mic: string; t0?: number; t1?: number; fragments?: number }
+  | {
+      type: 'utterance'
+      text: string
+      mic: string
+      t0?: number
+      t1?: number
+      fragments?: number
+      continuation?: boolean
+    }
   | { type: 'focus'; target: string; label: string }
   | { type: 'routed'; target: string; label: string }
 
@@ -84,6 +94,7 @@ export function parseVoiceLine(line: string): VoiceEvent | null {
         t0: num(r.t0),
         t1: num(r.t1),
         fragments: num(r.fragments),
+        ...(r.continuation === true ? { continuation: true } : {}),
       }
     }
     case 'focus':
@@ -107,6 +118,38 @@ export function buildVoiceCommand(text: string, mic: string): QueuedCommand {
     origin,
     skipSlashCommands: true,
   } as QueuedCommand
+}
+
+/** The queue as seen by the listener (injectable for tests). */
+export type VoiceQueueAccess = {
+  getAll: () => QueuedCommand[]
+  remove: (cmds: QueuedCommand[]) => void
+}
+
+/**
+ * A late tail of the previous phrase (`continuation`): if the previous voice
+ * message of the same mic is still waiting in the queue (the model has not
+ * taken it yet), it is replaced by one message with both texts. Returns the
+ * glued command, or null when there is nothing to glue to (then the tail is
+ * enqueued as a message of its own).
+ */
+export function glueVoiceContinuation(
+  q: VoiceQueueAccess,
+  prevValue: string | null,
+  text: string,
+  mic: string,
+): QueuedCommand | null {
+  if (prevValue === null) return null
+  const all = q.getAll()
+  for (let i = all.length - 1; i >= 0; i--) {
+    const c = all[i]!
+    const o = c.origin as VoiceOrigin | undefined
+    if (o?.kind === 'voice' && o.mic === sanitizeMic(mic) && c.value === prevValue) {
+      q.remove([c])
+      return buildVoiceCommand(`${prevValue} ${text}`.slice(0, MAX_UTTERANCE_CHARS), mic)
+    }
+  }
+  return null
 }
 
 /** Splits a command line into argv: whitespace separated, single/double quotes group. */
@@ -199,6 +242,8 @@ export type VoiceListenOptions = {
   cmd?: string
   lockPath?: string
   enqueue?: (cmd: QueuedCommand) => void
+  /** Queue access used to glue a `continuation` to the previous voice message. */
+  queue?: VoiceQueueAccess
   onSpeechStart?: (e: { mic: string; t0?: number }) => void
   /** Called after the command was enqueued (e.g. to wake the queue processor). */
   onUtterance?: (e: { mic: string; chars: number }) => void
@@ -226,6 +271,8 @@ export type VoiceStatus = {
   focus: VoiceFocus | null
   /** Phrases the child sent to another destination instead of this session. */
   routed: number
+  /** Late tails glued to the previous voice message still in the queue. */
+  glued: number
 }
 
 /** The `voice` block of the status bar: microphone state, never text. */
@@ -258,6 +305,7 @@ const IDLE_STATUS: VoiceStatus = {
   lastAt: null,
   focus: null,
   routed: 0,
+  glued: 0,
 }
 
 export type VoiceStartResult = { started: true } | { started: false; reason: 'locked' | 'already_running' | 'empty_cmd' }
@@ -272,6 +320,9 @@ export type VoiceListener = {
 export function createVoiceListener(opts: VoiceListenOptions = {}): VoiceListener {
   const log = opts.log ?? logForDebugging
   const enqueueFn = opts.enqueue ?? realEnqueue
+  const queueAccess: VoiceQueueAccess = opts.queue ?? { getAll: getCommandQueue, remove: removeQueued }
+  let lastValue: string | null = null
+  let glued = 0
   const spawnFn = opts.spawn ?? nodeSpawn
   const backoff = opts.backoff ?? defaultBackoff
   const stableMs = opts.stableMs ?? 10_000
@@ -315,8 +366,12 @@ export function createVoiceListener(opts: VoiceListenOptions = {}): VoiceListene
         speaking = false
         lastMic = ev.mic
         lastAt = Date.now()
-        enqueueFn(buildVoiceCommand(ev.text, ev.mic))
-        log(`[voice] frase #${utterances} (${ev.text.length} car.)`)
+        const joined = ev.continuation ? glueVoiceContinuation(queueAccess, lastValue, ev.text, ev.mic) : null
+        const cmd = joined ?? buildVoiceCommand(ev.text, ev.mic)
+        lastValue = typeof cmd.value === 'string' ? cmd.value : null
+        enqueueFn(cmd)
+        if (joined) glued += 1
+        log(`[voice] frase #${utterances} (${ev.text.length} car.)${joined ? ' pegada a la anterior' : ''}`)
         opts.onUtterance?.({ mic: ev.mic, chars: ev.text.length })
       }
     } catch (e) {
@@ -413,6 +468,7 @@ export function createVoiceListener(opts: VoiceListenOptions = {}): VoiceListene
         lastAt,
         focus,
         routed,
+        glued,
       }
     },
     noteSpoken(text) {

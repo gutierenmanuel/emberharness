@@ -35,7 +35,8 @@ export function formatEstado(s: VoiceStatus): string {
   const restarts = s.restarts > 0 ? ` · reinicios del hijo: ${s.restarts}` : ''
   const focus = s.focus && s.focus.target !== 'self' ? ` · voz enfocada a ${s.focus.label || s.focus.target}` : ''
   const routed = s.routed > 0 ? ` (enviadas: ${s.routed})` : ''
-  return `Escucha: ${state} · frases: ${s.utterances} · ${last}${restarts}${focus}${routed}`
+  const glued = s.glued > 0 ? ` · pegadas a la anterior: ${s.glued}` : ''
+  return `Escucha: ${state} · frases: ${s.utterances} · ${last}${restarts}${glued}${focus}${routed}`
 }
 
 export function describeStart(r: VoiceStartResult): string {
