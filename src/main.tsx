@@ -20,6 +20,8 @@ import { ensureKeychainPrefetchCompleted, startKeychainPrefetch } from './utils/
 // eslint-disable-next-line custom-rules/no-top-level-side-effects
 startKeychainPrefetch();
 import { feature } from 'bun:bundle';
+import { VOICE_SPEAK_PROMPT } from './utils/voiceSpeakRuntime.js';
+import { voiceListenEnabled } from './utils/voiceListenRuntime.js';
 import { Command as CommanderCommand, InvalidArgumentError, Option } from '@commander-js/extra-typings';
 import chalk from 'chalk';
 import { configureFallbackChain, parseFallbackList } from './services/api/fallbackChain.js';
@@ -1434,6 +1436,11 @@ async function run(): Promise<CommanderCommand> {
     if (isAgentSwarmsEnabled() && storedTeammateOpts?.agentId && storedTeammateOpts?.agentName && storedTeammateOpts?.teamName) {
       const addendum = getTeammatePromptAddendum().TEAMMATE_SYSTEM_PROMPT_ADDENDUM;
       appendSystemPrompt = appendSystemPrompt ? `${appendSystemPrompt}\n\n${addendum}` : addendum;
+    }
+
+    // Native listening mode (step 4): the first paragraph is read aloud, so ask for it to be speakable.
+    if (voiceListenEnabled()) {
+      appendSystemPrompt = appendSystemPrompt ? `${appendSystemPrompt}\n\n${VOICE_SPEAK_PROMPT}` : VOICE_SPEAK_PROMPT;
     }
 
     // FnHarness: perfil de contexto. En modo interactivo el REPL lee el system prompt del perfil

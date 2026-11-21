@@ -91,6 +91,7 @@ import {
 } from './sessionStoragePortable.js'
 import { getSettings_DEPRECATED } from './settings/settings.js'
 import { matrixEmitEntry, matrixRecordingStart } from './matrixEventsRuntime.js'
+import { voiceSpeakEntry } from './voiceSpeakRuntime.js'
 import { jsonParse, jsonStringify } from './slowOperations.js'
 import type { ContentReplacementRecord } from './toolResultStorage.js'
 import { validateUuid } from './uuid.js'
@@ -615,6 +616,8 @@ class Project {
     // entries are skipped even if they land in the main file.
     if (filePath === this.sessionFile && !(entry as { isSidechain?: boolean }).isSidechain) {
       matrixEmitEntry(entry as unknown as Record<string, unknown>)
+      // Native listening mode (step 4): read the assistant's first paragraph aloud. No-op without the flag.
+      voiceSpeakEntry(entry as unknown as Record<string, unknown>)
     }
     return new Promise<void>(resolve => {
       let queue = this.writeQueues.get(filePath)

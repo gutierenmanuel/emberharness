@@ -1,4 +1,5 @@
 import { useEffect } from 'react'
+import { installVoiceSpeak } from '../utils/voiceSpeakRuntime.js'
 import { startVoiceListen, stopVoiceListen, voiceListenEnabled } from '../utils/voiceListenRuntime.js'
 
 /**
@@ -10,7 +11,11 @@ import { startVoiceListen, stopVoiceListen, voiceListenEnabled } from '../utils/
 export function useVoiceListen(): void {
   useEffect(() => {
     if (!voiceListenEnabled()) return
+    const uninstallSpeak = installVoiceSpeak() // barge-in: speech_start cancels the spoken output
     startVoiceListen()
-    return () => stopVoiceListen()
+    return () => {
+      uninstallSpeak()
+      stopVoiceListen()
+    }
   }, [])
 }
