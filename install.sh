@@ -28,13 +28,19 @@ else
   install_dir="$HOME/fnharness"
 fi
 
-# bun >= BUN_MIN_VERSION (el global del dueño vive en ~/.local/bun-npm).
-export PATH="$HOME/.local/bun-npm/node_modules/.bin:$PATH"
+# bun >= BUN_MIN_VERSION. El bun de ~/.local/bun-npm (1.3.11) va AL FINAL del PATH, solo como
+# último recurso: con él `bun run build` produce un ./cli de 232 MB que se cuelga al arrancar el
+# modo interactivo (sin pintar ni un byte); con el bun 1.4.x del PATH normal el binario pesa
+# ~158 MB y pinta en menos de 0,5 s.
+export PATH="$PATH:$HOME/.local/bun-npm/node_modules/.bin"
 command -v bun >/dev/null 2>&1 || fail "bun no está instalado (se necesita >= $BUN_MIN_VERSION)"
 bun_version="$(bun --version)"
 if [[ "$(printf '%s\n%s\n' "$BUN_MIN_VERSION" "$bun_version" | sort -V | head -1)" != "$BUN_MIN_VERSION" ]]; then
   fail "bun $bun_version es demasiado viejo (se necesita >= $BUN_MIN_VERSION)"
 fi
+case "$bun_version" in
+  1.3.*) fail "bun $bun_version compila un ./cli que se cuelga al arrancar; usa bun 1.4 o superior (p. ej. ~/.bun/bin/bun)" ;;
+esac
 ok "bun $bun_version"
 
 if [[ ! -f "$install_dir/package.json" ]]; then
