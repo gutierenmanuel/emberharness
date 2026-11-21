@@ -12,8 +12,10 @@
  * - Barge-in: when the voice child reports `speech_start`, `--cancel` cuts
  *   what is playing and empties the queue (registered through
  *   `setSpeechStartHandler`, see `installVoiceSpeak`).
- * - Anti-echo: after queueing each utterance, `noteSpoken(text)` tells the
- *   listener what the assistant is saying so it does not hear itself.
+ * - Anti-echo: after queueing each utterance or chunk, `noteSpoken(text)`
+ *   tells the listener what the assistant is saying so it does not hear
+ *   itself. The listener (`stream_voice_dictation.py`) keeps discarding it
+ *   until 2 s after the speech queue reports that it stopped speaking.
  *
  * Streaming (v2): `src/services/api/claude.ts` feeds every `text_delta` of
  * the main thread to `voiceSpeakDelta`, so the voice starts while the model
