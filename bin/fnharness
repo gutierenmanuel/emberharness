@@ -123,11 +123,13 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-# Lista de to-dos (TaskCreate/TaskList) por proyecto, no por sesión: el id sale del repo git
-# principal del directorio de arranque (git-common-dir, así sus worktrees comparten lista) y la
-# lista sobrevive al cerrar la sesión. Fuera de git, o con FNHARNESS_TASK_LIST_PER_SESSION=1,
-# vuelve a ser por sesión. Un CLAUDE_CODE_TASK_LIST_ID explícito manda. Skill: to_dos.
-if [[ -z "${CLAUDE_CODE_TASK_LIST_ID:-}" && "${FNHARNESS_TASK_LIST_PER_SESSION:-}" != 1 ]]; then
+# Lista de to-dos (TaskCreate/TaskList) por sesión (terminal) por defecto: cada terminal tiene su
+# propia lista y los proyectos distintos abiertos en el mismo repo no se mezclan; --resume conserva
+# la lista porque conserva el id de sesión. Con FNHARNESS_TASK_LIST_PER_PROJECT=1 la lista pasa a
+# ser una por repo git principal (git-common-dir, compartida por sus worktrees). Un
+# CLAUDE_CODE_TASK_LIST_ID explícito manda (p. ej. CLAUDE_CODE_TASK_LIST_ID=gta5 para retomar una
+# lista con nombre desde varias terminales). Skill: to_dos.
+if [[ -z "${CLAUDE_CODE_TASK_LIST_ID:-}" && "${FNHARNESS_TASK_LIST_PER_PROJECT:-}" == 1 ]]; then
   if common="$(git rev-parse --path-format=absolute --git-common-dir 2>/dev/null)"; then
     proj="$(dirname "$common")"
     hash="$(printf '%s' "$proj" | sha1sum | cut -c1-8)"
