@@ -20,6 +20,13 @@ import { logForDebugging } from './debug.js'
 import { errorMessage } from './errors.js'
 import { enqueue } from './messageQueueManager.js'
 import { appendPeerLog, channelFor, isCyberSession } from './peerLog.js'
+import {
+  applySessionConfig,
+  buildConfirmRequestText,
+  getSessionConfigHost,
+  isSessionConfigEnabled,
+  readSessionConfig,
+} from './sessionConfig.js'
 
 /** Largest request accepted from a peer (1 MiB). */
 const MAX_REQUEST_BYTES = 1024 * 1024
@@ -35,6 +42,27 @@ export type UdsInboundMessage = {
   name?: string
   /** El emisor es una sesión cyber (`CLAUDE_CYBER=1`); decide el canal del historial. */
   cyber?: boolean
+}
+
+/**
+ * Petición de control: cambia un ajuste de esta sesión (ver sessionConfig.ts).
+ * `{"type":"control","op":"model","value":"sonnet"}`; `op:"get"` lee el estado.
+ */
+export type UdsControlRequest = {
+  type: 'control'
+  op: string
+  value?: unknown
+  from?: string
+}
+
+export type UdsControlReply = {
+  ok: boolean
+  applied?: boolean
+  needsConfirm?: boolean
+  error?: string
+  from?: unknown
+  to?: unknown
+  state?: Record<string, unknown>
 }
 
 let server: Server | null = null
@@ -83,7 +111,7 @@ export function wrapCrossSessionMessage(msg: UdsInboundMessage): string {
 }
 
 /** Validate a decoded request; returns the message or an error string. */
-export function parseInboundRequest(raw: string): UdsInboundMessage | string {
+export function parseInboundRequest(raw: string): UdsInboundMessage | UdsControlRequest | string {
   let data: unknown
   try {
     data = JSON.parse(raw)
@@ -92,6 +120,10 @@ export function parseInboundRequest(raw: string): UdsInboundMessage | string {
   }
   if (typeof data !== 'object' || data === null) return 'expected an object'
   const d = data as Record<string, unknown>
+  if (d.type === 'control') {
+    if (typeof d.op !== 'string' || d.op.length === 0) return 'op must be a non-empty string'
+    return { type: 'control', op: d.op, value: d.value, from: typeof d.from === 'string' ? d.from : undefined }
+  }
   if (d.type !== 'message') return `unsupported type: ${String(d.type)}`
   if (typeof d.text !== 'string' || d.text.trim().length === 0) {
     return 'text must be a non-empty string'
@@ -139,10 +171,29 @@ export function deliverInboundMessage(msg: UdsInboundMessage): void {
   onEnqueue?.()
 }
 
+/**
+ * Atiende una petición de control. Lo que exige confirmación de la persona
+ * (subir permisos, cambiar de perfil) nunca se aplica aquí: se encola un mensaje
+ * meta para que la sesión receptora lo pregunte, y la respuesta lleva needsConfirm.
+ */
+export async function handleControlRequest(req: UdsControlRequest): Promise<UdsControlReply> {
+  if (!isSessionConfigEnabled()) return { ok: false, error: 'control disabled (FNHARNESS_SESSION_CONFIG != 1)' }
+  const host = getSessionConfigHost()
+  if (req.op === 'get') {
+    if (!host) return { ok: false, error: 'session not ready' }
+    return { ok: true, applied: false, needsConfirm: false, state: readSessionConfig(host.getAppState()) }
+  }
+  const r = await applySessionConfig({ op: req.op, value: req.value, origin: 'socket', confirmed: false, from: req.from }, host)
+  if (r.ok && r.needsConfirm) {
+    deliverInboundMessage({ type: 'message', text: buildConfirmRequestText(r, req.from), from: req.from })
+  }
+  return { ok: r.ok, applied: r.applied, needsConfirm: r.needsConfirm, error: r.error, from: r.from, to: r.to }
+}
+
 function handleConnection(conn: Socket): void {
   let buf = ''
   let done = false
-  const reply = (payload: { ok: boolean; error?: string }) => {
+  const reply = (payload: { ok: boolean; error?: string } & Partial<UdsControlReply>) => {
     if (done) return
     done = true
     conn.end(JSON.stringify(payload) + '\n')
@@ -162,6 +213,10 @@ function handleConnection(conn: Socket): void {
     const parsed = parseInboundRequest(buf.slice(0, nl))
     if (typeof parsed === 'string') {
       reply({ ok: false, error: parsed })
+      return
+    }
+    if (parsed.type === 'control') {
+      handleControlRequest(parsed).then(reply, e => reply({ ok: false, error: errorMessage(e) }))
       return
     }
     try {

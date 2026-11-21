@@ -2,12 +2,16 @@ import { afterAll, describe, expect, test } from 'bun:test'
 import { mkdtempSync } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
+import { getDefaultAppState } from '../state/AppStateStore.js'
+import { createStore } from '../state/store.js'
+import { registerSessionConfigHost } from './sessionConfig.js'
 import { clearCommandQueue, getCommandQueueSnapshot } from './messageQueueManager.js'
 import { parseAddress } from './peerAddress.js'
 import { readPeerLog } from './peerLog.js'
 import { formatPeers, sendToUdsSocket } from './udsClient.js'
 import {
   getUdsMessagingSocketPath,
+  handleControlRequest,
   parseInboundRequest,
   startUdsMessaging,
   wrapCrossSessionMessage,
@@ -37,6 +41,55 @@ describe('inbound request validation', () => {
     expect(parseInboundRequest('nope')).toBe('invalid JSON')
     expect(parseInboundRequest('{"type":"shutdown"}')).toContain('unsupported type')
     expect(parseInboundRequest('{"type":"message","text":"  "}')).toContain('non-empty')
+  })
+})
+
+describe('control request parsing', () => {
+  test('acepta un control con op y value', () => {
+    expect(parseInboundRequest('{"type":"control","op":"model","value":"sonnet","from":"uds:/a"}')).toEqual({
+      type: 'control', op: 'model', value: 'sonnet', from: 'uds:/a',
+    })
+  })
+  test('exige op', () => {
+    expect(parseInboundRequest('{"type":"control"}')).toContain('op must be')
+  })
+})
+
+describe('control over the socket', () => {
+  test('con el flag apagado se rechaza', async () => {
+    const prev = process.env.FNHARNESS_SESSION_CONFIG
+    delete process.env.FNHARNESS_SESSION_CONFIG
+    try {
+      const r = await handleControlRequest({ type: 'control', op: 'model', value: 'haiku' })
+      expect(r.ok).toBe(false)
+    } finally {
+      if (prev !== undefined) process.env.FNHARNESS_SESSION_CONFIG = prev
+    }
+  })
+  test('lo que pide confirmación se encola como meta y no se aplica', async () => {
+    const prev = process.env.FNHARNESS_SESSION_CONFIG
+    process.env.FNHARNESS_SESSION_CONFIG = '1'
+    const store = createStore(getDefaultAppState())
+    registerSessionConfigHost({ getAppState: store.getState, setAppState: store.setState })
+    clearCommandQueue()
+    try {
+      const r = await handleControlRequest({ type: 'control', op: 'permissionMode', value: 'bypassPermissions', from: 'uds:/o' })
+      expect(r).toMatchObject({ ok: true, applied: false, needsConfirm: true })
+      expect(store.getState().toolPermissionContext.mode).toBe('default')
+      const q = getCommandQueueSnapshot()
+      expect(q.length).toBe(1)
+      expect(q[0]!.isMeta).toBe(true)
+      expect(String(q[0]!.value)).toContain('NO se ha aplicado')
+      const bad = await handleControlRequest({ type: 'control', op: 'theme', value: 'x' })
+      expect(bad.ok).toBe(false)
+      const got = await handleControlRequest({ type: 'control', op: 'get' })
+      expect(got.state?.permissionMode).toBe('default')
+    } finally {
+      registerSessionConfigHost(null)
+      clearCommandQueue()
+      if (prev === undefined) delete process.env.FNHARNESS_SESSION_CONFIG
+      else process.env.FNHARNESS_SESSION_CONFIG = prev
+    }
   })
 })
 

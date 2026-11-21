@@ -8,6 +8,7 @@ import { createDisabledBypassPermissionsContext, isBypassPermissionsModeDisabled
 import { applySettingsChange } from '../utils/settings/applySettingsChange.js';
 import type { SettingSource } from '../utils/settings/constants.js';
 import { createStore } from './store.js';
+import { registerSessionConfigHost } from '../utils/sessionConfig.js';
 import { installMocks } from '../dev/mocks.js';
 
 // DCE: voice context is ant-only. External builds get a passthrough.
@@ -60,6 +61,13 @@ export function AppStateProvider(t0) {
   let t2;
   if ($[3] !== store) {
     t2 = () => {
+      // FnHarness: el socket UDS aplica ajustes de sesión sobre este store (sessionConfig.ts).
+      if (process.env.FNHARNESS_SESSION_CONFIG === '1') {
+        registerSessionConfigHost({
+          getAppState: store.getState,
+          setAppState: store.setState
+        });
+      }
       const {
         toolPermissionContext
       } = store.getState();
