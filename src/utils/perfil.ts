@@ -29,6 +29,11 @@ export type Perfil = {
   systemPrompt: PerfilPrompt
   /** `default` = todas las internas; una lista = solo esas. */
   tools: 'default' | string[]
+  /**
+   * Solo con `bare` y una lista en `tools`: la lista es exacta. Sin esto el modo bare ofrece siempre
+   * Bash, Read y Edit y la lista solo añade; con esto ofrece únicamente lo que la lista nombra.
+   */
+  exactTools?: boolean
   context: {
     /** Modo mínimo de arranque (CLAUDE_CODE_SIMPLE): fuerza claudeMd, memory y hooks a false. */
     bare: boolean
@@ -118,6 +123,12 @@ export function parsePerfil(raw: unknown, name: string): ParsePerfilResult {
     } else return { ok: false, error: `perfil "${name}": "tools" debe ser "default" o una lista de nombres` }
   }
 
+  let exactTools = false
+  if (raw.exactTools !== undefined) {
+    if (typeof raw.exactTools !== 'boolean') return { ok: false, error: `perfil "${name}": "exactTools" debe ser true o false` }
+    exactTools = raw.exactTools
+  }
+
   // context
   const ctx = raw.context === undefined ? {} : raw.context
   if (!isRecord(ctx)) return { ok: false, error: `perfil "${name}": "context" debe ser un objeto` }
@@ -152,6 +163,7 @@ export function parsePerfil(raw: unknown, name: string): ParsePerfilResult {
     description,
     systemPrompt,
     tools,
+    ...(exactTools ? { exactTools } : {}),
     context: {
       bare: bareRaw,
       // bare fuerza estos tres a false: es lo que hace CLAUDE_CODE_SIMPLE.

@@ -47,7 +47,7 @@ FnHarness note (13/11/2026, perfiles): `/perfil` and `--perfil <name>` (also `FN
 named context profile: system prompt (default/replace/append), built-in tool list, and CLAUDE.md,
 memory, hooks, MCP (all/none/list) and skills, plus an optional account and model. It sits on top of the
 `/scope` machinery (`toolNames` and `mcpServers` lists in the context profile). Factory profiles
-(`full`, `simple`, `minimo`) live in `src/config/defaults/perfiles/`; yours in
+(`full`, `simple`, `minimo`, `chat`) live in `src/config/defaults/perfiles/`; yours in
 `<config dir>/profiles/<name>.json`; state in `<config dir>/profiles.json`. Everything is hot except
 changing `bare` and turning hooks back on, which restart the session through the launcher (exit code
 75 plus `restart/<pid>.args`). Not behind a feature flag. See `docs/COMMANDS.md` section 2.14.

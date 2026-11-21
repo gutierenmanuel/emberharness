@@ -9,6 +9,7 @@ import {
   createPerfilFrom,
   getPerfil,
   getSimpleModeExtraTools,
+  isSimpleModeToolsExact,
   hasExplicitAccount,
   syncSimpleModeExtraTools,
   listPerfiles,
@@ -27,9 +28,9 @@ const put = (env: E, file: string, content: string) => {
 }
 
 describe('listPerfiles', () => {
-  test('la fábrica trae full, simple y minimo', () => {
+  test('la fábrica trae full, simple, minimo y chat', () => {
     const l = listPerfiles(sandbox())
-    expect(l.entries.map(e => e.perfil.name)).toEqual(['full', 'simple', 'minimo'])
+    expect(l.entries.map(e => e.perfil.name)).toEqual(['full', 'simple', 'minimo', 'chat'])
     expect(l.problems).toEqual([])
     expect(l.warnings).toEqual([])
     const minimo = l.entries[2]!.perfil
@@ -46,7 +47,7 @@ describe('listPerfiles', () => {
     put(env, 'roto.json', '{no es json')
     put(env, 'malo.json', JSON.stringify({ systemPrompt: { mode: 'replace' } }))
     const l = listPerfiles(env)
-    expect(l.entries.map(e => `${e.perfil.name}:${e.source}`)).toEqual(['full:fábrica', 'simple:usuario', 'minimo:fábrica', 'otro:usuario'])
+    expect(l.entries.map(e => `${e.perfil.name}:${e.source}`)).toEqual(['full:fábrica', 'simple:usuario', 'minimo:fábrica', 'chat:fábrica', 'otro:usuario'])
     expect(getPerfil('simple', env)!.perfil.description).toBe('mío')
     expect(getPerfil('otro', env)!.perfil.systemPrompt.text).toBe('texto del fichero')
     expect(l.problems.map(p => p.split(':')[0]).sort()).toEqual(['malo.json', 'roto.json'])
@@ -129,6 +130,30 @@ describe('herramientas extra del modo bare', () => {
     expect(getSimpleModeExtraTools().size).toBe(0)
     syncSimpleModeExtraTools(undefined)
     expect(getSimpleModeExtraTools().size).toBe(0)
+  })
+
+  test('minimo no fija lista exacta: sigue sumando a Bash/Read/Edit', () => {
+    const minimo = getPerfil('minimo', sandbox())!.perfil
+    expect(minimo.exactTools).toBeUndefined()
+    syncSimpleModeExtraTools(minimo)
+    expect(isSimpleModeToolsExact()).toBe(false)
+    expect([...getSimpleModeExtraTools()].sort()).toEqual(['Edit', 'Glob', 'Read', 'Write'])
+  })
+
+  test('chat: bare, lista exacta con solo SendMessage', () => {
+    const chat = getPerfil('chat', sandbox())!.perfil
+    expect(chat.tools).toEqual(['SendMessage'])
+    expect(chat.exactTools).toBe(true)
+    expect(chat.context).toMatchObject({ bare: true, claudeMd: false, memory: false, hooks: false, mcp: false, skills: false })
+    expect(chat.systemPrompt.mode).toBe('replace')
+    expect(chat.systemPrompt.text).toContain('SendMessage')
+    syncSimpleModeExtraTools(chat)
+    expect(isSimpleModeToolsExact()).toBe(true)
+    expect([...getSimpleModeExtraTools()]).toEqual(['SendMessage'])
+    syncSimpleModeExtraTools(getPerfil('minimo', sandbox())!.perfil)
+    expect(isSimpleModeToolsExact()).toBe(false)
+    syncSimpleModeExtraTools(undefined)
+    expect(isSimpleModeToolsExact()).toBe(false)
   })
 })
 

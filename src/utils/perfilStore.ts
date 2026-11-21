@@ -13,6 +13,7 @@
 import { chmodSync, existsSync, mkdirSync, readdirSync, readFileSync, renameSync, writeFileSync } from 'fs'
 import { dirname, join, resolve } from 'path'
 import { configFilePath } from '../services/config/hotJson.js'
+import chatJson from '../config/defaults/perfiles/chat.json'
 import fullJson from '../config/defaults/perfiles/full.json'
 import minimoJson from '../config/defaults/perfiles/minimo.json'
 import simpleJson from '../config/defaults/perfiles/simple.json'
@@ -34,6 +35,7 @@ const FACTORY_RAW: ReadonlyArray<[string, unknown]> = [
   ['full', fullJson],
   ['simple', simpleJson],
   ['minimo', minimoJson],
+  ['chat', chatJson],
 ]
 
 export type PerfilEntry = { perfil: Perfil; source: 'fábrica' | 'usuario' }
@@ -234,15 +236,23 @@ let bootPerfilState: ActivePerfil | undefined
 
 // El modo bare (CLAUDE_CODE_SIMPLE) solo ofrece Bash, Read y Edit. Un perfil bare con una lista de
 // herramientas pide además las que nombra (p. ej. Write y Glob en `minimo`): tools.ts las suma.
+// Con `exactTools` el perfil bare ofrece solo esa lista (sin Bash, Read ni Edit de serie): `chat`.
 let simpleModeExtraTools: ReadonlySet<string> = new Set()
+let simpleModeToolsExact = false
 
 /** Herramientas extra que el modo bare debe ofrecer según el perfil activo. */
 export function getSimpleModeExtraTools(): ReadonlySet<string> {
   return simpleModeExtraTools
 }
 
+/** ¿El perfil bare activo fija la lista exacta de herramientas (en vez de sumarla a Bash/Read/Edit)? */
+export function isSimpleModeToolsExact(): boolean {
+  return simpleModeToolsExact
+}
+
 export function syncSimpleModeExtraTools(p: Perfil | undefined): void {
   simpleModeExtraTools = new Set(p && p.context.bare && p.tools !== 'default' ? p.tools : [])
+  simpleModeToolsExact = !!(p && p.context.bare && p.tools !== 'default' && p.exactTools)
 }
 
 /**

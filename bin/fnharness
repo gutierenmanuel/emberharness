@@ -5,7 +5,7 @@
 #   fnharness --resume <session_id>    retoma una sesión
 #   fnharness --account llamacpp       arranca con una cuenta concreta (no se guarda)
 #   fnharness --account ollama --model qwen3:8b -p "resume este repo"
-#   fnharness --perfil minimo          arranca con un perfil de contexto (full, simple, minimo o uno propio en profiles/);
+#   fnharness --perfil minimo          arranca con un perfil de contexto (full, simple, minimo, chat o uno propio en profiles/);
 #                                      si el perfil trae cuenta, se usa salvo --account (--account > cuenta del perfil > predeterminada)
 #   fnharness --accounts               lista las cuentas, la predeterminada y la última usada
 #   fnharness --set-default qwen36 [modelo]   fija la cuenta (y modelo) con la que abre; "last" = volver a la última usada
