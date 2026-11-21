@@ -18,7 +18,7 @@ const HELP = [
   '/perfil <nombre>        aplica el perfil (en caliente, salvo bare o hooks apagados → encendidos: reinicia)',
   '/perfil nuevo <nombre>  guarda lo que tiene la sesión ahora como perfil nuevo y muestra su ruta',
   'Un perfil agrupa system prompt, herramientas y contexto (CLAUDE.md, memoria, hooks, MCP, skills).',
-  `Los tuyos viven en ${perfilesDir()}/<nombre>.json; los de fábrica son full, simple y minimo.`,
+  `Los tuyos viven en ${perfilesDir()}/<nombre>.json; los de fábrica son full, simple, minimo y chat.`,
   'Al arrancar: fnharness --perfil <nombre> (o FNHARNESS_PROFILE). /scope y Ctrl+Tab ajustan el scope encima y marcan el perfil como modificado (nombre*).',
 ].join('\n')
 

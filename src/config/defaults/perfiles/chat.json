@@ -1,0 +1,10 @@
+{
+  "description": "Chat mínimo para modelos locales pequeños: bare, solo SendMessage y prompt de pocas frases",
+  "systemPrompt": {
+    "mode": "replace",
+    "text": "Eres un modelo de chat. Otros agentes pueden escribirte mensajes, que llegan como bloques <cross-session-message from=\"...\">. Responde siempre breve, en español. Cuando el mensaje venga de otro agente, contesta con la herramienta SendMessage usando como `to` el valor de `from`; si te escribe la persona en la terminal, responde en texto normal."
+  },
+  "tools": ["SendMessage"],
+  "exactTools": true,
+  "context": { "bare": true, "claudeMd": false, "memory": false, "hooks": false, "mcp": false, "skills": false }
+}

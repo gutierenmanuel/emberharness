@@ -34,7 +34,7 @@ fnharness --resume <session_id>    # retomar sesión
 fnharness --account llamacpp       # arrancar con una cuenta concreta (no se guarda)
 fnharness --account ollama --model qwen3:8b -p "..."
 fnharness --accounts               # cuentas disponibles
-fnharness --perfil minimo          # perfil de contexto (full, simple, minimo o uno propio)
+fnharness --perfil minimo          # perfil de contexto (full, simple, minimo, chat o uno propio)
 ```
 
 ## /account
@@ -58,7 +58,7 @@ La cuenta `claude` usa la API nativa de Anthropic; el login es propio de fnharne
 | `/perfil <nombre>` | aplica el perfil (en caliente; con bare o hooks apagados → encendidos reinicia la sesión vía el lanzador) |
 | `/perfil nuevo <nombre>` | guarda lo que tiene la sesión como `<config>/profiles/<nombre>.json` y muestra la ruta |
 
-Un perfil agrupa system prompt, herramientas y contexto (CLAUDE.md, memoria, hooks, MCP, skills), más cuenta y modelo opcionales. Fábrica: `full`, `simple`, `minimo`. Detalle y formato: `docs/COMMANDS.md` sección 2.14.
+Un perfil agrupa system prompt, herramientas y contexto (CLAUDE.md, memoria, hooks, MCP, skills), más cuenta y modelo opcionales. Fábrica: `full`, `simple`, `minimo`, `chat`. Detalle y formato: `docs/COMMANDS.md` sección 2.14.
 
 ## Piezas
 

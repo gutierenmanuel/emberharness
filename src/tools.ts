@@ -139,7 +139,7 @@ const WorkflowTool = feature('WORKFLOW_SCRIPTS')
 /* eslint-enable custom-rules/no-process-env-top-level, @typescript-eslint/no-require-imports */
 import type { ToolPermissionContext } from './Tool.js'
 import { getDenyRuleForTool } from './utils/permissions/permissions.js'
-import { getSimpleModeExtraTools } from './utils/perfilStore.js'
+import { getSimpleModeExtraTools, isSimpleModeToolsExact } from './utils/perfilStore.js'
 import { hasEmbeddedSearchTools } from './utils/embeddedTools.js'
 import { isEnvTruthy } from './utils/envUtils.js'
 import { isNativeWebEnabled } from './utils/nativeWeb.js'
@@ -292,7 +292,8 @@ export const getTools = (permissionContext: ToolPermissionContext): Tools => {
       }
       return filterToolsByDenyRules(replSimple, permissionContext)
     }
-    const simpleTools: Tool[] = [BashTool, FileReadTool, FileEditTool]
+    // Perfil bare con `exactTools`: solo las que nombra la lista, nada de Bash/Read/Edit de serie.
+    const simpleTools: Tool[] = isSimpleModeToolsExact() ? [] : [BashTool, FileReadTool, FileEditTool]
     // FnHarness: un perfil bare con lista de herramientas (/perfil, --perfil) pide además las que nombra.
     const extra = getSimpleModeExtraTools()
     if (extra.size > 0) {
