@@ -26,6 +26,7 @@ import { GroupedToolUseContent } from './messages/GroupedToolUseContent.js';
 import { SystemTextMessage } from './messages/SystemTextMessage.js';
 import { UserImageMessage } from './messages/UserImageMessage.js';
 import { UserTextMessage } from './messages/UserTextMessage.js';
+import { isVoiceOrigin, voiceDisplayText } from '../utils/voiceOrigin.js';
 import { UserToolResultMessage } from './messages/UserToolResultMessage/UserToolResultMessage.js';
 import { OffscreenFreeze } from './OffscreenFreeze.js';
 import { ExpandShellOutputProvider } from './shell/ExpandShellOutputContext.js';
@@ -374,9 +375,15 @@ function UserMessage(t0) {
   switch (param.type) {
     case "text":
       {
+        // Voice utterances show «🎙 yo(mic): …» instead of the raw text (or the model-facing wrapper).
+        const voiceOrigin = isVoiceOrigin(message.origin) ? message.origin : null;
+        const textParam = voiceOrigin ? {
+          ...param,
+          text: voiceDisplayText(param.text, voiceOrigin)
+        } : param;
         let t1;
         if ($[0] !== addMargin || $[1] !== isTranscriptMode || $[2] !== message.planContent || $[3] !== message.timestamp || $[4] !== param || $[5] !== verbose) {
-          t1 = <UserTextMessage addMargin={addMargin} param={param} verbose={verbose} planContent={message.planContent} isTranscriptMode={isTranscriptMode} timestamp={message.timestamp} />;
+          t1 = <UserTextMessage addMargin={addMargin} param={textParam} verbose={verbose} planContent={message.planContent} isTranscriptMode={isTranscriptMode} timestamp={message.timestamp} />;
           $[0] = addMargin;
           $[1] = isTranscriptMode;
           $[2] = message.planContent;

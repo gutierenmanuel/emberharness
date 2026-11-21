@@ -143,6 +143,7 @@ import { gracefulShutdownSync } from '../utils/gracefulShutdown.js';
 import { handlePromptSubmit, type PromptInputHelpers } from '../utils/handlePromptSubmit.js';
 import { useQueueProcessor } from '../hooks/useQueueProcessor.js';
 import { useMatrixChannel } from '../hooks/useMatrixChannel.js';
+import { useVoiceListen } from '../hooks/useVoiceListen.js';
 import { matrixNoteQueued, matrixTurnEnd, matrixTurnStart } from '../utils/matrixEventsRuntime.js';
 import { useMailboxBridge } from '../hooks/useMailboxBridge.js';
 import { queryCheckpoint, logQueryProfileReport } from '../utils/queryProfiler.js';
@@ -3967,6 +3968,9 @@ export function REPL({
     submit: (text, uuid) => enqueue({ value: text, mode: 'prompt', uuid: uuid as UUID }),
     interrupt: () => onCancelRef.current()
   });
+
+  // Native voice channel (FNHARNESS_VOICE_LISTEN=1): the person's speech enters as a normal user message.
+  useVoiceListen();
 
   // We'll use the global lastInteractionTime from state.ts
 
