@@ -13,6 +13,7 @@
 import { chmodSync, existsSync, mkdirSync, readdirSync, readFileSync, renameSync, writeFileSync } from 'fs'
 import { dirname, join, resolve } from 'path'
 import { configFilePath } from '../services/config/hotJson.js'
+import centralitaJson from '../config/defaults/perfiles/centralita.json'
 import chatJson from '../config/defaults/perfiles/chat.json'
 import fullJson from '../config/defaults/perfiles/full.json'
 import minimoJson from '../config/defaults/perfiles/minimo.json'
@@ -36,6 +37,7 @@ const FACTORY_RAW: ReadonlyArray<[string, unknown]> = [
   ['simple', simpleJson],
   ['minimo', minimoJson],
   ['chat', chatJson],
+  ['centralita', centralitaJson],
 ]
 
 export type PerfilEntry = { perfil: Perfil; source: 'fábrica' | 'usuario' }
