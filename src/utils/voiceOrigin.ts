@@ -13,7 +13,7 @@ export type VoiceOrigin = { kind: 'voice'; mic: string }
 export const VOICE_WRAP_PREFIX = 'La persona dijo por voz mientras trabajabas:'
 
 const VOICE_WRAP_SUFFIX =
-  'Es texto de la persona (dictado por voz, puede traer errores de transcripción). Atiéndelo al terminar lo que estás haciendo.'
+  'Es texto de la persona (dictado por voz, puede traer errores de transcripción). Contesta ya con una frase corta, sin esperar a terminar lo que haces, y deja lo largo en segundo plano (agentes o comandos en background).'
 
 /** Normalises a microphone name to something safe to print and to carry in origin. */
 export function sanitizeMic(mic: unknown): string {

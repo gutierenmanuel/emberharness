@@ -8,7 +8,7 @@ import {
   buildVoiceCommand,
   createVoiceListener,
   defaultBackoff,
-  glueVoiceContinuation,
+  glueVoiceIntoQueue,
   parseVoiceLine,
   splitCommand,
   voiceStatusJson,
@@ -107,16 +107,33 @@ describe('lock', () => {
 })
 
 describe('continuation', () => {
-  test('glueVoiceContinuation pega a la anterior de la misma mic que sigue en cola', () => {
+  test('glueVoiceIntoQueue pega a la ultima voz que sigue en cola y no toca lo demas', () => {
+    const typed = { mode: 'prompt', value: 'teclado', priority: 'next' } as QueuedCommand
     const a = buildVoiceCommand('quiero que mires', 'omi')
-    const other = buildVoiceCommand('quiero que mires', 'pc')
-    let queue = [other, a]
+    let queue: QueuedCommand[] = [typed, a]
     const q = { getAll: () => [...queue], remove: (cs: QueuedCommand[]) => (queue = queue.filter(c => !cs.includes(c))) }
-    const g = glueVoiceContinuation(q, 'quiero que mires', 'el panel', 'omi')
+    const g = glueVoiceIntoQueue(q, 'el panel', 'c920')
     expect(g?.value).toBe('quiero que mires el panel')
-    expect(queue).toEqual([other])
-    expect(glueVoiceContinuation(q, 'quiero que mires', 'otra', 'omi')).toBeNull()
-    expect(glueVoiceContinuation(q, null, 'x', 'omi')).toBeNull()
+    expect((g?.origin as { mic: string }).mic).toBe('c920')
+    expect(queue).toEqual([typed])
+    expect(glueVoiceIntoQueue(q, 'otra', 'omi')).toBeNull() // no queda voz en cola
+  })
+
+  test('listener: varias frases seguidas sin continuation salen JUNTAS en un solo mensaje', async () => {
+    clearCommandQueue()
+    const cmd = script(`
+import json, time
+print(json.dumps({"type":"ready"}), flush=True)
+for t in ("primera frase", "segunda frase", "tercera frase"):
+    print(json.dumps({"type":"utterance","text":t,"mic":"omi"}), flush=True)
+time.sleep(5)
+`)
+    const l = createVoiceListener({ cmd, lockPath: join(dir, 'g.lock'), log: () => {} })
+    expect(l.start()).toEqual({ started: true })
+    await until(() => l.status().utterances === 3)
+    expect(getCommandQueue().map(c => c.value)).toEqual(['primera frase segunda frase tercera frase'])
+    expect(l.status().glued).toBe(2)
+    l.stop()
   })
 
   test('listener: la cola queda con un solo mensaje y si ya se consumio va aparte', async () => {
@@ -209,8 +226,8 @@ for line in sys.stdin:
     expect(l.status()).toMatchObject({ running: true, ready: true, utterances: 1, lockHeld: true })
     // anti-eco por stdin
     expect(l.noteSpoken('hola mundo')).toBe(true)
-    await until(() => getCommandQueue().length >= 2)
-    expect(getCommandQueue()[1]!.value).toBe('eco hola mundo')
+    await until(() => l.status().utterances >= 2)
+    expect(getCommandQueue().map(c => c.value)).toEqual([`${SECRET} eco hola mundo`]) // el modelo aun no la toma: se agrupa
     l.stop()
     expect(l.status().running).toBe(false)
     expect(existsSync(join(dir, 'v.lock'))).toBe(false)
@@ -233,9 +250,9 @@ print(json.dumps({"type":"utterance","text":"arranque " + str(n + 1),"mic":"omi"
 `)
     const l = createVoiceListener({ cmd, lockPath: join(dir, 'v.lock'), backoff: () => 30, log: () => {} })
     l.start()
-    await until(() => getCommandQueue().length >= 3)
+    await until(() => l.status().utterances >= 3)
     expect(l.status().restarts).toBeGreaterThanOrEqual(2)
-    expect(getCommandQueue().map(c => c.value).slice(0, 3)).toEqual(['arranque 1', 'arranque 2', 'arranque 3'])
+    expect(getCommandQueue().map(c => c.value)).toEqual(['arranque 1 arranque 2 arranque 3'])
     l.stop()
     clearCommandQueue()
   })

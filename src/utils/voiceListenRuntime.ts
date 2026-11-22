@@ -9,7 +9,8 @@
  *   {"type":"speech_start","mic":"omi","t0":...}
  *   {"type":"utterance","text":"...","mic":"omi","t0":...,"t1":...,"fragments":3}
  *   (with "continuation":true when it is a late tail of the previous phrase:
- *    glued to the previous voice message if that one is still waiting in the queue)
+ *    glued to the previous voice message if that one is still waiting in the queue;
+ *    since the immediate-delivery change EVERY utterance is glued to a voice message still waiting)
  *
  *   {"type":"focus","target":"session:123","label":"oso naranja"}   (voice focus changed / at start)
  *   {"type":"routed","target":"page:calibrar","label":"calibración"} (a phrase went elsewhere; no text)
@@ -127,26 +128,22 @@ export type VoiceQueueAccess = {
 }
 
 /**
- * A late tail of the previous phrase (`continuation`): if the previous voice
- * message of the same mic is still waiting in the queue (the model has not
- * taken it yet), it is replaced by one message with both texts. Returns the
- * glued command, or null when there is nothing to glue to (then the tail is
- * enqueued as a message of its own).
+ * Voice messages are delivered in groups, like the old Monitor: if an earlier
+ * voice message is still waiting in the queue (the model has not taken it yet,
+ * e.g. it is in the middle of a long turn), the new text is glued to it, so the
+ * model gets ONE message with everything said, and the queue preview shows one
+ * growing entry instead of one line per chunk. Returns the glued command (the
+ * old one was removed from the queue; the caller enqueues the result), or null
+ * when nothing voice is waiting (then the utterance is a message of its own).
  */
-export function glueVoiceContinuation(
-  q: VoiceQueueAccess,
-  prevValue: string | null,
-  text: string,
-  mic: string,
-): QueuedCommand | null {
-  if (prevValue === null) return null
+export function glueVoiceIntoQueue(q: VoiceQueueAccess, text: string, mic: string): QueuedCommand | null {
   const all = q.getAll()
   for (let i = all.length - 1; i >= 0; i--) {
     const c = all[i]!
     const o = c.origin as VoiceOrigin | undefined
-    if (o?.kind === 'voice' && o.mic === sanitizeMic(mic) && c.value === prevValue) {
+    if (o?.kind === 'voice' && typeof c.value === 'string' && c.agentId === undefined) {
       q.remove([c])
-      return buildVoiceCommand(`${prevValue} ${text}`.slice(0, MAX_UTTERANCE_CHARS), mic)
+      return buildVoiceCommand(`${c.value} ${text}`.slice(0, MAX_UTTERANCE_CHARS), mic)
     }
   }
   return null
@@ -242,7 +239,7 @@ export type VoiceListenOptions = {
   cmd?: string
   lockPath?: string
   enqueue?: (cmd: QueuedCommand) => void
-  /** Queue access used to glue a `continuation` to the previous voice message. */
+  /** Queue access used to glue consecutive utterances into one voice message while it waits. */
   queue?: VoiceQueueAccess
   onSpeechStart?: (e: { mic: string; t0?: number }) => void
   /** Called after the command was enqueued (e.g. to wake the queue processor). */
@@ -271,7 +268,7 @@ export type VoiceStatus = {
   focus: VoiceFocus | null
   /** Phrases the child sent to another destination instead of this session. */
   routed: number
-  /** Late tails glued to the previous voice message still in the queue. */
+  /** Utterances glued to a voice message still waiting in the queue (one message for the whole burst). */
   glued: number
 }
 
@@ -321,7 +318,6 @@ export function createVoiceListener(opts: VoiceListenOptions = {}): VoiceListene
   const log = opts.log ?? logForDebugging
   const enqueueFn = opts.enqueue ?? realEnqueue
   const queueAccess: VoiceQueueAccess = opts.queue ?? { getAll: getCommandQueue, remove: removeQueued }
-  let lastValue: string | null = null
   let glued = 0
   const spawnFn = opts.spawn ?? nodeSpawn
   const backoff = opts.backoff ?? defaultBackoff
@@ -366,9 +362,8 @@ export function createVoiceListener(opts: VoiceListenOptions = {}): VoiceListene
         speaking = false
         lastMic = ev.mic
         lastAt = Date.now()
-        const joined = ev.continuation ? glueVoiceContinuation(queueAccess, lastValue, ev.text, ev.mic) : null
+        const joined = glueVoiceIntoQueue(queueAccess, ev.text, ev.mic)
         const cmd = joined ?? buildVoiceCommand(ev.text, ev.mic)
-        lastValue = typeof cmd.value === 'string' ? cmd.value : null
         enqueueFn(cmd)
         if (joined) glued += 1
         log(`[voice] frase #${utterances} (${ev.text.length} car.)${joined ? ' pegada a la anterior' : ''}`)
