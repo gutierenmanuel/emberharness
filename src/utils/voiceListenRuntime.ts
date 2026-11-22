@@ -7,6 +7,9 @@
  *
  *   {"type":"ready"}
  *   {"type":"speech_start","mic":"omi","t0":...}
+ *   {"type":"fragment","text":"...","mic":"omi","t0":...,"t1":...,"block_id":"r1"}   (one chunk of the person's speech,
+ *    the moment the child sees it, before the phrase closes: shown live above the input, see voiceLiveState.ts)
+ *   {"type":"discard","mic":"omi"}   (the phrase will not be delivered: drop the live text)
  *   {"type":"utterance","text":"...","mic":"omi","t0":...,"t1":...,"fragments":3}
  *   (with "continuation":true when it is a late tail of the previous phrase:
  *    glued to the previous voice message if that one is still waiting in the queue;
@@ -33,6 +36,13 @@ import type { QueuedCommand } from '../types/textInputTypes.js'
 import { logForDebugging } from './debug.js'
 import { enqueue as realEnqueue, getCommandQueue, remove as removeQueued } from './messageQueueManager.js'
 import { sanitizeMic, type VoiceOrigin } from './voiceOrigin.js'
+import {
+  voiceLiveDiscard,
+  voiceLiveFragment,
+  voiceLiveReady,
+  voiceLiveReset,
+  voiceLiveSent,
+} from './voiceLiveState.js'
 
 export const DEFAULT_VOICE_CMD =
   '/home/user/fn_registry/python/.venv/bin/python3 -u /home/user/fn_registry/python/functions/pipelines/stream_voice_dictation.py'
@@ -45,6 +55,8 @@ export const MAX_UTTERANCE_CHARS = 8000
 export type VoiceEvent =
   | { type: 'ready' }
   | { type: 'speech_start'; mic: string; t0?: number }
+  | { type: 'fragment'; text: string; mic: string; t0?: number; t1?: number; blockId?: string | number }
+  | { type: 'discard'; mic: string }
   | {
       type: 'utterance'
       text: string
@@ -84,6 +96,22 @@ export function parseVoiceLine(line: string): VoiceEvent | null {
       return { type: 'ready' }
     case 'speech_start':
       return { type: 'speech_start', mic: sanitizeMic(r.mic), t0: num(r.t0) }
+    case 'fragment': {
+      if (typeof r.text !== 'string') return null
+      const text = r.text.trim().slice(0, MAX_UTTERANCE_CHARS)
+      if (!text) return null
+      const id = r.block_id
+      return {
+        type: 'fragment',
+        text,
+        mic: sanitizeMic(r.mic),
+        t0: num(r.t0),
+        t1: num(r.t1),
+        ...(typeof id === 'string' || typeof id === 'number' ? { blockId: id } : {}),
+      }
+    }
+    case 'discard':
+      return { type: 'discard', mic: sanitizeMic(r.mic) }
     case 'utterance': {
       if (typeof r.text !== 'string') return null
       const text = r.text.trim().slice(0, MAX_UTTERANCE_CHARS)
@@ -242,6 +270,8 @@ export type VoiceListenOptions = {
   /** Queue access used to glue consecutive utterances into one voice message while it waits. */
   queue?: VoiceQueueAccess
   onSpeechStart?: (e: { mic: string; t0?: number }) => void
+  /** A chunk of the person's speech arrived (live text); counters only. */
+  onFragment?: (e: { mic: string; chars: number }) => void
   /** Called after the command was enqueued (e.g. to wake the queue processor). */
   onUtterance?: (e: { mic: string; chars: number }) => void
   spawn?: typeof nodeSpawn
@@ -345,16 +375,24 @@ export function createVoiceListener(opts: VoiceListenOptions = {}): VoiceListene
     try {
       if (ev.type === 'ready') {
         ready = true
+        voiceLiveReady()
         log('[voice] hijo listo')
       } else if (ev.type === 'speech_start') {
         speaking = true
         opts.onSpeechStart?.({ mic: ev.mic, t0: ev.t0 })
+      } else if (ev.type === 'fragment') {
+        voiceLiveFragment({ text: ev.text, mic: ev.mic, blockId: ev.blockId })
+        opts.onFragment?.({ mic: ev.mic, chars: ev.text.length })
+      } else if (ev.type === 'discard') {
+        speaking = false
+        voiceLiveDiscard()
       } else if (ev.type === 'focus') {
         focus = { target: ev.target, label: ev.label }
         log(`[voice] enfoque: ${ev.target}`)
       } else if (ev.type === 'routed') {
         routed += 1
         speaking = false
+        voiceLiveDiscard()
         focus = { target: ev.target, label: ev.label }
         log(`[voice] frase enviada a ${ev.target} (#${routed})`)
       } else {
@@ -365,6 +403,7 @@ export function createVoiceListener(opts: VoiceListenOptions = {}): VoiceListene
         const joined = glueVoiceIntoQueue(queueAccess, ev.text, ev.mic)
         const cmd = joined ?? buildVoiceCommand(ev.text, ev.mic)
         enqueueFn(cmd)
+        voiceLiveSent(ev.text.length)
         if (joined) glued += 1
         log(`[voice] frase #${utterances} (${ev.text.length} car.)${joined ? ' pegada a la anterior' : ''}`)
         opts.onUtterance?.({ mic: ev.mic, chars: ev.text.length })
@@ -397,6 +436,7 @@ export function createVoiceListener(opts: VoiceListenOptions = {}): VoiceListene
       if (child === c) child = null
       ready = false
       speaking = false
+      voiceLiveReset()
       log(`[voice] hijo terminado (${why})`)
       if (running) scheduleRestart()
     }
@@ -444,6 +484,7 @@ export function createVoiceListener(opts: VoiceListenOptions = {}): VoiceListene
       child = null
       ready = false
       speaking = false
+      voiceLiveReset()
       try {
         c?.kill('SIGTERM')
       } catch {}
