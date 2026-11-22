@@ -485,7 +485,18 @@ describe('alias de la sesión hacia la cola', () => {
           throw new Error('x')
         },
         pid: 7,
+        getSessionId: () => '',
       }),
     ).toEqual(['--pid', '7'])
+  })
+  test('speakerFlags: pasa --session para reconocer a la principal', () => {
+    expect(speakerFlags({ getAlias: () => 'buho rosa', pid: 7, getSessionId: () => '37cc9bbe-793b' })).toEqual([
+      '--session',
+      '37cc9bbe-793b',
+      '--pid',
+      '7',
+      '--alias',
+      'buho rosa',
+    ])
   })
 })
