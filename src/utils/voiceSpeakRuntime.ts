@@ -48,7 +48,7 @@ export const MAX_SPOKEN_CHARS = 240
 
 /** System prompt rule appended in voice mode (see main.tsx). */
 export const VOICE_SPEAK_PROMPT =
-  'Tu primer párrafo se lee en voz alta: máximo 2 frases, claro y sin rutas, código ni tablas; el detalle va después, solo escrito. Si necesitas herramientas o pensar, empieza por un acuse de una frase («Voy», «Mirando») y habla el resultado al terminar.'
+  'Tu primer párrafo se lee en voz alta: máximo 2 frases, claro y sin rutas, código ni tablas; el detalle va después, solo escrito. Si necesitas herramientas o pensar, empieza por un acuse de una frase («Voy», «Mirando») y habla el resultado al terminar. Ante un mensaje de voz nuevo de la persona, contesta primero con una frase corta y deja lo largo en segundo plano (agentes o comandos en background) para poder seguir oyéndola mientras trabajas.'
 
 // ── pure helpers ─────────────────────────────────────────────────────────
 
