@@ -1,18 +1,26 @@
 import { voiceListenActive } from './voiceListenRuntime.js'
 import { describe, expect, test } from 'bun:test'
+import { mkdtempSync, writeFileSync } from 'fs'
+import { tmpdir } from 'os'
+import { join } from 'path'
 import {
   MAX_SPOKEN_CHARS,
   assistantTextBlocks,
   createProcessQueue,
   createVoiceSpeaker,
+  humanUserTurn,
   newSpokenStream,
   pickSpokenText,
+  readSpeakMode,
+  speakerFlags,
   takeSpokenChunks,
+  wantsSpokenReply,
   type SayOptions,
+  type SpeakMode,
   type SpeechQueue,
 } from './voiceSpeakRuntime.js'
 
-function fakes(enabled = true) {
+function fakes(enabled = true, mode: SpeakMode = 'siempre') {
   const said: string[] = []
   const opts: SayOptions[] = []
   const noted: string[] = []
@@ -30,6 +38,7 @@ function fakes(enabled = true) {
     queue,
     noteSpoken: t => (noted.push(t), true),
     enabled: () => enabled,
+    mode: () => mode,
     log: () => {},
   })
   return { said, opts, noted, speaker, cancels: () => cancels }
@@ -292,5 +301,191 @@ describe('gate de la salida hablada', () => {
       if (prev === undefined) delete process.env.FNHARNESS_VOICE_LISTEN
       else process.env.FNHARNESS_VOICE_LISTEN = prev
     }
+  })
+})
+
+describe('wantsSpokenReply', () => {
+  test.each([
+    '¿Qué hora es?',
+    'esto funciona?',
+    'Oye, ¿puedes mirarlo',
+    'Dime el estado de la cola',
+    'cuéntame qué pasó',
+    'Explicame como va',
+    'CONFÍRMAME que está hecho',
+    'avisame cuando termine',
+    'dime',
+    'Cómo va el build ahora',
+    'no sé qué hacer con esto',
+    'Cuándo acaba',
+    'Por qué falla',
+    'Cuántas quedan',
+    'Quién lo hizo',
+    'Dónde está el fichero',
+    'Cuál es mejor',
+  ])('pide respuesta: %s', t => expect(wantsSpokenReply(t)).toBe(true))
+  test.each([
+    '',
+    'Haz el commit y mergea',
+    'Ya lo he visto, gracias',
+    'Te dije que lo hicieras',
+    'Vale, sigue con la tarea de la cola',
+    'Es lo que quería',
+  ])('no pide respuesta: %s', t => expect(wantsSpokenReply(t)).toBe(false))
+  test('interrogativa sin tilde solo al empezar la frase', () => {
+    expect(wantsSpokenReply('Como va esto')).toBe(true)
+    expect(wantsSpokenReply('Vale. Cuando acabe me dices')).toBe(true)
+    expect(wantsSpokenReply('hazlo como quieras')).toBe(false)
+  })
+})
+
+describe('readSpeakMode', () => {
+  const file = (content: string) => {
+    const p = join(mkdtempSync(join(tmpdir(), 'voces-')), 'voces.json')
+    writeFileSync(p, content)
+    return p
+  }
+  test('preguntas por defecto: sin fichero, JSON roto, sin clave o valor desconocido', () => {
+    expect(readSpeakMode('/no/existe/voces.json')).toBe('preguntas')
+    expect(readSpeakMode(file('{no json'))).toBe('preguntas')
+    expect(readSpeakMode(file('{"principal":"x"}'))).toBe('preguntas')
+    expect(readSpeakMode(file('{"hablar":"a veces"}'))).toBe('preguntas')
+    expect(readSpeakMode(file('[1]'))).toBe('preguntas')
+  })
+  test('lee siempre, nunca y preguntas ignorando el resto de claves', () => {
+    expect(readSpeakMode(file('{"hablar":"siempre","voces":{}}'))).toBe('siempre')
+    expect(readSpeakMode(file('{"decir_nombre":true,"hablar":"Nunca"}'))).toBe('nunca')
+    expect(readSpeakMode(file('{"hablar":"preguntas"}'))).toBe('preguntas')
+  })
+})
+
+describe('humanUserTurn', () => {
+  const user = (content: unknown, extra: Record<string, unknown> = {}) => ({ type: 'user', message: { content }, ...extra })
+  test('voz, teclado y descartes', () => {
+    expect(humanUserTurn(user('hola', { origin: { kind: 'voice', mic: 'omi' } }))).toEqual({ origin: 'voice', text: 'hola' })
+    expect(humanUserTurn(user([{ type: 'text', text: 'hola' }]))).toEqual({ origin: 'keyboard', text: 'hola' })
+    expect(humanUserTurn(user([{ type: 'tool_result', content: 'x' }]))).toBeNull()
+    expect(humanUserTurn(user('x', { isMeta: true }))).toBeNull()
+    expect(humanUserTurn(user('x', { origin: { kind: 'task-notification' } }))).toBeNull()
+    expect(humanUserTurn(user('x', { isSidechain: true }))).toBeNull()
+    expect(humanUserTurn(entry('hola'))).toBeNull()
+  })
+  test('desenvuelve el texto de voz que llega a mitad de turno', () => {
+    const wrapped = 'La persona dijo por voz mientras trabajabas:\n¿Qué tal?\n\nEs texto de la persona (dictado por voz, puede traer errores de transcripción). Contesta ya con una frase corta, sin esperar a terminar lo que haces, y deja lo largo en segundo plano (agentes o comandos en background).'
+    expect(humanUserTurn(user(wrapped, { origin: { kind: 'voice', mic: 'omi' } }))?.text).toBe('¿Qué tal?')
+  })
+})
+
+describe('modo preguntas: habla solo si se le pregunta por voz', () => {
+  const voice = (text: string) => ({ type: 'user', message: { content: text }, origin: { kind: 'voice', mic: 'omi' } })
+  const typed = (text: string) => ({ type: 'user', message: { content: text } })
+  const answer = (id: string) => ({ type: 'assistant', uuid: `u-${id}`, message: { id: `x-${id}`, content: [{ type: 'text', text: 'Hecho del todo.' }] } })
+
+  test('sin ningún mensaje previo no habla (ni onEntry ni streaming)', async () => {
+    const f = fakes(true, 'preguntas')
+    expect(f.speaker.onEntry(answer('1'))).toBe(0)
+    expect(f.speaker.onDelta('m', 0, 'Hecho del todo. ')).toBe(0)
+    f.speaker.onBlockEnd('m', 0)
+    await flush()
+    expect(f.said).toEqual([])
+  })
+  test('voz con pregunta: habla por onEntry y por streaming', async () => {
+    const f = fakes(true, 'preguntas')
+    f.speaker.onEntry(voice('¿Cómo va el build?'))
+    expect(f.speaker.onDelta('m', 0, 'Hecho del todo. ')).toBe(1)
+    f.speaker.onBlockEnd('m', 0)
+    expect(f.speaker.onEntry(answer('2'))).toBe(1)
+    await flush()
+    expect(f.said).toEqual(['Hecho del todo.', '', 'Hecho del todo.'])
+  })
+  test('voz sin pregunta: no habla', async () => {
+    const f = fakes(true, 'preguntas')
+    f.speaker.onEntry(voice('Haz el commit y sigue'))
+    expect(f.speaker.onDelta('m', 0, 'Hecho del todo. ')).toBe(0)
+    expect(f.speaker.onEntry(answer('3'))).toBe(0)
+    await flush()
+    expect(f.said).toEqual([])
+  })
+  test('un mensaje escrito después de uno de voz anula el permiso', async () => {
+    const f = fakes(true, 'preguntas')
+    f.speaker.onEntry(voice('¿Cómo va?'))
+    f.speaker.onEntry(typed('¿Y ahora qué?'))
+    expect(f.speaker.onEntry(answer('4'))).toBe(0)
+    f.speaker.onEntry(voice('Dime el estado'))
+    expect(f.speaker.onEntry(answer('5'))).toBe(1)
+  })
+  test('los resultados de herramientas y metas no cambian el permiso', () => {
+    const f = fakes(true, 'preguntas')
+    f.speaker.onEntry(voice('¿Cómo va?'))
+    f.speaker.onEntry({ type: 'user', message: { content: [{ type: 'tool_result', content: 'ok' }] } })
+    f.speaker.onEntry({ type: 'user', isMeta: true, message: { content: 'recordatorio' } })
+    expect(f.speaker.onEntry(answer('6'))).toBe(1)
+  })
+  test('un bloque que ya habla se cierra aunque llegue un mensaje escrito a mitad', async () => {
+    const f = fakes(true, 'preguntas')
+    f.speaker.onEntry(voice('¿Cómo va?'))
+    f.speaker.onDelta('m', 0, 'Primera frase dicha. ')
+    f.speaker.onEntry(typed('espera'))
+    f.speaker.onBlockEnd('m', 0)
+    await flush()
+    expect(f.opts.at(-1)?.fin).toBe(true)
+  })
+  test('lo que no habló en streaming tampoco se habla luego desde la entrada', () => {
+    const f = fakes(true, 'preguntas')
+    expect(f.speaker.onDelta('m', 0, 'Hecho del todo. ')).toBe(0)
+    f.speaker.onEntry(voice('¿Cómo va?'))
+    expect(f.speaker.onEntry({ ...answer('7'), message: { id: 'm', content: [{ type: 'text', text: 'Hecho del todo.' }] } })).toBe(0)
+  })
+  test('siempre habla sin mensaje previo; nunca no habla ni con pregunta por voz', () => {
+    const a = fakes(true, 'siempre')
+    expect(a.speaker.onEntry(answer('8'))).toBe(1)
+    const n = fakes(true, 'nunca')
+    n.speaker.onEntry(voice('¿Cómo va?'))
+    expect(n.speaker.onEntry(answer('9'))).toBe(0)
+    expect(n.speaker.onDelta('m', 0, 'Hecho del todo. ')).toBe(0)
+  })
+})
+
+describe('alias de la sesión hacia la cola', () => {
+  const recorder = () => {
+    const calls: string[][] = []
+    const spawnFn = ((cmd: string, args: string[]) => {
+      calls.push([cmd, ...args])
+      const handlers: Record<string, (c?: number) => void> = {}
+      queueMicrotask(() => handlers.exit?.(0))
+      return { on: (ev: string, h: (c?: number) => void) => (handlers[ev] = h), unref() {} }
+    }) as never
+    return { calls, spawnFn }
+  }
+  const sayCalls = (calls: string[][]) => calls.map(c => c.join(' ')).filter(c => c.includes('--prioridad'))
+
+  test('pasa --pid y --alias leído en cada say', async () => {
+    const { calls, spawnFn } = recorder()
+    let alias: string | undefined = 'zorro rojo'
+    const q = createProcessQueue(spawnFn, { getAlias: () => alias, pid: 4242 })
+    await q.say('Hola')
+    alias = 'gato azul'
+    await q.say('Otra')
+    const s = sayCalls(calls)
+    expect(calls.some(c => c.includes('--alias') && c.includes('zorro rojo'))).toBe(true)
+    expect(s[0]).toContain('--pid 4242 --alias zorro rojo --prioridad respuesta')
+    expect(s[1]).toContain('--pid 4242 --alias gato azul --prioridad respuesta')
+  })
+  test('sin alias pasa solo --pid', async () => {
+    const { calls, spawnFn } = recorder()
+    const q = createProcessQueue(spawnFn, { getAlias: () => undefined, pid: 4242 })
+    await q.say('Hola')
+    expect(sayCalls(calls)[0]).toContain('--pid 4242 --prioridad respuesta')
+    expect(sayCalls(calls)[0]).not.toContain('--alias')
+  })
+  test('speakerFlags: un fallo al leer el alias cae a --pid', () => {
+    expect(
+      speakerFlags({
+        getAlias: () => {
+          throw new Error('x')
+        },
+        pid: 7,
+      }),
+    ).toEqual(['--pid', '7'])
   })
 })

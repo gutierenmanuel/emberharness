@@ -28,14 +28,26 @@
  * The transcript hook (v1) stays as the fallback for messages that did not
  * stream; a message that streamed is never spoken twice.
  *
+ * Who is answered (`hablar` in ~/.config/fnharness/voces.json): "preguntas"
+ * (default) speaks only when the last human message of the transcript came by
+ * voice AND asks for an answer (`wantsSpokenReply`); "siempre" speaks every
+ * answer; "nunca" never. The decision is per turn: every human user entry of
+ * the main transcript (voice origin or keyboard) renews it, so a message typed
+ * after a voice one revokes the permission.
+ *
+ * Which voice says it (alias -> voice, naming the session) is resolved by
+ * `enqueue_speech.py`: this module only passes `--pid <pid>` (always) and `--alias <alias>` (when known).
+ *
  * Privacy: what is spoken is never logged from here, only lengths.
  */
 
 import { spawn as nodeSpawn } from 'child_process'
-import { openSync } from 'fs'
-import { tmpdir } from 'os'
+import { openSync, readFileSync } from 'fs'
+import { homedir, tmpdir } from 'os'
 import { join } from 'path'
 import { logForDebugging } from './debug.js'
+import { getOwnSessionAlias } from './peerAlias.js'
+import { isVoiceOrigin, unwrapVoiceText } from './voiceOrigin.js'
 import { noteSpoken as realNoteSpoken, setSpeechStartHandler, setStopHandler, voiceListenActive } from './voiceListenRuntime.js'
 
 const PY = '/home/user/fn_registry/python/.venv/bin/python3'
@@ -105,6 +117,89 @@ export function pickSpokenText(block: string): string | null {
   const clean = cleanSpokenText(first)
   if (!hasLetters(clean)) return null
   return clipToSentences(clean)
+}
+
+// ── who is answered (pure + config) ──────────────────────────────────────
+
+/** `hablar` key of voces.json: when this session may speak its answers. */
+export type SpeakMode = 'preguntas' | 'siempre' | 'nunca'
+
+export const DEFAULT_SPEAK_MODE: SpeakMode = 'preguntas'
+
+export function defaultVocesPath(): string {
+  return join(homedir(), '.config', 'fnharness', 'voces.json')
+}
+
+/**
+ * Reads only the `hablar` key of voces.json. Tolerant: a missing file, bad
+ * JSON or an unknown value gives the default ("preguntas"). The other keys
+ * (principal, voces, decir_nombre) belong to the speech queue, not to this module.
+ */
+export function readSpeakMode(path: string = defaultVocesPath()): SpeakMode {
+  try {
+    const o = JSON.parse(readFileSync(path, 'utf8')) as unknown
+    const v = o && typeof o === 'object' ? (o as Record<string, unknown>).hablar : undefined
+    if (typeof v === 'string') {
+      const k = v.trim().toLowerCase()
+      if (k === 'preguntas' || k === 'siempre' || k === 'nunca') return k
+    }
+  } catch {}
+  return DEFAULT_SPEAK_MODE
+}
+
+const L = '\\p{L}'
+// Interrogatives: with accent anywhere; without accent only at the start of a sentence
+// ("que" inside a sentence is almost always a relative, not a question).
+const ACCENTED_Q = new RegExp(
+  `(?<![${L}])(?:qué|cómo|cuándo|dónde|cuál(?:es)?|cuánt[oa]s?|quién(?:es)?|por qué)(?![${L}])`,
+  'u',
+)
+const PLAIN_Q_AT_START = new RegExp(
+  `(?:^|[.!?…¿]\\s*)(?:que|como|cuando|donde|cual(?:es)?|cuant[oa]s?|quien(?:es)?|por que)(?![${L}])`,
+  'u',
+)
+const REQUEST_VERB = new RegExp(
+  `(?<![${L}])(?:dime|cuéntame|cuentame|explícame|explicame|confírmame|confirmame|avísame|avisame)(?![${L}])`,
+  'u',
+)
+
+/**
+ * True when the person's message asks for an answer: a question mark («?» or «¿»),
+ * an interrogative word (qué, cómo, cuándo, dónde, por qué, cuál, cuánto/a, quién;
+ * unaccented only at the start of a sentence) or a request verb (dime, cuéntame,
+ * explícame, confírmame, avísame). Case and accents on the verbs do not matter.
+ */
+export function wantsSpokenReply(text: string): boolean {
+  if (!text) return false
+  if (/[?¿]/.test(text)) return true
+  const t = text.toLowerCase()
+  return ACCENTED_Q.test(t) || PLAIN_Q_AT_START.test(t) || REQUEST_VERB.test(t)
+}
+
+type UserTurn = { origin: 'voice' | 'keyboard'; text: string }
+
+/**
+ * The human message a transcript entry carries, or null when the entry is not one
+ * (assistant, tool results, meta/system injections, other origins such as peers,
+ * channels or task notifications, compact summaries).
+ */
+export function humanUserTurn(entry: Record<string, unknown>): UserTurn | null {
+  if (entry.type !== 'user' || entry.isSidechain || entry.isMeta || entry.isCompactSummary) return null
+  const origin = entry.origin as { kind?: unknown } | undefined
+  const voice = isVoiceOrigin(origin)
+  if (origin !== undefined && !voice && origin?.kind !== 'human') return null
+  const content = (entry.message as { content?: unknown } | undefined)?.content
+  let text = ''
+  if (typeof content === 'string') text = content
+  else if (Array.isArray(content)) {
+    text = (content as ContentBlock[])
+      .filter(b => b?.type === 'text' && typeof b.text === 'string')
+      .map(b => b.text as string)
+      .join('\n')
+  }
+  text = text.trim()
+  if (!text || text.startsWith('<system-reminder>')) return null
+  return { origin: voice ? 'voice' : 'keyboard', text: voice ? unwrapVoiceText(text) : text }
 }
 
 // ── streaming chunker (pure) ─────────────────────────────────────────────
@@ -268,6 +363,8 @@ export type VoiceSpeakerOptions = {
   queue?: SpeechQueue
   noteSpoken?: (text: string) => boolean
   enabled?: () => boolean
+  /** Speak mode (`hablar`); default reads voces.json (cached for a couple of seconds). */
+  mode?: () => SpeakMode
   log?: (msg: string) => void
 }
 
@@ -282,11 +379,32 @@ export type VoiceSpeaker = {
   bargeIn: () => void
 }
 
+/** `readSpeakMode` with a short cache: the delta hook asks on every block, the file is read rarely. */
+function cachedSpeakMode(ttlMs = 2000): () => SpeakMode {
+  let at = 0
+  let value: SpeakMode = DEFAULT_SPEAK_MODE
+  return () => {
+    const now = Date.now()
+    if (now - at >= ttlMs) {
+      value = readSpeakMode()
+      at = now
+    }
+    return value
+  }
+}
+
 export function createVoiceSpeaker(opts: VoiceSpeakerOptions = {}): VoiceSpeaker {
   const queue = opts.queue ?? createProcessQueue()
   const noteSpoken = opts.noteSpoken ?? realNoteSpoken
   const enabled = opts.enabled ?? voiceListenActive
   const log = opts.log ?? logForDebugging
+  const mode = opts.mode ?? cachedSpeakMode()
+  /** The last human message of the transcript came by voice and asks for an answer. */
+  let voicePermit = false
+  const allowed = (): boolean => {
+    const m = mode()
+    return m === 'siempre' || (m === 'preguntas' && voicePermit)
+  }
   const seen = new Set<string>()
   /** Message ids that streamed: the transcript hook must not speak them again. */
   const streamed = new Set<string>()
@@ -338,6 +456,7 @@ export function createVoiceSpeaker(opts: VoiceSpeakerOptions = {}): VoiceSpeaker
       if (!s) {
         remember(streamed, msgId)
         if (doneKeys.has(key)) return 0 // block already finished or cut by a barge-in
+        if (!allowed()) return 0 // nobody asked this session to speak (streams already started finish)
         s = { st: newSpokenStream(), sent: 0 }
         streams.set(key, s)
       }
@@ -352,10 +471,18 @@ export function createVoiceSpeaker(opts: VoiceSpeakerOptions = {}): VoiceSpeaker
     },
     onEntry(entry) {
       if (!enabled()) return 0
+      const turn = humanUserTurn(entry)
+      if (turn) {
+        // Every human message renews the permission: a typed one after a voice one revokes it.
+        voicePermit = turn.origin === 'voice' && wantsSpokenReply(turn.text)
+        log(`[voice-speak] turno ${turn.origin}${voicePermit ? ' con pregunta' : ''}`)
+        return 0
+      }
       const blocks = assistantTextBlocks(entry)
       if (blocks.length === 0) return 0
       const msgId = (entry.message as { id?: unknown } | undefined)?.id
       if (typeof msgId === 'string' && streamed.has(msgId)) return 0
+      if (!allowed()) return 0
       const uuid = typeof entry.uuid === 'string' ? entry.uuid : ''
       if (uuid) {
         if (seen.has(uuid)) return 0
@@ -410,7 +537,24 @@ function run(spawnFn: SpawnFn, argv: string[]): Promise<number> {
  * `serve_speech_queue.py` detached (log in tmpdir). Says are chained so they
  * keep their order; cancels go straight through.
  */
-export function createProcessQueue(spawnFn: SpawnFn = nodeSpawn): SpeechQueue {
+export type ProcessQueueOptions = {
+  /** Alias of this session ("zorro rojo"), read on every say; default `getOwnSessionAlias()`. */
+  getAlias?: () => string | undefined
+  /** PID passed on every say (it goes to the utterance history so Orca knows which tab speaks); default `process.pid`. */
+  pid?: number
+}
+
+/** Who is speaking, as flags for enqueue_speech.py: always `--pid <pid>`, plus `--alias <alias>` (no emoji) when the session has one. */
+export function speakerFlags(opts: ProcessQueueOptions = {}): string[] {
+  let alias: string | undefined
+  try {
+    alias = (opts.getAlias ?? (() => getOwnSessionAlias()?.alias))()
+  } catch {}
+  const pid = ['--pid', String(opts.pid ?? process.pid)]
+  return alias ? [...pid, '--alias', alias] : pid
+}
+
+export function createProcessQueue(spawnFn: SpawnFn = nodeSpawn, qopts: ProcessQueueOptions = {}): SpeechQueue {
   let alive: Promise<void> | null = null
   let chain: Promise<void> = Promise.resolve()
 
@@ -439,7 +583,7 @@ export function createProcessQueue(spawnFn: SpawnFn = nodeSpawn): SpeechQueue {
       const extra = opts.stream ? ['--stream', opts.stream, ...(opts.fin ? ['--fin'] : [])] : []
       const job = chain.then(async () => {
         await ensureAlive()
-        await run(spawnFn, [...ENQUEUE_SPEECH_ARGV, '--prioridad', 'respuesta', ...extra, '--', text])
+        await run(spawnFn, [...ENQUEUE_SPEECH_ARGV, ...speakerFlags(qopts), '--prioridad', 'respuesta', ...extra, '--', text])
       })
       chain = job.catch(() => {})
       return job
