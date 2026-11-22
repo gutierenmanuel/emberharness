@@ -46,6 +46,7 @@ import { openSync, readFileSync } from 'fs'
 import { homedir, tmpdir } from 'os'
 import { join } from 'path'
 import { logForDebugging } from './debug.js'
+import { getSessionId } from '../bootstrap/state.js'
 import { getOwnSessionAlias } from './peerAlias.js'
 import { isVoiceOrigin, unwrapVoiceText } from './voiceOrigin.js'
 import { noteSpoken as realNoteSpoken, setSpeechStartHandler, setStopHandler, voiceListenActive } from './voiceListenRuntime.js'
@@ -542,15 +543,24 @@ export type ProcessQueueOptions = {
   getAlias?: () => string | undefined
   /** PID passed on every say (it goes to the utterance history so Orca knows which tab speaks); default `process.pid`. */
   pid?: number
+  /** Session id, read on every say (survives --resume, unlike the random alias): the queue recognises the main session by it. */
+  getSessionId?: () => string | undefined
 }
 
-/** Who is speaking, as flags for enqueue_speech.py: always `--pid <pid>`, plus `--alias <alias>` (no emoji) when the session has one. */
+/**
+ * Who is speaking, as flags for enqueue_speech.py: `--session <id>` when known, always `--pid <pid>`, plus
+ * `--alias <alias>` (no emoji) when the session has one.
+ */
 export function speakerFlags(opts: ProcessQueueOptions = {}): string[] {
   let alias: string | undefined
   try {
     alias = (opts.getAlias ?? (() => getOwnSessionAlias()?.alias))()
   } catch {}
-  const pid = ['--pid', String(opts.pid ?? process.pid)]
+  let session: string | undefined
+  try {
+    session = (opts.getSessionId ?? (() => String(getSessionId() ?? '')))()
+  } catch {}
+  const pid = [...(session ? ['--session', session] : []), '--pid', String(opts.pid ?? process.pid)]
   return alias ? [...pid, '--alias', alias] : pid
 }
 
