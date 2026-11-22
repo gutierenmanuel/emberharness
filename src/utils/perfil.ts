@@ -56,7 +56,7 @@ export type ParsePerfilResult =
 export const KNOWN_TOOL_NAMES: ReadonlySet<string> = new Set([
   'Agent', 'AskUserQuestion', 'Bash', 'Brief', 'Config', 'CronCreate', 'CronDelete', 'CronList',
   'Edit', 'EnterPlanMode', 'EnterWorktree', 'ExitPlanMode', 'ExitWorktree', 'Glob', 'Grep', 'LSP',
-  'ListMcpResourcesTool', 'ReadMcpResourceTool', 'ListPeers', 'Monitor', 'NotebookEdit', 'PowerShell',
+  'ListMcpResourcesTool', 'ReadMcpResourceTool', 'ListPeers', 'Monitor', 'NotebookEdit', 'PeerHistory', 'PowerShell',
   'PushNotification', 'REPL', 'Read', 'RemoteTrigger', 'ScheduleWakeup', 'SendMessage',
   'SendUserMessage', 'Skill', 'Sleep', 'StructuredOutput', 'Task', 'TaskCreate', 'TaskGet', 'TaskList',
   'TaskOutput', 'TaskStop', 'TaskUpdate', 'TeamCreate', 'TeamDelete', 'TodoWrite', 'ToolSearch',
