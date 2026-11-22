@@ -459,7 +459,7 @@ describe('alias de la sesión hacia la cola', () => {
   }
   const sayCalls = (calls: string[][]) => calls.map(c => c.join(' ')).filter(c => c.includes('--prioridad'))
 
-  test('pasa --alias leído en cada say', async () => {
+  test('pasa --pid y --alias leído en cada say', async () => {
     const { calls, spawnFn } = recorder()
     let alias: string | undefined = 'zorro rojo'
     const q = createProcessQueue(spawnFn, { getAlias: () => alias, pid: 4242 })
@@ -468,11 +468,10 @@ describe('alias de la sesión hacia la cola', () => {
     await q.say('Otra')
     const s = sayCalls(calls)
     expect(calls.some(c => c.includes('--alias') && c.includes('zorro rojo'))).toBe(true)
-    expect(s[0]).toContain('--alias zorro rojo --prioridad respuesta')
-    expect(s[1]).toContain('--alias gato azul --prioridad respuesta')
-    expect(s.some(c => c.includes('--pid'))).toBe(false)
+    expect(s[0]).toContain('--pid 4242 --alias zorro rojo --prioridad respuesta')
+    expect(s[1]).toContain('--pid 4242 --alias gato azul --prioridad respuesta')
   })
-  test('sin alias pasa --pid', async () => {
+  test('sin alias pasa solo --pid', async () => {
     const { calls, spawnFn } = recorder()
     const q = createProcessQueue(spawnFn, { getAlias: () => undefined, pid: 4242 })
     await q.say('Hola')

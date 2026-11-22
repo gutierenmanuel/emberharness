@@ -36,7 +36,7 @@
  * after a voice one revokes the permission.
  *
  * Which voice says it (alias -> voice, naming the session) is resolved by
- * `enqueue_speech.py`: this module only passes `--alias <alias>` (or `--pid`).
+ * `enqueue_speech.py`: this module only passes `--pid <pid>` (always) and `--alias <alias>` (when known).
  *
  * Privacy: what is spoken is never logged from here, only lengths.
  */
@@ -540,17 +540,18 @@ function run(spawnFn: SpawnFn, argv: string[]): Promise<number> {
 export type ProcessQueueOptions = {
   /** Alias of this session ("zorro rojo"), read on every say; default `getOwnSessionAlias()`. */
   getAlias?: () => string | undefined
-  /** PID passed when there is no alias yet (the script resolves it); default `process.pid`. */
+  /** PID passed on every say (it goes to the utterance history so Orca knows which tab speaks); default `process.pid`. */
   pid?: number
 }
 
-/** Who is speaking, as flags for enqueue_speech.py: `--alias <alias>`, else `--pid <pid>`. */
+/** Who is speaking, as flags for enqueue_speech.py: always `--pid <pid>`, plus `--alias <alias>` (no emoji) when the session has one. */
 export function speakerFlags(opts: ProcessQueueOptions = {}): string[] {
   let alias: string | undefined
   try {
     alias = (opts.getAlias ?? (() => getOwnSessionAlias()?.alias))()
   } catch {}
-  return alias ? ['--alias', alias] : ['--pid', String(opts.pid ?? process.pid)]
+  const pid = ['--pid', String(opts.pid ?? process.pid)]
+  return alias ? [...pid, '--alias', alias] : pid
 }
 
 export function createProcessQueue(spawnFn: SpawnFn = nodeSpawn, qopts: ProcessQueueOptions = {}): SpeechQueue {
