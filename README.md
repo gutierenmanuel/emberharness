@@ -1,97 +1,100 @@
 # EmberHarness
 
-Comando `emberh` (`fnharness` sigue funcionando como alias). Antes se llamaba FnHarness.
+Arnés de agente para la terminal que funciona con cualquier proveedor de LLM. Herramientas,
+subagentes, MCP, hooks y skills se comportan igual con Claude que con un modelo local en llama.cpp u
+Ollama o con cualquier API compatible con OpenAI, y se puede cambiar de modelo y de cuenta a mitad de
+una conversación.
 
-![Arranque de EmberHarness con el logo de fuego](assets/01-arranque.png)
+![Arranque de EmberHarness](assets/01-arranque.png)
 
-Arnés de agente de terminal (fork de Claude Code sobre Bun e Ink) que funciona con cualquier
-proveedor de LLM, no solo Anthropic. Un adaptador traduce la API Messages de Anthropic a OpenAI Chat
-Completions (streaming, tool calls, imágenes y razonamiento), de modo que herramientas, subagentes,
-MCP, hooks y skills corren igual sobre llama.cpp, Ollama, LM Studio, OpenAI, OpenRouter, Groq,
-DeepSeek, Gemini, Mistral, Together, Venice o cualquier endpoint compatible.
+> Uso interno. El proyecto parte de un snapshot reconstruido de Claude Code, así que el repositorio es
+> privado y no se publica ni se redistribuye.
 
-Es el arnés que se prepara como alternativa a `claude` para las salas de Matrix del ecosistema
-fn_registry (ver [plan de arnés por defecto en Matrix](docs/plans/matrix_default_harness.md)).
+## Qué aporta
 
-Estado propio en `~/.fnharness`, separado de `~/.claude`. Repo privado: el origen es un snapshot
-reconstruido de Claude Code y no se publica ni se redistribuye.
-
-Con `/model` se elige el modelo entre todas las cuentas conectadas; escoger uno de otra cuenta
-cambia la sesión a esa cuenta:
+- **Cualquier proveedor.** Un adaptador traduce la API Messages de Anthropic a OpenAI Chat
+  Completions (streaming, llamadas a herramientas, imágenes y razonamiento). Funciona con llama.cpp,
+  Ollama, LM Studio, OpenAI, OpenRouter, Groq, DeepSeek, Gemini, Mistral, Together, Venice o
+  cualquier endpoint compatible.
+- **Varias cuentas a la vez.** `/model` lista los modelos de todas las cuentas conectadas; elegir uno
+  de otra cuenta cambia la sesión a esa cuenta, y `cuenta:modelo` fuerza una cuenta para una sola
+  petición o para un subagente.
+- **Contexto a medida.** `/scope` y los perfiles (`--perfil`) deciden qué servidores MCP, skills y
+  herramientas llegan al modelo, para que un modelo local con poca ventana no se ahogue.
+- **Trabajo en segundo plano.** Cualquier herramienta, subagente o skill puede pasar a segundo plano
+  (Ctrl+B), y las sesiones enteras se lanzan desacopladas con `/background`.
+- **Configuración en JSON con recarga en caliente.** Cuentas, claves, modelos y tarifas se editan en
+  ficheros JSON y se aplican sin reiniciar.
+- **Barra de estado propia** con la ventana real del modelo, el coste, la velocidad del servidor local
+  y el estado de la cuenta.
 
 ![Selector de modelos con varias cuentas](assets/02-model.png)
 
 ## Instalación
 
-Requisitos: Linux, `git`, `bun` >= 1.3.11 y acceso al repo de Gitea.
+Requisitos: Linux, `git` y `bun` >= 1.3.11.
 
 ```bash
-git clone https://gitea-dgg044oo04woo4ggcsws4gk0.organic-machine.com/dataforge/emberharness.git
+git clone https://github.com/gutierenmanuel/emberharness.git
 cd emberharness
-./install.sh        # bun install, build de ./cli y enlace en ~/.local/bin/emberh
+./install.sh
 ```
 
-`install.sh` acepta `FNHARNESS_DIR` (ruta de instalación), `FNHARNESS_REPO` (remoto) y
-`FNHARNESS_LINK_DIR` (dónde enlazar el comando).
+`install.sh` instala las dependencias, compila `./cli`, deja `ripgrep` listo para `Grep` y `Glob`
+(usa el del sistema o descarga la release oficial con sha256 verificado, sin `sudo`) y enlaza el
+comando `emberh` en `~/.local/bin`. Si esa carpeta no está en el `PATH`, el script lo avisa.
 
-`Grep` y `Glob` necesitan `ripgrep`, y dentro de `./cli` no hay uno embebido. fnharness usa primero un
-`rg` real del PATH (un archivo ejecutable: una función de shell llamada `rg` no cuenta) y, si no hay,
-`vendor/ripgrep/<arq>-<so>/rg` junto al binario, que `install.sh` descarga con
-`scripts/install-ripgrep.sh` (release oficial, sha256 verificado, sin `sudo` ni paquetes del sistema;
-`vendor/` está en `.gitignore`). `FNHARNESS_RG=/ruta/rg` fuerza otro binario.
+Primeros pasos: arranca `emberh` y entra con tu cuenta de Claude con `/login`, o añade otra cuenta
+con `/account add <proveedor>` (proveedores del catálogo de models.dev, `/account catalog` los lista)
+o `/account add <id> <baseUrl> [modelo]` para un servidor propio compatible con OpenAI.
 
 ## Uso
 
 ```bash
-fnharness                          # sesión interactiva con la cuenta predeterminada (o, si no hay, la última usada)
-fnharness --resume <session_id>    # retomar una sesión
-fnharness --account llamacpp       # arrancar con una cuenta concreta (no se guarda)
-fnharness --account ollama --model qwen3:8b -p "resume este repo"
-fnharness --accounts               # cuentas, la predeterminada, la última usada y con cuál abrirá
-fnharness --set-default qwen36     # fija la cuenta con la que abre (opcional: modelo detrás)
-fnharness --set-default last       # sin predeterminada: vuelve a «la última usada»
+emberh                                  # sesión interactiva con la cuenta predeterminada
+emberh --resume <session_id>            # retomar una sesión
+emberh --account ollama                 # arrancar con otra cuenta (no se guarda)
+emberh --account ollama --model qwen3:8b -p "resume este repo"   # una sola petición, sin TUI
+emberh --perfil minimo                  # arrancar con un perfil de contexto
+emberh --accounts                       # cuentas, la predeterminada y con cuál abrirá
+emberh --set-default ollama qwen3:8b    # cuenta y modelo con los que abre (last = la última usada)
 ```
 
-Dentro de la sesión:
+Comandos principales dentro de la sesión:
 
-| Comando | Efecto |
+| Comando | Qué hace |
 |---|---|
-| `/account` | Selector de cuentas con su estado (listo, falta clave, servidor local apagado) |
-| `/account <id> [modelo]` | Cambia de cuenta y, opcionalmente, de modelo |
-| `/account default <id\|last> [modelo]` | Fija la cuenta (y modelo) con la que abre fnharness; `last` la quita |
-| `/model` | Modelos de todas las cuentas conectadas; `cuenta:modelo` fuerza una cuenta para esa petición |
-| `/scope` | Qué llega al modelo: servidores MCP, skills y herramientas (perfil de contexto por cuenta) |
-| `/goal`, `/loop` | Mantener al agente trabajando hasta cumplir una condición, y tareas recurrentes |
-| `/background <prompt>` (`/bg`) | Lanza una sesión en segundo plano que continúa esta conversación; se gestiona con `fnharness ps\|logs\|stop\|attach\|rm` |
+| `/account` | Cuentas con su estado (lista, falta la clave, servidor local apagado); `/account <id> [modelo]` cambia de cuenta |
+| `/model` | Modelos de todas las cuentas conectadas; `cuenta:modelo` fuerza una cuenta |
+| `/scope` | Qué llega al modelo: MCP, skills y herramientas, recordado por cuenta |
+| `/perfil` | Aplica un perfil de contexto (`full`, `simple`, `minimo`, `chat` o uno propio) |
+| `/goal`, `/loop` | Mantener al agente trabajando hasta cumplir una condición, o repetir una tarea |
+| `/background <prompt>` | Sesión en segundo plano que continúa la conversación |
 
-El catálogo completo está en [docs/COMMANDS.md](docs/COMMANDS.md). La cuenta `claude` usa la API
-nativa de Anthropic; su login (`/login`) es propio de fnharness.
+Las sesiones en segundo plano se gestionan desde fuera con `emberh ps`, `emberh logs <id> [-f]`,
+`emberh attach <id>`, `emberh stop <id>` y `emberh rm <id>`. El catálogo completo de comandos está en
+[docs/COMMANDS.md](docs/COMMANDS.md).
 
-## Cuenta con la que abre
+### Con qué cuenta abre
 
-Orden de decisión al arrancar: `--account` > **predeterminada** (`default` en `accounts.json`) >
-**última usada** (`active`, la escribe cada cambio de cuenta) > `claude`. La predeterminada es opt-in:
-sin ella todo sigue como antes (se abre con la última usada). Se fija con `/account default <id>
-[modelo]` o `fnharness --set-default <id> [modelo]` (el modelo queda guardado como el de esa cuenta);
-`last` o `none` la borran. Cambiar de cuenta dentro de una sesión no mueve la predeterminada, solo la
-«última usada». Si la predeterminada deja de existir (se borra la cuenta) se salta y se usa la última.
-`fnharness --accounts` y `/account list` marcan cuál es y con cuál abrirá.
+`--account` manda. Si no se pasa, se usa la cuenta predeterminada (`/account default <id> [modelo]`
+o `emberh --set-default`) y, si no hay ninguna, la última usada. Cambiar de cuenta dentro de una
+sesión no toca la predeterminada.
 
-## Configuración en JSON con recarga en caliente
+## Configuración
 
-Cuentas, claves, modelos y tarifas salen de ficheros JSON en `~/.fnharness/` (`CLAUDE_CONFIG_DIR`), no
-del código. Los valores por defecto viajan en `src/config/defaults/`; el fichero del usuario se
-superpone campo a campo y no hace falta tenerlo. Se recargan solos (se comprueba mtime y tamaño como
-mucho una vez por segundo): editar el fichero basta, sin reiniciar. Si queda inválido se mantiene la
-última configuración buena y se avisa en el log de depuración.
+Todo vive en el directorio de configuración del arnés (`$CLAUDE_CONFIG_DIR`, que fija el lanzador
+`bin/emberh`), separado de `~/.claude`. Los valores por defecto vienen en `src/config/defaults/`; tus
+ficheros solo necesitan los campos que cambies y se recargan solos al guardarlos. Si un fichero queda
+inválido se mantiene la última configuración buena.
 
 | Fichero | Contenido |
 |---|---|
-| `accounts.json` | cuentas (`model`, `smallModel`, `baseUrl`, `apiKeyRef`, `contextProfile`), cuenta activa y predeterminada |
-| `providers.json` | presets de proveedor (URL, variable de clave, `keyRef`, modelo por defecto, ventana) y, por modelo, ventana, tope de salida y tarifa (`models`). `keyRefTemplate` (`pass:apis/{provider}`) da la referencia de clave a todo proveedor que no tenga una propia |
-| `claude-models.json` | alias `sonnet`/`opus`/`haiku` y el modelo al que apuntan, filas del `/model`, y por modelo: nombre, ventana nativa, corte de conocimiento y tarifa (`pricing`, `fastPricing`) |
+| `accounts.json` | Cuentas (`model`, `smallModel`, `baseUrl`, `apiKeyRef`, `contextProfile`), la activa y la predeterminada |
+| `providers.json` | Presets de proveedor (URL, variable de la clave, modelo por defecto, ventana) y, por modelo, ventana, tope de salida y tarifa |
+| `claude-models.json` | Alias `sonnet`/`opus`/`haiku`, filas de `/model` y, por modelo, ventana, corte de conocimiento y tarifa |
 
-Adoptar un modelo nuevo es una edición, p. ej. en `claude-models.json`:
+Adoptar un modelo nuevo es una edición, por ejemplo en `claude-models.json`:
 
 ```json
 {
@@ -103,140 +106,81 @@ Adoptar un modelo nuevo es una edición, p. ej. en `claude-models.json`:
 }
 ```
 
-Orden de la clave de una cuenta: variable de entorno del proveedor > `apiKey` de la cuenta >
-`apiKeyRef` de la cuenta > `keyRef` del proveedor > `keyRefTemplate`. La ventana de contexto: la que
-informa el servidor local > `models` de `providers.json` > la del preset > el catálogo de models.dev.
-Las capacidades (pensamiento adaptativo, esfuerzo) siguen en el código.
+La clave de una cuenta se busca en este orden: variable de entorno del proveedor, `apiKey` de la
+cuenta, `apiKeyRef` de la cuenta, `keyRef` del proveedor y la plantilla `keyRefTemplate`
+(`pass:apis/{provider}`). La ventana de contexto sale del servidor local si la informa; si no, de
+`providers.json`, del preset y por último del catálogo de models.dev.
 
 ## Barra de estado
 
 ![Barra de estado con una cuenta local de Ollama](assets/03-statusline.png)
 
-`statusline.sh` recibe por stdin el JSON de siempre más un bloque `fnharness` que se calcula con la
-cuenta activa (nada de supuestos de Claude): `account` (id, etiqueta, proveedor, URL, modelo, nombre
-que da el servidor), `context` (ventana real, de dónde sale: `server`, `preset`, `catalog` o `claude`,
-umbral de autocompactación y tope de salida), `server` (si responde y su `n_ctx`), `speed` (último
-turno medido, mismo formato que `local_speed`) y `cost` (`subscription`, `free`, `priced`,
-`unpriced`). Ejemplo con la cuenta `qwen36`:
+`statusline.sh` se registra sola en la primera ejecución y se refresca cada 2 segundos. Muestra el
+modelo y la cuenta, el uso de la ventana real con el umbral de autocompactado, los tokens y el coste
+de la sesión, y una línea con el estado de la cuenta: con un servidor local, si responde, su ventana
+y la velocidad del último turno; con Claude, la ventana y los límites de 5 h y 7 días.
 
-```
-qwen36-35b-heretic-q4km [qwen36] │ CTX: █░░░░░░░░░ 10% (3k/32k) ⟳25.8k │ IN:3k OUT:5 │ ⎇ master │ 15:55
-local · sin coste │ +0/-0 │ Total: ↓3k/↑21 │ ⏱ 13s │ ~/proyecto
-qwen36 Qwen3.6 35B heretic (local) @ localhost:8090 ● en línea │ ventana 32k (servidor) · salida máx 4k · autocompacta a 25.8k │ ⚡ TTFT 9.47 s · gen 29.3 tok/s · lectura 172 tok/s · espec. 50%
-```
+## Modelos locales
 
-Con `claude` la tercera línea es `claude Anthropic │ ventana 200k · salida máx 32k · autocompacta a
-167k` y se mantienen coste y límites 5h/7d (que no se muestran en el resto de cuentas). La ventana de
-un servidor local sale de `GET /props` (`n_ctx` por slot, llama.cpp) y **gana** al preset, además de
-alimentar el autocompactado; si no hay tope de salida y la ventana es corta (≤ 64k) se usa un cuarto
-de ella. La consulta es una sola petición en segundo plano con TTL (15 s en línea, 4 s caído), no
-bloquea el refresco; `FNHARNESS_SERVER_PROBE=0` la desactiva. Para que la barra se actualice sola
-cada 2 s, el `settings.json` necesita `"refreshInterval": 2` en `statusLine` (el lanzador lo escribe
-solo en instalaciones nuevas).
+Con una cuenta local (`baseUrl` en `localhost`, `127.0.0.1` o `[::1]`) el arnés se adapta a ventanas
+pequeñas y a un primer token lento:
 
-## Canal de eventos para Matrix
+- **Prompt ligero.** Arranca sin los `CLAUDE.md` del proyecto, sus reglas ni sus hooks (el
+  `CLAUDE.md` global sí entra), recorta las descripciones de los parámetros de las herramientas y
+  ordena el contexto estable antes de lo variable para aprovechar la caché del servidor. Pasar
+  `--setting-sources` explícito lo anula.
+- **Velocidad visible.** Bajo cada respuesta aparecen el tiempo hasta el primer token, la velocidad de
+  lectura y de generación y, si el servidor la usa, la tasa de aciertos de la decodificación
+  especulativa:
 
-Dos variables de entorno, apagadas por defecto (sin ellas fnharness no escribe ni lee nada). El
-contrato completo, con todos los eventos y campos, está en [docs/matrix_events.md](docs/matrix_events.md).
+  ```
+  ⚡ TTFT 0.42 s · lectura 1500 tok/s (300 tok, 2800 en caché) · generación 42.0 tok/s (210 tok) · especulación 75% (90/120)
+  ```
 
-| Variable | Qué hace |
-|---|---|
-| `FNHARNESS_EVENTS=<ruta>.jsonl` | Añade una línea JSON por evento (`session_start`, `ready`, `turn_start`, `turn_end`, `ask_user`, `ask_user_done`, `permission_prompt`, `input_queued`, `input_accepted`, `session_switch`, `exit`). Se abre en modo append con permisos 0600 y cada línea es un único `write`. |
-| `FNHARNESS_INPUT=<fifo>` | FIFO (`mkfifo`) del que se lee una línea JSON por mensaje: `prompt`, `ask_answer`, `interrupt`. Solo en modo interactivo. Las líneas inválidas se descartan con un log de depuración. |
+- **Edición tolerante.** `Edit` sobre un archivo que el modelo no ha leído lo da por leído en vez de
+  fallar; Claude y las cuentas remotas conservan la protección original.
 
-```bash
-mkfifo /tmp/fnh.in
-FNHARNESS_EVENTS=/tmp/fnh.events.jsonl FNHARNESS_INPUT=/tmp/fnh.in fnharness &
-tail -f /tmp/fnh.events.jsonl &
-echo '{"type":"prompt","id":"1","text":"resume este repo"}' > /tmp/fnh.in
-```
+## Búsqueda web
 
-La lógica pura (construcción y serialización de eventos, parseo de la entrada, cola) está en
-`src/utils/matrixEvents.ts`; los efectos (fichero, FIFO, enganches al REPL) en
-`src/utils/matrixEventsRuntime.ts`.
-
-## Velocidad del modelo local
-
-Con una cuenta local (`baseUrl` en `localhost`/`127.0.0.1`: llama.cpp, qwen36, ollama, LM Studio)
-aparece, tenue bajo la respuesta de cada turno, una línea como:
-
-```
-⚡ TTFT 0.42 s · lectura 1500 tok/s (300 tok, 2800 en caché) · generación 42.0 tok/s (210 tok) · especulación 75% (90/120)
-```
-
-Usa el objeto `timings` de llama-server (`prompt_n`, `prompt_ms`, `cache_n`, `predicted_n`,
-`predicted_ms`, `draft_n`, `draft_n_accepted`); si el servidor no lo da cae a lo medido en el cliente
-(TTFT y tokens de `usage`) y añade «medido en cliente». En un turno con varias peticiones (bucle de
-herramientas) se agregan; las consultas auxiliares sin herramientas se descartan. En
-`-p --output-format json` el resultado lleva el campo `local_speed`. `FNHARNESS_LOCAL_SPEED=0` lo
-desactiva. Código: `src/services/api/openai-compat/speedStats.ts`.
-
-## Modo ligero para cuentas locales
-
-Una cuenta local (`baseUrl` en `localhost`, `127.0.0.1` o `[::1]`) tiene una ventana pequeña y un
-primer token lento, así que arranca con una dieta de prompt. En `fn_registry` el prompt de una sesión
-nueva baja de ~10,8k a ~1,3k tokens. Medidas y método: `reports/llm_speed_bench/prompt_diet/README.md`
-del registry.
-
-| Qué | Dónde aplica | Desactivar |
-|---|---|---|
-| `--setting-sources user` por defecto: sin los `CLAUDE.md` del proyecto, `.claude/rules` ni hooks de proyecto (el `CLAUDE.md` global sí) | cuentas locales | `FNHARNESS_LOCAL_LEAN=0`, o pasar `--setting-sources ...` explícito (siempre manda) |
-| Sin `gitStatus` en el prompt de sistema | perfil Simple | (implícito) |
-| `CLAUDE.md` de más de 4.000 caracteres (o por encima de 6.000 en total) se listan en una línea para leerlos con `Read` | perfil Simple | `FNHARNESS_LOCAL_MD_MAX_CHARS=0` |
-| Descripciones de parámetros de los schemas: primera frase, máx. 90 caracteres | perfil Simple | `FNHARNESS_LOCAL_SCHEMA_DESC_MAX=0` |
-| `Edit` sobre un archivo no leído lo da por leído en vez de fallar con «File has not been read yet» | solo cuentas locales; `claude` y las remotas conservan la protección original | (implícito) |
-| Contexto estable (`CLAUDE.md`, fecha) antes de los adjuntos de hooks, para que la caché del prefijo sobreviva a un id de sesión nuevo | todas las cuentas | (implícito) |
-
-`FNHARNESS_LOCAL_LEAN=0 fnharness --account qwen36` vuelve a cargar los ajustes y `CLAUDE.md` del
-proyecto. Código: `src/services/api/openai-compat/leanLocal.ts`.
-
-## Herramientas web nativas desactivadas
-
-`WebSearch` y `WebFetch` solo funcionan con la API de Anthropic (la primera usa la herramienta de
-servidor `web_search`, la segunda pasa por un modelo auxiliar) y cuestan dinero con otros
-proveedores, así que FnHarness las deja fuera de la lista de herramientas por defecto. Se
-sustituyen por las del servidor MCP `web_search`: `mcp__web_search__web_search` y
-`mcp__web_search__web_fetch` (los agentes integrados que antes citaban las nativas citan estas).
-`FNHARNESS_NATIVE_WEB=1` las reactiva. Código: `src/utils/nativeWeb.ts` y `getAllBaseTools` en
-`src/tools.ts`.
+`WebSearch` y `WebFetch` nativas solo funcionan con la API de Anthropic y cuestan dinero con otros
+proveedores, así que están desactivadas por defecto. En su lugar se usan las herramientas del
+servidor MCP `web_search` (`mcp__web_search__web_search` y `mcp__web_search__web_fetch`).
 
 ## Estructura
 
 | Ruta | Contenido |
 |---|---|
-| `src/` | Código del arnés: `commands/`, `tools/`, `screens/REPL.tsx`, `services/api/openai-compat/` (adaptador multiproveedor) |
-| `bin/emberh` (alias `bin/fnharness`) | Lanzador: fija `CLAUDE_CONFIG_DIR=~/.fnharness`, registra el statusbar y pasa los argumentos al CLI |
-| `scripts/` | Build (`build.ts`), versionado (`release.ts`), backend OpenAI falso (`mock_openai.ts`), paridad de entorno con Claude Code (`sync_env.sh`, ver `docs/sync_env.md`) |
-| `tests/e2e/` | Pruebas del binario real con backend falso y TUI en pseudo-terminal |
-| `lab/` | Laboratorio visual de la TUI con datos simulados (`bun run lab`) |
-| `docs/` | Comandos, guía de edición y planes de diseño (`docs/plans/`) |
+| `src/` | Código del arnés: `commands/`, `tools/`, `screens/REPL.tsx` y el adaptador multiproveedor en `services/api/openai-compat/` |
+| `bin/emberh` | Lanzador: fija el directorio de configuración, registra la barra de estado y pasa los argumentos al CLI |
+| `statusline.sh` | Barra de estado |
+| `scripts/` | Build (`build.ts`), versionado (`release.ts`) y un backend OpenAI falso para pruebas (`mock_openai.ts`) |
+| `tests/e2e/` | Pruebas del binario real con backend falso y la TUI en un pseudoterminal |
+| `lab/` | Laboratorio visual de la TUI con datos simulados |
+| `docs/` | Comandos, guía de edición y planes de diseño |
 
 ## Desarrollo
 
 ```bash
-export PATH="$HOME/.local/bun-npm/node_modules/.bin:$PATH"
 bun install
 bun run build         # genera ./cli
-bun run test:unit     # pruebas unitarias (src y scripts)
+bun run test:unit     # pruebas unitarias
 bun run test:e2e      # compila y conduce el ./cli real
-bun run lab           # http://127.0.0.1:7700
+bun run lab           # laboratorio de la TUI en http://127.0.0.1:7700
 ```
 
-Flujo de ramas (trunk-based): `master` siempre desplegable; el trabajo va en ramas cortas
-`quick/<slug>` o `issue/<NNNN>-<slug>`, cada una en su worktree dentro de `.claude/worktrees/`, con
-commits convencionales y `merge --no-ff` a `master` tras pasar las pruebas. Detalle de cómo modificar
-el sistema en [docs/EDITING.md](docs/EDITING.md).
+El trabajo va en ramas cortas (`quick/<slug>`) dentro de un worktree, con commits convencionales, y
+se integra en `master` con `merge --no-ff` cuando pasan las pruebas; `master` siempre compila. Cómo
+modificar el sistema: [docs/EDITING.md](docs/EDITING.md).
 
 ## Versiones
 
-`package.json` lleva la versión propia (`version`) y la del snapshot de Claude Code del que parte
-(`upstreamVersion`, la que viaja hacia Anthropic). Publicar una versión:
-`bun run release patch|minor|major` (sube la versión, actualiza `CHANGELOG.md` y crea el tag).
+`package.json` lleva la versión propia (`version`) y la de Claude Code de la que parte
+(`upstreamVersion`). Para publicar una versión: `bun run release patch|minor|major`, que sube la
+versión, actualiza `CHANGELOG.md` y crea el tag.
 
-## Documentación de diseño
+## Más documentación
 
-- [docs/plans/ROADMAP.md](docs/plans/ROADMAP.md): bloques de mejora y su estado.
-- [docs/plans/matrix_default_harness.md](docs/plans/matrix_default_harness.md): plan para usar
-  fnharness como arnés de las salas de Matrix.
-- [docs/matrix_events.md](docs/matrix_events.md): contrato de eventos y entrada para el puente.
+- [docs/COMMANDS.md](docs/COMMANDS.md): todos los comandos.
+- [docs/EDITING.md](docs/EDITING.md): cómo está organizado el código y cómo cambiarlo.
+- [docs/plans/ROADMAP.md](docs/plans/ROADMAP.md): mejoras previstas y su estado.
 - [FEATURES.md](FEATURES.md): flags de compilación y funciones activadas.

@@ -49,7 +49,7 @@ const HELP = [
   '/account                      selector interactivo',
   '/account list                 cuentas y su estado',
   '/account <id> [modelo]        cambiar de cuenta (y modelo)',
-  '/account default <id|last> [modelo]   cuenta (y modelo) con la que abre fnharness; last = la última usada',
+  '/account default <id|last> [modelo]   cuenta (y modelo) con la que abre emberh; last = la última usada',
   '/account key <id> <apikey>    guardar la clave de una cuenta',
   '/account add <id> <baseUrl> [modelo]   cuenta OpenAI-compatible propia',
   '/account add <proveedor> [id] [modelo] cuenta de un proveedor del catálogo (sin URL)',
