@@ -116,6 +116,91 @@ export function clearPerformanceMeasures(): void {
 
 const MEASURE_SWEEP_MS = 10_000
 
+/**
+ * Idle memory release.
+ *
+ * Each tool round allocates a few MB of short-lived garbage (stream chunks,
+ * request bodies, render frames). JSC only collects when its own heuristics
+ * fire and the allocator keeps freed pages, so an idle session sits at the top
+ * of its last sawtooth instead of at its live size. Once the session has been
+ * idle for a while, a full synchronous GC plus Bun.shrink() (drops JIT code
+ * that is not running and returns free allocator pages to the OS) brings RSS
+ * back down. Rate-limited so a chatty session does not GC on every turn.
+ *
+ *   FNHARNESS_IDLE_RELEASE_MS               idle delay before releasing (default 10 s, 0 disables)
+ *   FNHARNESS_IDLE_RELEASE_MIN_INTERVAL_MS  minimum time between releases (default 60 s)
+ */
+const DEFAULT_IDLE_RELEASE_MS = 10_000
+const DEFAULT_IDLE_RELEASE_MIN_INTERVAL_MS = 60_000
+
+function envMs(name: string, def: number): number {
+  const raw = process.env[name]
+  if (raw === undefined || raw === '') return def
+  const n = Number(raw)
+  return Number.isFinite(n) && n >= 0 ? n : def
+}
+
+let idleTimer: ReturnType<typeof setTimeout> | null = null
+let lastReleaseAt = 0
+
+export type MemoryReleaseResult = {
+  rssBefore: number
+  rssAfter: number
+  ms: number
+}
+
+/** Full GC + shrink. Returns RSS before and after; never throws. */
+export function releaseMemoryNow(): MemoryReleaseResult {
+  const t0 = performance.now()
+  const rssBefore = process.memoryUsage().rss
+  try {
+    if (typeof Bun !== 'undefined') {
+      Bun.gc(true)
+      Bun.shrink?.()
+    }
+  } catch {
+    // best effort
+  }
+  lastReleaseAt = Date.now()
+  return {
+    rssBefore,
+    rssAfter: process.memoryUsage().rss,
+    ms: performance.now() - t0,
+  }
+}
+
+/** Cancels a pending idle release (call when the session becomes busy). */
+export function cancelIdleMemoryRelease(): void {
+  if (idleTimer) {
+    clearTimeout(idleTimer)
+    idleTimer = null
+  }
+}
+
+/**
+ * Schedules a memory release once the session has stayed idle for the
+ * configured delay. Calling it again restarts the countdown; a release never
+ * happens sooner than the minimum interval after the previous one.
+ */
+export function scheduleIdleMemoryRelease(
+  onRelease?: (r: MemoryReleaseResult) => void,
+): void {
+  cancelIdleMemoryRelease()
+  const delay = envMs('FNHARNESS_IDLE_RELEASE_MS', DEFAULT_IDLE_RELEASE_MS)
+  if (delay <= 0) return
+  const minInterval = envMs(
+    'FNHARNESS_IDLE_RELEASE_MIN_INTERVAL_MS',
+    DEFAULT_IDLE_RELEASE_MIN_INTERVAL_MS,
+  )
+  const wait = Math.max(delay, lastReleaseAt + minInterval - Date.now())
+  idleTimer = setTimeout(() => {
+    idleTimer = null
+    const r = releaseMemoryNow()
+    onRelease?.(r)
+  }, wait)
+  idleTimer.unref?.()
+}
+
 /** Installs the SIGUSR2 handler and the measure sweeper once. */
 export function installMemoryDebugSignal(): void {
   if (installed) return

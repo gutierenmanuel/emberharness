@@ -34,6 +34,7 @@ import { updateLastInteractionTime, getLastInteractionTime, getOriginalCwd, getP
 import { asSessionId, asAgentId } from '../types/ids.js';
 import { logForDebugging } from '../utils/debug.js';
 import { QueryGuard } from '../utils/QueryGuard.js';
+import { cancelIdleMemoryRelease, scheduleIdleMemoryRelease } from '../utils/memoryDebug.js';
 import { isEnvTruthy } from '../utils/envUtils.js';
 import { formatTokens, truncateToWidth } from '../utils/format.js';
 import { consumeEarlyInput } from '../utils/earlyInput.js';
@@ -911,6 +912,16 @@ export function REPL({
   // Subscribe to the guard — true during dispatching or running.
   // This is the single source of truth for "is a local query in flight".
   const isQueryActive = React.useSyncExternalStore(queryGuard.subscribe, queryGuard.getSnapshot);
+
+  // Give memory back to the OS once the session has been idle for a while
+  // (see scheduleIdleMemoryRelease). A new query cancels the pending release.
+  useEffect(() => {
+    if (isQueryActive) {
+      cancelIdleMemoryRelease();
+      return;
+    }
+    scheduleIdleMemoryRelease(r => logForDebugging(`[memory] idle release: rss ${Math.round(r.rssBefore / 1048576)} -> ${Math.round(r.rssAfter / 1048576)} MB in ${Math.round(r.ms)} ms`));
+  }, [isQueryActive]);
 
   // Separate loading flag for operations outside the local query guard:
   // remote sessions (useRemoteSession / useDirectConnect) and foregrounded

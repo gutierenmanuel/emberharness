@@ -34,6 +34,7 @@
 - `fnharness --perfil <p>` no aplicaba la cuenta del perfil cuando el shell colgaba de otra sesión fnharness (heredaba `CLAUDE_MULTIMODEL_ACCOUNT` y `FNHARNESS_ACCOUNT` y esa cuenta ganaba): el lanzador marca con `FNHARNESS_ACCOUNT_FLAG=1` un `--account` explícito y `bootPerfil` ignora la cuenta heredada; precedencia `--account` > cuenta del perfil > predeterminada
 - la API rechazaba los modelos 5.x (`claude_code_version_too_old`): el cliente anuncia ahora la versión 2.1.280 como mínimo (`FNHARNESS_API_VERSION` la sobrescribe)
 - tarifas oficiales de Sonnet 5.5 (2/10) y Opus 5.5 (4/20, rápido 8/40), con la caché de lectura al 0.05x; se añaden los modelos 5, 4.7 y 4.8 y Fable 5
+- una sesión inactiva devuelve memoria al sistema: tras 10 s sin consulta en curso (como mucho una vez por minuto) hace un GC completo y `Bun.shrink()`, con una pausa de 12-55 ms; en `mem_bench` (400 tool calls de 50 KB) la RSS en reposo baja de 408 a 265 MB. `FNHARNESS_IDLE_RELEASE_MS=0` lo desactiva
 
 ## v0.9.0 (25/10/2026)
 
