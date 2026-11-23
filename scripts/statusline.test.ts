@@ -93,6 +93,56 @@ describe('statusline.sh', () => {
     expect(l3).not.toContain('⚡')
   })
 
+  describe('limites 5h/7d segun el tipo de backend, no segun el id', () => {
+    const limits = { five_hour: { used_percentage: 42, resets_at: 0 }, seven_day: { used_percentage: 17, resets_at: 0 } }
+    const withAccount = (account: object) => ({ ...claude, rate_limits: limits, fnharness: { ...claude.fnharness, account: { ...claude.fnharness.account, ...account } } })
+
+    test('claude nativa: Limits con 5h y 7d', () => {
+      const l2 = render(withAccount({ id: 'claude' }))[1]!
+      expect(l2).toContain('Limits')
+      expect(l2).toContain('5h:42%')
+      expect(l2).toContain('7d:17%')
+    })
+
+    test('claude-aurgi (kind anthropic, otro id): tambien Limits con 5h y 7d y su id en la linea 3', () => {
+      const [, l2, l3] = render(withAccount({ id: 'claude-aurgi' }))
+      expect(l2).toContain('Limits')
+      expect(l2).toContain('5h:42%')
+      expect(l2).toContain('7d:17%')
+      expect(l3).toContain('claude-aurgi Anthropic')
+    })
+
+    test('provider anthropic explicito tambien cuenta como Claude', () => {
+      expect(render(withAccount({ id: 'otra', provider: 'anthropic' }))[1]).toContain('5h:42%')
+    })
+
+    test('cuenta no Anthropic (provider propio): sin Limits', () => {
+      const out = render(withAccount({ id: 'zcode', provider: 'zai-coding-plan', base_url: 'https://api.z.ai/api/coding/paas/v4' })).join('\n')
+      expect(out).not.toContain('Limits')
+      expect(out).not.toContain('5h:42%')
+    })
+
+    test('cuenta con URL propia o local, aunque no traiga provider: sin Limits', () => {
+      expect(render(withAccount({ id: 'x', base_url: 'https://api.venice.ai/api/v1' })).join('\n')).not.toContain('Limits')
+      expect(render(withAccount({ id: 'y', local: true }))
+        .join('\n')).not.toContain('Limits')
+    })
+
+    test('el correo de claude-aurgi sale de su config importado, no del de otra cuenta', () => {
+      const home = mkdtempSync(join(tmpdir(), 'fnh-home-'))
+      const imp = mkdtempSync(join(tmpdir(), 'fnh-imp-'))
+      mkdirSync(join(home, '.fnharness'), { recursive: true })
+      writeFileSync(join(home, '.fnharness', 'accounts.json'), JSON.stringify({ accounts: { 'claude-aurgi': { kind: 'anthropic', importedFrom: imp } } }))
+      writeFileSync(join(imp, '.claude.json'), JSON.stringify({ oauthAccount: { emailAddress: 'aurgi@example.com' } }))
+      writeFileSync(join(home, '.claude.json'), JSON.stringify({ oauthAccount: { emailAddress: 'principal@example.com' } }))
+      const tmp = mkdtempSync(join(tmpdir(), 'fnh-tmp-'))
+      const env = { HOME: home, TMPDIR: tmp, CLAUDE_CONFIG_DIR: '' }
+      const out = render(withAccount({ id: 'claude-aurgi', email: null }), env).join('\n')
+      expect(out).toContain('claude-aurgi Anthropic aurgi@example.com')
+      expect(out).not.toContain('principal@example.com')
+    })
+  })
+
   describe('correo de la cuenta', () => {
     const withEmail = (email: string | null) => ({ ...claude, fnharness: { ...claude.fnharness, account: { ...claude.fnharness.account, email, org: null } } })
     // Un config falso con .claude.json y TMPDIR propio para que la cache no cruce tests.
