@@ -222,7 +222,7 @@ function describeAccount(id: string, store: AccountStore, base: Env, peek = fals
       ready: true,
       detail:
         id === CLAUDE_ACCOUNT_ID
-          ? 'cuenta nativa; usa /login dentro de fnharness'
+          ? 'cuenta nativa; usa /login dentro de emberh'
           : `cuenta Claude; credenciales en accounts/${id}/ (/account add claude ${id} para iniciar sesión)`,
     }
   }
