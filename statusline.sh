@@ -36,8 +36,9 @@ SESSION_ID=$(echo "$INPUT" | jq -r '.session_id // ""')
 # Solo se extrae el correo: nunca se imprime ni se toca ningún token.
 read_account_email() {
     local f cache mtime cached candidates
-    # Con CLAUDE_CONFIG_DIR puesto solo vale su fichero: caer a otro config mostraría el correo de otra cuenta.
-    if [ -n "${CLAUDE_CONFIG_DIR:-}" ]; then candidates=("$CLAUDE_CONFIG_DIR/.claude.json")
+    # Con directorio explícito (cuenta importada) o CLAUDE_CONFIG_DIR puesto solo vale su fichero: caer a otro config mostraría el correo de otra cuenta.
+    if [ -n "${1:-}" ]; then candidates=("$1/.claude.json")
+    elif [ -n "${CLAUDE_CONFIG_DIR:-}" ]; then candidates=("$CLAUDE_CONFIG_DIR/.claude.json")
     else candidates=("$HOME/.claude.json" "$HOME/.claude/.claude.json" "$FNH_DIR/.claude.json"); fi
     for f in "${candidates[@]}"; do
         [ -f "$f" ] || continue
@@ -63,8 +64,23 @@ PERFIL_NAME=""; PERFIL_MOD=false
 VOICE_ON=false; VOICE_TGT=""; VOICE_LBL=""
 eval "$(echo "$INPUT" | jq -r '.fnharness // empty | @sh "ACC_ID=\(.account.id // "") ACC_LABEL=\(.account.label // "") ACC_PROVIDER=\(.account.provider // "") ACC_URL=\(.account.base_url // "") ACC_LOCAL=\(.account.local // false) ACC_MODEL=\(.account.model // "") ACC_SRV_MODEL=\(.account.server_model // "") ACC_EMAIL=\(.account.email // "") ACC_ORG=\(.account.org // "") WIN_SRC=\(.context.source // "") COMPACT_AT=\(.context.autocompact_at // "") MAX_OUT=\(.context.max_output_tokens // "") SRV_ONLINE=\(if .server then .server.online else "" end) SRV_NCTX=\(.server.n_ctx // "") SPD_TTFT=\(.speed.ttft_s // "") SPD_GEN=\(.speed.generation_tokens_per_second // "") SPD_PROMPT=\(.speed.prompt_tokens_per_second // "") SPD_DRAFT_N=\(.speed.draft_tokens // "") SPD_DRAFT_OK=\(.speed.draft_accepted_tokens // "") COST_KIND=\(.cost.kind // "") PERFIL_NAME=\(.profile.name // "") PERFIL_MOD=\(.profile.modified // false) VOICE_ON=\(.voice.listening // false) VOICE_TGT=\(.voice.focus.target // "") VOICE_LBL=\(.voice.focus.label // "")"' 2>/dev/null)"
 NOT_CLAUDE=0
-[ -z "$ACC_EMAIL" ] && { [ -z "$ACC_ID" ] || [ "$ACC_ID" = "claude" ]; } && ACC_EMAIL=$(read_account_email)
-[ -n "$ACC_ID" ] && [ "$ACC_ID" != "claude" ] && NOT_CLAUDE=1
+# NOT_CLAUDE se decide por el tipo de backend, no por el id: una cuenta Anthropic (la nativa
+# `claude` o cualquier otra con kind=anthropic, p. ej. claude-aurgi) llega sin provider ni
+# base_url y no es local. Un backend no Anthropic trae provider (distinto de anthropic), URL
+# propia o es local.
+if [ -n "$ACC_ID" ]; then
+    if { [ -n "$ACC_PROVIDER" ] && [ "$ACC_PROVIDER" != "anthropic" ]; } || [ -n "$ACC_URL" ] || [ "$ACC_LOCAL" = "true" ]; then
+        NOT_CLAUDE=1
+    fi
+fi
+if [ -z "$ACC_EMAIL" ] && [ "$NOT_CLAUDE" = "0" ]; then
+    # Cuenta Anthropic con otro id: su config es el directorio del que se importó.
+    IMPORT_DIR=""
+    if [ -n "$ACC_ID" ] && [ "$ACC_ID" != "claude" ] && [ -f "$HOME/.fnharness/accounts.json" ]; then
+        IMPORT_DIR=$(jq -r --arg id "$ACC_ID" '.accounts[$id].importedFrom // ""' "$HOME/.fnharness/accounts.json" 2>/dev/null)
+    fi
+    ACC_EMAIL=$(read_account_email "$IMPORT_DIR")
+fi
 # En cuentas que no son Claude el modelo real es el del servidor o el id, nunca un alias de Claude.
 if [ "$NOT_CLAUDE" = "1" ]; then MODEL="${ACC_SRV_MODEL:-${ACC_MODEL:-$MODEL}}"; fi
 
@@ -683,7 +699,7 @@ if [ -n "$ACC_ID" ]; then
         if [ "$SRV_ONLINE" = "true" ]; then LINE3="${LINE3} ${GREEN}● en línea${RESET}"
         elif [ "$SRV_ONLINE" = "false" ]; then LINE3="${LINE3} ${RED}○ sin respuesta${RESET}"; fi
     else
-        LINE3="${BOLD}${MAGENTA}claude${RESET} ${DIM}Anthropic${RESET}"
+        LINE3="${BOLD}${MAGENTA}${ACC_ID}${RESET} ${DIM}Anthropic${RESET}"
         [ -n "$ACC_EMAIL" ] && LINE3="${LINE3} ${CYAN}${ACC_EMAIL}${RESET}"
     fi
     case "$WIN_SRC" in
