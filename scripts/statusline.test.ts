@@ -170,9 +170,9 @@ describe('statusline.sh', () => {
     })
 
     test('passes its own pid so the registry can find the session', () => {
-      const root = fakeRegistry('import sys\nprint("args=" + " ".join(sys.argv[1:2]))\n')
+      const root = fakeRegistry('import sys\nprint("args=" + " ".join(sys.argv[1:]))\n')
       const lines = render(withSession, { FN_REGISTRY_ROOT: root })
-      expect(lines.find(l => l.includes('emberh --resume'))).toContain('│ args=--from-pid')
+      expect(lines.find(l => l.includes('emberh --resume'))).toMatch(/│ args=.*--from-pid \d+/)
     })
 
     test('a failing or missing alias script leaves the resume line untouched', () => {

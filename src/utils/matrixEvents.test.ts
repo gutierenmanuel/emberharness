@@ -47,6 +47,20 @@ import {
 
 const NOW = new Date('2026-10-24T17:02:11.120Z')
 
+// session_start carries getMainLoopModel(). Without ANTHROPIC_MODEL that call
+// falls back to the global config, which is locked in tests, so session_start
+// was silently dropped and the runtime suites only passed when the shell that
+// ran them happened to export the variable. Pin it for every test in the file.
+let savedAnthropicModel: string | undefined
+beforeEach(() => {
+  savedAnthropicModel = process.env.ANTHROPIC_MODEL
+  process.env.ANTHROPIC_MODEL = 'claude-test-model'
+})
+afterEach(() => {
+  if (savedAnthropicModel === undefined) delete process.env.ANTHROPIC_MODEL
+  else process.env.ANTHROPIC_MODEL = savedAnthropicModel
+})
+
 describe('buildEvent / serializeEvent', () => {
   test('adds the common fields in the contract', () => {
     const e = buildEvent({ seq: 3, now: NOW, sessionId: 'sid' }, { type: 'turn_start', source: 'user' })
