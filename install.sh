@@ -10,7 +10,7 @@
 # credential helper o en el remoto). Este script nunca las lee ni las imprime.
 set -euo pipefail
 
-REPO="${FNHARNESS_REPO:-https://github.com/gutierenmanuel/fnharness$1}"
+REPO="${FNHARNESS_REPO:-https://github.com/gutierenmanuel/fnharness.git}"
 BUN_MIN_VERSION="1.3.11"
 LINK_DIR="${FNHARNESS_LINK_DIR:-$HOME/.local/bin}"
 

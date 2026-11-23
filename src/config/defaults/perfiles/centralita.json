@@ -8,5 +8,5 @@
   "exactTools": true,
   "context": { "bare": true, "claudeMd": false, "memory": false, "hooks": false, "mcp": false, "skills": false },
   "account": "llamacpp",
-  "model": "/home/user/.local/share/llm_models/LFM3-1.7B-Q4_K_M.gguf"
+  "model": "LFM3-1.7B-Q4_K_M.gguf"
 }
