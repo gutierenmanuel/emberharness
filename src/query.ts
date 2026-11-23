@@ -91,6 +91,10 @@ import {
   isSlashCommand,
 } from './utils/messageQueueManager.js'
 import { notifyCommandLifecycle } from './utils/commandLifecycle.js'
+import {
+  collectSubagentBackgroundWork,
+  computeSubagentBgWaitDeadline,
+} from './query/subagentBackgroundWait.js'
 import { headlessProfilerCheckpoint } from './utils/headlessProfiler.js'
 import {
   getDefaultMainLoopModel,
@@ -339,6 +343,9 @@ async function* queryLoop(
   let taskBudgetRemaining: number | undefined = undefined
   // Set once this loop has asked its subagent for a missing final report.
   let finalReportNudged = false
+  // Shared deadline for end-of-turn waits on this subagent's background tool
+  // calls (FNHARNESS_SUBAGENT_BG_WAIT_MS); set on the first wait.
+  let subagentBgWaitDeadline: number | undefined
 
   // Snapshot immutable env/statsig/session state once at entry. See QueryConfig
   // for what's included and why feature() gates are intentionally excluded.
@@ -1338,6 +1345,48 @@ async function* queryLoop(
       if (lastMessage?.isApiErrorMessage) {
         void executeStopFailureHooks(lastMessage, toolUseContext)
         return { reason: 'completed' }
+      }
+
+      // A subagent must not finish while its own backgrounded tool calls
+      // (local_tool tasks) are still running: runAgent's cleanup would kill
+      // them and the parent would get a report without their results. Wait
+      // for them (bounded), then feed their notifications back and run one
+      // more turn. Main thread notifications go through the REPL queue.
+      if (toolUseContext.agentId !== undefined) {
+        subagentBgWaitDeadline ??= computeSubagentBgWaitDeadline()
+        const bgWork = await collectSubagentBackgroundWork({
+          agentId: toolUseContext.agentId,
+          getAppState: toolUseContext.getAppState,
+          signal: toolUseContext.abortController.signal,
+          deadline: subagentBgWaitDeadline,
+        })
+        if (bgWork) {
+          for (const cmd of bgWork.consumed) {
+            if (cmd.uuid) {
+              consumedCommandUuids.push(cmd.uuid)
+              notifyCommandLifecycle(cmd.uuid, 'started')
+            }
+          }
+          removeFromQueue(bgWork.consumed)
+          for (const msg of bgWork.messages) yield msg
+          state = {
+            messages: [
+              ...messagesForQuery,
+              ...assistantMessages,
+              ...bgWork.messages,
+            ],
+            toolUseContext,
+            autoCompactTracking: tracking,
+            maxOutputTokensRecoveryCount: 0,
+            hasAttemptedReactiveCompact,
+            maxOutputTokensOverride: undefined,
+            pendingToolUseSummary: undefined,
+            stopHookActive: undefined,
+            turnCount,
+            transition: { reason: 'subagent_background_results' },
+          }
+          continue
+        }
       }
 
       const stopHookResult = yield* handleStopHooks(

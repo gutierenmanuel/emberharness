@@ -60,6 +60,8 @@ export function getPillLabel(tasks: BackgroundTaskState[]): string {
         return n === 1 ? '1 monitor' : `${n} monitors`
       case 'dream':
         return 'dreaming'
+      case 'local_tool':
+        return n === 1 ? '1 background tool' : `${n} background tools`
     }
   }
 
@@ -82,12 +84,14 @@ export function getPillLabel(tasks: BackgroundTaskState[]): string {
       t.type === 'remote_agent' ||
       t.type === 'in_process_teammate',
   )
-  const others = n - monitors - shells - agents
+  const tools = count(tasks, t => t.type === 'local_tool')
+  const others = n - monitors - shells - agents - tools
   const parts = [
     `${shells} ${shells === 1 ? 'shell' : 'shells'}`,
     `${monitors} ${monitors === 1 ? 'monitor' : 'monitors'}`,
     `${agents} ${agents === 1 ? 'agent' : 'agents'}`,
   ]
+  if (tools > 0) parts.push(`${tools} ${tools === 1 ? 'tool' : 'tools'}`)
   if (others > 0) parts.push(`${others} other`)
   return parts.join(' · ')
 }

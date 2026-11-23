@@ -48,7 +48,26 @@ import {
   logEvent,
 } from '../../services/analytics/index.js'
 import { getAgentContext } from '../../utils/agentContext.js'
-import { errorMessage } from '../../utils/errors.js'
+import { AbortError, errorMessage } from '../../utils/errors.js'
+import { isEnvTruthy } from '../../utils/envUtils.js'
+import { createAbortController } from '../../utils/abortController.js'
+import { getTaskOutputPath } from '../../utils/task/diskOutput.js'
+import { getToolAutoBackgroundMs } from '../../tasks/LocalToolTask/backgroundable.js'
+import {
+  completeAgentTask,
+  enqueueAgentNotification,
+  failAgentTask,
+  isLocalAgentTask,
+  killAsyncAgent,
+  registerAgentForeground,
+  unregisterAgentForeground,
+} from '../../tasks/LocalAgentTask/LocalAgentTask.js'
+import { finalizeAgentTool } from '../AgentTool/agentToolUtils.js'
+import {
+  buildBackgroundedSkillResultText,
+  continueForkedSkillInBackground,
+  driveForkedSkillIterator,
+} from './forkedSkillBackground.js'
 import {
   extractResultText,
   prepareForkedCommandContext,
@@ -219,46 +238,151 @@ async function executeForkedSkill(
     `SkillTool executing forked skill ${commandName} with agent ${agentDefinition.agentType}`,
   )
 
-  try {
-    // Run the sub-agent
-    for await (const message of runAgent({
-      agentDefinition,
-      promptMessages,
-      toolUseContext: {
-        ...context,
-        getAppState: modifiedGetAppState,
-      },
-      canUseTool,
-      isAsync: false,
-      querySource: 'agent:custom',
-      model: command.model as ModelAlias | undefined,
-      availableTools: context.options.tools,
-      override: { agentId },
-    })) {
-      agentMessages.push(message)
+  // Backgroundable forked skill (Ctrl+B or FNHARNESS_TOOL_AUTO_BACKGROUND_MS),
+  // same pattern as a sync AgentTool call: register a foreground local_agent
+  // task and race the agent iterator against its background signal. Main
+  // thread only: enqueueAgentNotification addresses the main thread, and
+  // Ctrl+B never targets subagent work. Inline skills stay excluded (they are
+  // instant and return a contextModifier).
+  const rootSetAppState = context.setAppStateForTasks ?? context.setAppState
+  const canBackground =
+    context.agentId === undefined &&
+    !isEnvTruthy(process.env.CLAUDE_CODE_DISABLE_BACKGROUND_TASKS)
+  const description = `Skill: ${commandName}`
+  let backgroundSignal: Promise<void> | undefined
+  let cancelAutoBackground: (() => void) | undefined
+  // Own abort controller, linked to the turn's only while in the foreground:
+  // once backgrounded, Esc on the turn no longer stops the skill; TaskStop
+  // (which aborts the task's controller) still does.
+  let agentAbort: AbortController | undefined
+  let detachParentAbort: (() => void) | undefined
+  let backgrounded = false
+  if (canBackground) {
+    const registration = registerAgentForeground({
+      agentId,
+      description,
+      prompt: skillContent,
+      selectedAgent: agentDefinition,
+      model: command.model,
+      setAppState: rootSetAppState,
+      toolUseId: context.toolUseId,
+      autoBackgroundMs: getToolAutoBackgroundMs() || undefined,
+    })
+    backgroundSignal = registration.backgroundSignal
+    cancelAutoBackground = registration.cancelAutoBackground
+    const abort = createAbortController()
+    agentAbort = abort
+    const taskState = context.getAppState().tasks[agentId]
+    if (isLocalAgentTask(taskState)) {
+      taskState.abortController?.signal.addEventListener(
+        'abort',
+        () => abort.abort(),
+        { once: true },
+      )
+    }
+    const parentSignal = context.abortController.signal
+    const onParentAbort = () => {
+      if (!backgrounded) abort.abort(parentSignal.reason)
+    }
+    if (parentSignal.aborted) abort.abort(parentSignal.reason)
+    else parentSignal.addEventListener('abort', onParentAbort, { once: true })
+    detachParentAbort = () =>
+      parentSignal.removeEventListener('abort', onParentAbort)
+  }
 
-      // Report progress for tool uses (like AgentTool does)
-      if (
-        (message.type === 'assistant' || message.type === 'user') &&
-        onProgress
-      ) {
-        const normalizedNew = normalizeMessages([message])
-        for (const m of normalizedNew) {
-          const hasToolContent = m.message.content.some(
-            c => c.type === 'tool_use' || c.type === 'tool_result',
-          )
-          if (hasToolContent) {
-            onProgress({
-              toolUseID: `skill_${parentMessage.message.id}`,
-              data: {
-                message: m,
-                type: 'skill_progress',
-                prompt: skillContent,
-                agentId,
-              },
-            })
-          }
+  const onAgentMessage = (message: Message) => {
+    agentMessages.push(message)
+
+    // Report progress for tool uses (like AgentTool does); a backgrounded
+    // skill no longer has a tool call to report to.
+    if (
+      !backgrounded &&
+      (message.type === 'assistant' || message.type === 'user') &&
+      onProgress
+    ) {
+      const normalizedNew = normalizeMessages([message])
+      for (const m of normalizedNew) {
+        const hasToolContent = m.message.content.some(
+          c => c.type === 'tool_use' || c.type === 'tool_result',
+        )
+        if (hasToolContent) {
+          onProgress({
+            toolUseID: `skill_${parentMessage.message.id}`,
+            data: {
+              message: m,
+              type: 'skill_progress',
+              prompt: skillContent,
+              agentId,
+            },
+          })
         }
+      }
+    }
+  }
+
+  const agentIterator = runAgent({
+    agentDefinition,
+    promptMessages,
+    toolUseContext: {
+      ...context,
+      getAppState: modifiedGetAppState,
+    },
+    canUseTool,
+    isAsync: false,
+    querySource: 'agent:custom',
+    model: command.model as ModelAlias | undefined,
+    availableTools: context.options.tools,
+    override: agentAbort
+      ? { agentId, abortController: agentAbort }
+      : { agentId },
+  })[Symbol.asyncIterator]()
+
+  try {
+    const drive = await driveForkedSkillIterator({
+      iterator: agentIterator,
+      onMessage: onAgentMessage,
+      backgroundSignal,
+    })
+
+    if (drive.kind === 'backgrounded') {
+      backgrounded = true
+      detachParentAbort?.()
+      runForkedSkillInBackground({
+        agentId,
+        commandName,
+        description,
+        agentType: agentDefinition.agentType,
+        prompt: skillContent,
+        model: command.model,
+        startTime,
+        toolUseId: context.toolUseId,
+        agentMessages,
+        setAppState: rootSetAppState,
+        run: () =>
+          continueForkedSkillInBackground({
+            iterator: agentIterator,
+            pending: drive.pending,
+            onMessage: onAgentMessage,
+          }),
+      })
+      const outputFile = getTaskOutputPath(agentId)
+      logForDebugging(
+        `SkillTool forked skill ${commandName} moved to background as ${agentId}`,
+      )
+      return {
+        data: {
+          success: true,
+          commandName,
+          status: 'forked',
+          agentId,
+          backgrounded: true,
+          outputFile,
+          result: buildBackgroundedSkillResultText({
+            commandName,
+            taskId: agentId,
+            outputFile,
+          }),
+        },
       }
     }
 
@@ -284,9 +408,104 @@ async function executeForkedSkill(
       },
     }
   } finally {
-    // Release skill content from invokedSkills state
-    clearInvokedSkillsForAgent(agentId)
+    if (!backgrounded) {
+      cancelAutoBackground?.()
+      detachParentAbort?.()
+      if (canBackground) unregisterAgentForeground(agentId, rootSetAppState)
+      // Release skill content from invokedSkills state
+      clearInvokedSkillsForAgent(agentId)
+    }
   }
+}
+
+/**
+ * Detached tail of a backgrounded forked skill: finish the agent, mark the
+ * local_agent task terminal and enqueue a <task-notification> carrying the
+ * skill's result (or its error / partial output when stopped).
+ */
+function runForkedSkillInBackground(input: {
+  agentId: string
+  commandName: string
+  description: string
+  agentType: string
+  prompt: string
+  model: string | undefined
+  startTime: number
+  toolUseId: string | undefined
+  agentMessages: Message[]
+  setAppState: ToolUseContext['setAppState']
+  run: () => Promise<void>
+}): void {
+  const { agentId, description, setAppState, toolUseId, agentMessages } = input
+  void (async () => {
+    try {
+      await input.run()
+      const resultText = extractResultText(
+        agentMessages,
+        'Skill execution completed',
+      )
+      let usage:
+        | { totalTokens: number; toolUses: number; durationMs: number }
+        | undefined
+      try {
+        const agentResult = finalizeAgentTool(agentMessages, agentId, {
+          prompt: input.prompt,
+          resolvedAgentModel: input.model ?? 'inherit',
+          isBuiltInAgent: false,
+          startTime: input.startTime,
+          agentType: input.agentType,
+          isAsync: true,
+        })
+        completeAgentTask(agentResult, setAppState)
+        usage = {
+          totalTokens: agentResult.totalTokens,
+          toolUses: agentResult.totalToolUseCount,
+          durationMs: agentResult.totalDurationMs,
+        }
+      } catch {
+        // No assistant message to build a full result from: still close the task.
+        failAgentTask(agentId, 'Skill produced no assistant message', setAppState)
+      }
+      enqueueAgentNotification({
+        taskId: agentId,
+        description,
+        status: 'completed',
+        setAppState,
+        finalMessage: resultText,
+        usage,
+        toolUseId,
+      })
+    } catch (error) {
+      if (error instanceof AbortError) {
+        killAsyncAgent(agentId, setAppState)
+        enqueueAgentNotification({
+          taskId: agentId,
+          description,
+          status: 'killed',
+          setAppState,
+          toolUseId,
+          finalMessage: extractResultText(agentMessages, ''),
+        })
+        return
+      }
+      const msg = errorMessage(error)
+      failAgentTask(agentId, msg, setAppState)
+      enqueueAgentNotification({
+        taskId: agentId,
+        description,
+        status: 'failed',
+        error: msg,
+        setAppState,
+        toolUseId,
+      })
+    } finally {
+      agentMessages.length = 0
+      clearInvokedSkillsForAgent(agentId)
+      logForDebugging(
+        `SkillTool forked skill ${input.commandName} finished in the background after ${Date.now() - input.startTime}ms`,
+      )
+    }
+  })()
 }
 
 export const inputSchema = lazySchema(() =>
@@ -321,6 +540,14 @@ export const outputSchema = lazySchema(() => {
       .string()
       .describe('The ID of the sub-agent that executed the skill'),
     result: z.string().describe('The result from the forked skill execution'),
+    backgrounded: z
+      .boolean()
+      .optional()
+      .describe('True when the skill was moved to the background'),
+    outputFile: z
+      .string()
+      .optional()
+      .describe('Transcript file of a backgrounded skill'),
   })
 
   return z.union([inlineOutputSchema, forkedOutputSchema])
@@ -858,6 +1085,13 @@ export const SkillTool: Tool<InputSchema, Output, Progress> = buildTool({
   ): ToolResultBlockParam {
     // Handle forked skill result
     if ('status' in result && result.status === 'forked') {
+      if (result.backgrounded) {
+        return {
+          type: 'tool_result' as const,
+          tool_use_id: toolUseID,
+          content: result.result,
+        }
+      }
       return {
         type: 'tool_result' as const,
         tool_use_id: toolUseID,

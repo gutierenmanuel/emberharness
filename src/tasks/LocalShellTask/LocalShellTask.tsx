@@ -16,6 +16,7 @@ import { registerTask, updateTaskState } from '../../utils/task/framework.js';
 import { escapeXml } from '../../utils/xml.js';
 import { backgroundAgentTask, isLocalAgentTask } from '../LocalAgentTask/LocalAgentTask.js';
 import { isMainSessionTask } from '../LocalMainSessionTask.js';
+import { backgroundAllLocalToolTasks, isCtrlBTargetLocalToolTask } from '../LocalToolTask/LocalToolTask.js';
 import { type BashTaskKind, isLocalShellTask, type LocalShellTaskState } from './guards.js';
 import { killTask } from './killShellTasks.js';
 
@@ -372,7 +373,7 @@ function backgroundTask(taskId: string, getAppState: () => AppState, setAppState
  * Called when user presses Ctrl+B to background all running tasks.
  */
 /**
- * Check if there are any foreground tasks (bash or agent) that can be backgrounded.
+ * Check if there are any foreground tasks (bash, agent or generic tool call) that can be backgrounded.
  * Used to determine whether Ctrl+B should background existing tasks vs. background the session.
  */
 export function hasForegroundTasks(state: AppState): boolean {
@@ -382,6 +383,10 @@ export function hasForegroundTasks(state: AppState): boolean {
     }
     // Exclude main session tasks - they display in the main view, not as foreground tasks
     if (isLocalAgentTask(task) && !task.isBackgrounded && !isMainSessionTask(task)) {
+      return true;
+    }
+    // Generic tool calls (MCP, WebFetch, ...) of the main thread running in the foreground
+    if (isCtrlBTargetLocalToolTask(task)) {
       return true;
     }
     return false;
@@ -407,6 +412,9 @@ export function backgroundAll(getAppState: () => AppState, setAppState: SetAppSt
   for (const taskId of foregroundAgentTaskIds) {
     backgroundAgentTask(taskId, getAppState, setAppState);
   }
+
+  // Background all foreground generic tool calls (local_tool tasks)
+  backgroundAllLocalToolTasks(getAppState, setAppState);
 }
 
 /**

@@ -3,6 +3,7 @@ import type { Task, TaskType } from './Task.js'
 import { DreamTask } from './tasks/DreamTask/DreamTask.js'
 import { LocalAgentTask } from './tasks/LocalAgentTask/LocalAgentTask.js'
 import { LocalShellTask } from './tasks/LocalShellTask/LocalShellTask.js'
+import { LocalToolTask } from './tasks/LocalToolTask/LocalToolTask.js'
 import { RemoteAgentTask } from './tasks/RemoteAgentTask/RemoteAgentTask.js'
 
 /* eslint-disable @typescript-eslint/no-require-imports */
@@ -25,6 +26,7 @@ export function getAllTasks(): Task[] {
     LocalAgentTask,
     RemoteAgentTask,
     DreamTask,
+    LocalToolTask,
   ]
   if (LocalWorkflowTask) tasks.push(LocalWorkflowTask)
   if (MonitorMcpTask) tasks.push(MonitorMcpTask)
