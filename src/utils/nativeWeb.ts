@@ -1,7 +1,7 @@
 import { isEnvTruthy } from './envUtils.js'
 
 /**
- * FnHarness: las herramientas nativas WebSearch y WebFetch solo funcionan con
+ * EmberHarness: las herramientas nativas WebSearch y WebFetch solo funcionan con
  * la API de Anthropic (WebSearch usa la herramienta de servidor web_search y
  * WebFetch pasa por un modelo auxiliar) y cuestan dinero, así que van
  * desactivadas por defecto. Se reactivan con FNHARNESS_NATIVE_WEB=1.

@@ -76,7 +76,7 @@ describe('resumeHere', () => {
     const { calls, d } = deps(false)
     const r = await resumeHere(row(), 'fork', d)
     expect(r.ok).toBe(false)
-    expect(r.manualCommand).toBe('fnharness --resume s1 --fork-session --chdir /work/proyecto')
+    expect(r.manualCommand).toBe('emberh --resume s1 --fork-session --chdir /work/proyecto')
     expect(r.message).toContain('./cli')
     expect(calls).toEqual([])
   })

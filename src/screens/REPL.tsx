@@ -1144,7 +1144,7 @@ export function REPL({
   // session from mid-conversation context.
   const haikuTitleAttemptedRef = useRef((initialMessages?.length ?? 0) > 0);
   const agentTitle = mainThreadAgentDefinition?.agentType;
-  const terminalTitle = sessionTitle ?? agentTitle ?? haikuTitle ?? 'FnHarness';
+  const terminalTitle = sessionTitle ?? agentTitle ?? haikuTitle ?? 'EmberHarness';
   const isWaitingForApproval = toolUseConfirmQueue.length > 0 || promptQueue.length > 0 || pendingWorkerRequest || pendingSandboxRequest;
   // Local-jsx commands (like /plugin, /config) show user-facing dialogs that
   // wait for input. Require jsx != null — if the flag is stuck true but jsx
@@ -2425,10 +2425,10 @@ export function REPL({
     // async as servers connect — the store may have newer MCP state than
     // the closure captured at render time. Also doubles as refreshTools()
     // for mid-query tool list updates.
-    // FnHarness: the context profile is read once per turn so a change made
+    // EmberHarness: the context profile is read once per turn so a change made
     // mid-turn (Ctrl+Tab, /scope) only applies from the next one.
     const contextProfile = s.contextProfile;
-    // FnHarness: el system prompt del perfil activo también se lee por turno (customSystemPrompt y
+    // EmberHarness: el system prompt del perfil activo también se lee por turno (customSystemPrompt y
     // appendSystemPrompt son props fijas; un flag de CLI explícito gana al perfil).
     const perfilPrompts = effectiveSystemPrompts({
       customSystemPrompt,

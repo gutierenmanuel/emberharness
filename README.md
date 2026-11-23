@@ -1,4 +1,6 @@
-# FnHarness
+# EmberHarness
+
+Comando `emberh` (`fnharness` sigue funcionando como alias). Antes se llamaba FnHarness.
 
 Arnés de agente de terminal (fork de Claude Code sobre Bun e Ink) que funciona con cualquier
 proveedor de LLM, no solo Anthropic. Un adaptador traduce la API Messages de Anthropic a OpenAI Chat
@@ -17,9 +19,9 @@ reconstruido de Claude Code y no se publica ni se redistribuye.
 Requisitos: Linux, `git`, `bun` >= 1.3.11 y acceso al repo de Gitea.
 
 ```bash
-git clone https://github.com/gutierenmanuel/fnharness.git
-cd fnharness
-./install.sh        # bun install, build de ./cli y enlace en ~/.local/bin/fnharness
+git clone https://gitea-dgg044oo04woo4ggcsws4gk0.organic-machine.com/dataforge/emberharness.git
+cd emberharness
+./install.sh        # bun install, build de ./cli y enlace en ~/.local/bin/emberh
 ```
 
 `install.sh` acepta `FNHARNESS_DIR` (ruta de instalación), `FNHARNESS_REPO` (remoto) y
@@ -194,7 +196,7 @@ sustituyen por las del servidor MCP `web_search`: `mcp__web_search__web_search` 
 | Ruta | Contenido |
 |---|---|
 | `src/` | Código del arnés: `commands/`, `tools/`, `screens/REPL.tsx`, `services/api/openai-compat/` (adaptador multiproveedor) |
-| `bin/fnharness` | Lanzador: fija `CLAUDE_CONFIG_DIR=~/.fnharness`, registra el statusbar y pasa los argumentos al CLI |
+| `bin/emberh` (alias `bin/fnharness`) | Lanzador: fija `CLAUDE_CONFIG_DIR=~/.fnharness`, registra el statusbar y pasa los argumentos al CLI |
 | `scripts/` | Build (`build.ts`), versionado (`release.ts`), backend OpenAI falso (`mock_openai.ts`), paridad de entorno con Claude Code (`sync_env.sh`, ver `docs/sync_env.md`) |
 | `tests/e2e/` | Pruebas del binario real con backend falso y TUI en pseudo-terminal |
 | `lab/` | Laboratorio visual de la TUI con datos simulados (`bun run lab`) |

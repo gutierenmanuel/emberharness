@@ -151,7 +151,7 @@ export async function toolToAPISchema(
   // call — name-only keying returned a stale schema (5.4% → 51% err rate, see
   // PR#25424). MCP tools also set inputJSONSchema but each has a stable schema,
   // so including it preserves their GB-flip cache stability.
-  // FnHarness: the Simple tool set carries compact descriptions; they get their
+  // EmberHarness: the Simple tool set carries compact descriptions; they get their
   // own cache entries so switching profile mid-session never reuses the wrong
   // text.
   const compactDescription = isCompactToolSet(options.tools)

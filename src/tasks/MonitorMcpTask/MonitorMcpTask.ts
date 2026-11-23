@@ -1,5 +1,5 @@
 // Placeholder for the WebSocket/MCP flavour of Monitor (task type 'monitor_mcp').
-// The Monitor tool shipped in FnHarness runs shell commands, which are plain
+// The Monitor tool shipped in EmberHarness runs shell commands, which are plain
 // LocalShellTask entries with kind 'monitor'; no task of this type is ever
 // created yet. The module exists so the shared task dispatch, the tasks dialog
 // and runAgent's cleanup have a real, compiling target when MONITOR_TOOL is on.

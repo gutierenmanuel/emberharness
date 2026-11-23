@@ -217,7 +217,7 @@ function StatusLineInner({
   // re-reads settings.json on every call, so another session's /model write
   // would leak into this session's statusline (anthropics/claude-code#37596).
   const mainLoopModel = useMainLoopModel();
-  // FnHarness: perfil activo (/perfil) y si se tocó el scope a mano; viaja en el bloque `fnharness`.
+  // EmberHarness: perfil activo (/perfil) y si se tocó el scope a mano; viaja en el bloque `fnharness`.
   const perfilName = useAppState(s => s.perfil?.name);
   const perfilModified = useAppState(s => s.perfil?.modified ?? false);
   const perfilKey = perfilName === undefined ? '' : `${perfilName}${perfilModified ? '*' : ''}`;

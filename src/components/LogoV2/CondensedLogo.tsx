@@ -61,7 +61,7 @@ export function CondensedLogo(): React.ReactNode {
         <FnLogo animated={animated} />
         <Box flexDirection="column">
           <Text>
-            <Text bold>FnHarness</Text> <Text dimColor>v{truncatedVersion}</Text>
+            <Text bold>EmberHarness</Text> <Text dimColor>v{truncatedVersion}</Text>
           </Text>
           {shouldSplit ? (
             <>

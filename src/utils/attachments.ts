@@ -2727,7 +2727,7 @@ async function getSkillListingAttachments(
     mcpSkills.length > 0
       ? uniqBy([...localCommands, ...mcpSkills], 'name')
       : localCommands
-  // FnHarness context profile: only the skills of the chosen origin are listed.
+  // EmberHarness context profile: only the skills of the chosen origin are listed.
   allCommands = filterSkillsByProfile(
     allCommands,
     toolUseContext.options.contextProfile ??

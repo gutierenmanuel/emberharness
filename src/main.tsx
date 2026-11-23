@@ -1443,7 +1443,7 @@ async function run(): Promise<CommanderCommand> {
       appendSystemPrompt = appendSystemPrompt ? `${appendSystemPrompt}\n\n${VOICE_SPEAK_PROMPT}` : VOICE_SPEAK_PROMPT;
     }
 
-    // FnHarness: perfil de contexto. En modo interactivo el REPL lee el system prompt del perfil
+    // EmberHarness: perfil de contexto. En modo interactivo el REPL lee el system prompt del perfil
     // de la sesión en cada turno (así /perfil lo cambia en caliente); en -p no hay REPL, así que
     // se aplica aquí. Un --system-prompt explícito gana al del perfil.
     {
@@ -3919,7 +3919,7 @@ async function run(): Promise<CommanderCommand> {
         pendingHookMessages
       }, renderAndRun);
     }
-  }).version(`FnHarness ${MACRO.FNHARNESS_VERSION} (base Claude Code ${MACRO.VERSION})`, '-v, --version', 'Output the version number');
+  }).version(`EmberHarness ${MACRO.FNHARNESS_VERSION} (base Claude Code ${MACRO.VERSION})`, '-v, --version', 'Output the version number');
 
   // Worktree flags
   program.option('-w, --worktree [name]', 'Create a new git worktree for this session (optionally specify a name)');

@@ -4,7 +4,7 @@
 export const PUSH_NOTIFICATION_TOOL_NAME = 'PushNotification'
 export const MAX_TITLE_CHARS = 60
 export const MAX_MESSAGE_CHARS = 200
-const DEFAULT_TITLE = 'FnHarness'
+const DEFAULT_TITLE = 'EmberHarness'
 
 /** Pure: one line, no control characters, at most `max` characters. */
 export function sanitizeNotificationText(text: string, max: number): string {

@@ -623,7 +623,7 @@ fi
 # Si la sesion esta en modo cyber (marca de cyber_session_state o CLAUDE_CYBER=1), el
 # marcador [CYBER] rojo va a la derecha del alias: nombre intacto, modo visible.
 if [ -n "$SESSION_ID" ]; then
-    RESUME_LINE="  ${DIM}🔗 fnharness --resume ${SESSION_ID}${RESET}"
+    RESUME_LINE="  ${DIM}🔗 emberh --resume ${SESSION_ID}${RESET}"
     FN_ROOT="${FN_REGISTRY_ROOT:-$HOME/fn_registry}"
     ALIAS_PY="$FN_ROOT/python/.venv/bin/python3"
     [ -x "$ALIAS_PY" ] || ALIAS_PY=python3

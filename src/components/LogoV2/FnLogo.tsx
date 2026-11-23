@@ -4,9 +4,9 @@ import { useSettings } from '../../hooks/useSettings.js';
 import { Box, Text, useAnimationFrame } from '../../ink.js';
 import { CATALOG, dissolve, render, type Frame } from './asciimood/catalog.js';
 
-// FnHarness logo. On a wide terminal it is a looping asciimood animation
-// (https://github.com/tmdlz/asciimood) that changes scene every few seconds
-// with a dissolve; on a narrow one, the small terminal window with an ƒ prompt
+// EmberHarness logo. On a wide terminal it is the asciimood fire animation
+// (https://github.com/tmdlz/asciimood), flames rising from a hot bed of embers,
+// in its own warm hues; on a narrow one, the small terminal window with an ƒ prompt
 // (same footprint as Clawd, 9 cols × 3 rows).
 const SMALL_ROWS = ['▛▀▀▀▀▀▀▀▜', '▌ > ƒ_  ▐', '▙▄▄▄▄▄▄▄▟'];
 export const SMALL_LOGO_WIDTH = 9;
@@ -16,9 +16,8 @@ const ANIM_HEIGHT = 6;
 const FRAME_MS = 80;
 const SCENE_S = 9;
 const FADE_S = 0.7;
-// Every drawing that ships with asciimood (the remote ones need its website),
-// except the ASCIIMOOD title card, which reads badly at this height.
-const PICKS = CATALOG.filter(e => e.remote !== true && e.id !== 'hero');
+// Only the fire scene: it is the brand of EmberHarness.
+const PICKS = CATALOG.filter(e => e.id === 'fire');
 type Entry = (typeof CATALOG)[number];
 
 // Small drawings (a bolt, a spinning globe) fill a fraction of the strip, so
@@ -61,14 +60,14 @@ function seeded(...parts: number[]): number {
   return ((h ^ (h >>> 15)) >>> 0) / 4294967296;
 }
 
-// The drawing itself is fixed, but its colours, speed and phase are not: every
-// scene (and every copy within it) picks its own pair of hues, plays a little
-// faster or slower, and starts at a different point of the loop.
+// The drawing and its warm hues are fixed, but speed and phase are not: every
+// scene (and every copy within it) plays a little faster or slower and starts
+// at a different point of the loop, with the hues nudged by a few degrees.
 function variant(entry: Entry, scene: number, copy: number): { entry: Entry; phase: number } {
   const r = (k: number) => seeded(scene, copy, k);
-  const base = r(1) * 360;
-  const span = 25 + r(2) * 80;
-  const hues: [number, number] = [base, (base + (r(3) < 0.5 ? span : -span) + 360) % 360];
+  const shift = (r(1) - 0.5) * 12;
+  const [h0, h1] = entry.hues;
+  const hues: [number, number] = [h0 + shift, h1 + shift];
   const dur = entry.dur * (0.75 + r(4) * 0.6);
   const { ink: _ink, ground: _ground, ...rest } = entry;
   return { entry: { ...rest, hues, dur }, phase: r(5) * dur };

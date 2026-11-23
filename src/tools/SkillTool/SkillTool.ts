@@ -409,7 +409,7 @@ export const SkillTool: Tool<InputSchema, Output, Progress> = buildTool({
       }
     }
 
-    // FnHarness context profile: skills hidden by /scope cannot be invoked.
+    // EmberHarness context profile: skills hidden by /scope cannot be invoked.
     const contextProfile =
       context.options.contextProfile ?? context.getAppState().contextProfile
     if (filterSkillsByProfile([foundCommand], contextProfile).length === 0) {

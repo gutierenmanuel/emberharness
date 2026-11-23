@@ -41,7 +41,7 @@ export function buildRestartArgs(i: RestartInput): string[] {
 
 /** Línea de comando equivalente, para cuando no hay lanzador que relance. */
 export function manualRestartCommand(args: readonly string[]): string {
-  return `fnharness ${args.map(a => (/^[\w./:@=-]+$/.test(a) ? a : JSON.stringify(a))).join(' ')}`
+  return `emberh ${args.map(a => (/^[\w./:@=-]+$/.test(a) ? a : JSON.stringify(a))).join(' ')}`
 }
 
 /** Escribe el fichero que lee el lanzador; devuelve su ruta (undefined sin lanzador). */

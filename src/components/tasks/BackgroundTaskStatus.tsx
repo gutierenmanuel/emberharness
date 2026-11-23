@@ -193,7 +193,7 @@ export function BackgroundTaskStatus(t0) {
     return null;
   }
   if (runningTasks.length === 0) {
-    // FnHarness keeps the pill visible even when idle so the tasks dialog is
+    // EmberHarness keeps the pill visible even when idle so the tasks dialog is
     // always one ↓ away, as a permanent footer entry.
     return <SummaryPill selected={tasksSelected} onClick={onOpenDialog}>0 shells · 0 monitors · 0 agents</SummaryPill>;
   }

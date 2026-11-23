@@ -485,7 +485,7 @@ export async function getSystemPrompt(
   const settings = getInitialSettings()
   const enabledTools = new Set(tools.map(_ => _.name))
 
-  // FnHarness: no tools at all (context profile tools:none) = plain chat.
+  // EmberHarness: no tools at all (context profile tools:none) = plain chat.
   // The tool, task and permission guidance would only waste a small model's
   // context, so send a short prompt instead.
   if (tools.length === 0) {
@@ -498,7 +498,7 @@ export async function getSystemPrompt(
     ].filter((s): s is string => typeof s === 'string' && s.length > 0)
   }
 
-  // FnHarness: the Simple tool set (context profile tools:simple) gets a short
+  // EmberHarness: the Simple tool set (context profile tools:simple) gets a short
   // system prompt of its own; the full agent prompt would eat a local model's
   // window. CLAUDE.md files still arrive through the user context.
   if (isCompactToolSet(tools)) {

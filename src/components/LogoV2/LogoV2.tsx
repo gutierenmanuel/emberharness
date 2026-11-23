@@ -115,7 +115,7 @@ export function LogoV2() {
   useEffect(t2, t3);
   let t4;
   if ($[5] === Symbol.for("react.memo_cache_sentinel")) {
-    // FnHarness always starts with the compact header (the build defines
+    // EmberHarness always starts with the compact header (the build defines
     // CLAUDE_CODE_FORCE_FULL_LOGO=true, so that env switch cannot be used here).
     t4 = true;
     $[5] = t4;
@@ -250,8 +250,8 @@ export function LogoV2() {
   }
   const layoutMode = getLayoutMode(columns);
   const userTheme = resolveThemeSetting(getGlobalConfig().theme);
-  const borderTitle = ` ${color("startupAccent", userTheme)("Welcome to FnHarness")} ${color("inactive", userTheme)(`v${MACRO.FNHARNESS_VERSION}`)} `;
-  const compactBorderTitle = color("startupAccent", userTheme)(" Welcome to FnHarness ");
+  const borderTitle = ` ${color("startupAccent", userTheme)("Welcome to EmberHarness")} ${color("inactive", userTheme)(`v${MACRO.FNHARNESS_VERSION}`)} `;
+  const compactBorderTitle = color("startupAccent", userTheme)(" Welcome to EmberHarness ");
   if (layoutMode === "compact") {
     let welcomeMessage = formatWelcomeMessage(username);
     if (stringWidth(welcomeMessage) > columns - 4) {

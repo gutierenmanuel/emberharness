@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Instala fnharness desde su repo de Gitea: clona (o actualiza), instala dependencias con bun,
-# compila ./cli y enlaza el lanzador en ~/.local/bin/fnharness.
+# Instala EmberHarness (comando emberh; fnharness queda como alias) desde su repo de Gitea: clona (o actualiza), instala dependencias con bun,
+# compila ./cli y enlaza el lanzador en ~/.local/bin/emberh (y el alias fnharness).
 #
 # Uso:
 #   ./install.sh                       # desde una copia ya clonada: instala ahí
@@ -10,7 +10,7 @@
 # credential helper o en el remoto). Este script nunca las lee ni las imprime.
 set -euo pipefail
 
-REPO="${FNHARNESS_REPO:-https://github.com/gutierenmanuel/fnharness.git}"
+REPO="${FNHARNESS_REPO:-https://gitea-dgg044oo04woo4ggcsws4gk0.organic-machine.com/dataforge/emberharness.git}"
 BUN_MIN_VERSION="1.3.11"
 LINK_DIR="${FNHARNESS_LINK_DIR:-$HOME/.local/bin}"
 
@@ -25,7 +25,7 @@ if [[ -n "${FNHARNESS_DIR:-}" ]]; then
 elif [[ -f "$script_dir/package.json" ]]; then
   install_dir="$script_dir"
 else
-  install_dir="$HOME/fnharness"
+  install_dir="$HOME/emberharness"
 fi
 
 # bun >= BUN_MIN_VERSION. El bun de ~/.local/bun-npm (1.3.11) va AL FINAL del PATH, solo como
@@ -68,19 +68,20 @@ else
 fi
 
 mkdir -p "$LINK_DIR"
-ln -sf "$install_dir/bin/fnharness" "$LINK_DIR/fnharness"
-ok "Enlace: $LINK_DIR/fnharness"
+ln -sf "$install_dir/bin/emberh" "$LINK_DIR/emberh"
+ln -sf "$install_dir/bin/emberh" "$LINK_DIR/fnharness"
+ok "Enlace: $LINK_DIR/emberh (alias: fnharness)"
 
 case ":$PATH:" in
   *":$LINK_DIR:"*) ;;
-  *) info "Añade $LINK_DIR al PATH para usar el comando fnharness" ;;
+  *) info "Añade $LINK_DIR al PATH para usar el comando emberh" ;;
 esac
 
 cat <<EOF
 
 Listo. Prueba:
-  fnharness --accounts     # cuentas disponibles
-  fnharness                # sesión interactiva con la última cuenta usada
+  emberh --accounts        # cuentas disponibles
+  emberh                   # sesión interactiva con la última cuenta usada
 
 La primera vez con la cuenta claude, escribe /login dentro de la sesión. Con modelos locales o de
 otros proveedores usa /account (selector de cuentas).

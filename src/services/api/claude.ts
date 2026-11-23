@@ -1362,7 +1362,7 @@ async function* queryModel(
     API_MAX_MEDIA_PER_REQUEST,
   )
 
-  // FnHarness: with no tools at all (context profile tools:none) the API
+  // EmberHarness: with no tools at all (context profile tools:none) the API
   // rejects tool_use/tool_result blocks left in the history; send them as text.
   if (
     filteredTools.length === 0 &&

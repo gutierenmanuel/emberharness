@@ -28,6 +28,6 @@ describe('reinicio de perfil', () => {
     expect(readFileSync(path!, 'utf8')).toBe('--resume\ns 1\n--perfil\nx\n')
   })
   test('el comando manual cita lo que lleva espacios', () => {
-    expect(manualRestartCommand(['--resume', 'a b', '--perfil', 'x'])).toBe('fnharness --resume "a b" --perfil x')
+    expect(manualRestartCommand(['--resume', 'a b', '--perfil', 'x'])).toBe('emberh --resume "a b" --perfil x')
   })
 })
