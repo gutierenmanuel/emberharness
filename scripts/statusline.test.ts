@@ -165,20 +165,20 @@ describe('statusline.sh', () => {
     test('shows the alias after the resume command, separated', () => {
       const root = fakeRegistry('print("🐶 perro grande")\n')
       const lines = render(withSession, { FN_REGISTRY_ROOT: root })
-      const resume = lines.find(l => l.includes('fnharness --resume'))
-      expect(resume).toBe('  🔗 fnharness --resume abc-123 │ 🐶 perro grande')
+      const resume = lines.find(l => l.includes('emberh --resume'))
+      expect(resume).toBe('  🔗 emberh --resume abc-123 │ 🐶 perro grande')
     })
 
     test('passes its own pid so the registry can find the session', () => {
       const root = fakeRegistry('import sys\nprint("args=" + " ".join(sys.argv[1:2]))\n')
       const lines = render(withSession, { FN_REGISTRY_ROOT: root })
-      expect(lines.find(l => l.includes('fnharness --resume'))).toContain('│ args=--from-pid')
+      expect(lines.find(l => l.includes('emberh --resume'))).toContain('│ args=--from-pid')
     })
 
     test('a failing or missing alias script leaves the resume line untouched', () => {
       for (const root of [fakeRegistry('import sys\nsys.exit(1)\n'), mkdtempSync(join(tmpdir(), 'fnh-empty-'))]) {
         const lines = render(withSession, { FN_REGISTRY_ROOT: root })
-        expect(lines.find(l => l.includes('fnharness --resume'))).toBe('  🔗 fnharness --resume abc-123')
+        expect(lines.find(l => l.includes('emberh --resume'))).toBe('  🔗 emberh --resume abc-123')
         // lo demas de la barra sigue igual
         expect(lines.join('\n')).toContain('Sonnet 5.5')
       }

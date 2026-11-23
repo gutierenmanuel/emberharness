@@ -89,7 +89,7 @@ function fail(msg: string): never {
 }
 
 function pick(idArg: string | undefined): BgMeta {
-  if (!idArg) fail('falta el id de la sesión (mira `fnharness ps`)')
+  if (!idArg) fail('falta el id de la sesión (mira `emberh ps`)')
   const m = resolveId(listBgSessions(), idArg)
   if (m.kind === 'found') return m.meta
   if (m.kind === 'ambiguous') fail(`id ambiguo "${idArg}": ${m.ids.join(', ')}`)
@@ -293,7 +293,7 @@ export async function killHandler(idArg: string | undefined): Promise<void> {
 
 export async function rmHandler(idArg: string | undefined): Promise<void> {
   const meta = pick(idArg)
-  if (statusOf(meta) === 'running') fail(`la sesión ${meta.id} sigue en marcha: páramela antes con \`fnharness stop ${meta.id}\``)
+  if (statusOf(meta) === 'running') fail(`la sesión ${meta.id} sigue en marcha: páramela antes con \`emberh stop ${meta.id}\``)
   rmSync(sessionDir(meta.id), { recursive: true, force: true })
   process.stdout.write(`Sesión ${meta.id} borrada del registro (el transcript se conserva).\n`)
 }
@@ -308,7 +308,7 @@ export async function attachHandler(idArg: string | undefined): Promise<void> {
   if (statusOf(meta) === 'running') {
     process.stderr.write(
       `La sesión ${meta.id} sigue en marcha: no se puede tomar en vivo, sigo sus logs ` +
-        `(Ctrl+C para salir; al terminar, \`fnharness attach ${meta.id}\` la reanuda en la TUI).\n`,
+        `(Ctrl+C para salir; al terminar, \`emberh attach ${meta.id}\` la reanuda en la TUI).\n`,
     )
     await followLogs(meta, true)
     return

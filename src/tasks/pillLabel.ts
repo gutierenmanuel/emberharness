@@ -64,7 +64,7 @@ export function getPillLabel(tasks: BackgroundTaskState[]): string {
   }
 
   // Mixed types: one count per family so shells, monitors and agents stay
-  // distinguishable in the footer (FnHarness).
+  // distinguishable in the footer (EmberHarness).
   const monitors = count(
     tasks,
     t =>

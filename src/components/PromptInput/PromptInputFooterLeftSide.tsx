@@ -335,7 +335,7 @@ function ModeIndicator({
   const shouldShowPrStatus = isPrStatusEnabled() && prStatus.number !== null && prStatus.reviewState !== null && prStatus.url !== null && primaryItemCount < 2 && (primaryItemCount === 0 || columns >= 80);
 
   // Hide the shift+tab hint when there are 2 primary items.
-  // FnHarness: the context profile pill takes its place (see /scope, ? for shortcuts).
+  // EmberHarness: the context profile pill takes its place (see /scope, ? for shortcuts).
   const shouldShowModeHint = false && primaryItemCount < 2;
 
   // Check if we have in-process teammates (showing pills)
@@ -347,7 +347,7 @@ function ModeIndicator({
   // the local permission mode shown here doesn't reflect the agent's state.
   // Rendered before the tasks pill so a long pill label (e.g. ultraplan URL)
   // doesn't push the mode indicator off-screen.
-  // FnHarness always shows the permission mode, including the default one.
+  // EmberHarness always shows the permission mode, including the default one.
   const modePart = currentMode && !getIsRemoteMode() ? <Text color={getModeColor(currentMode)} dimColor={!hasActiveMode} key="mode">
         {hasActiveMode ? `${permissionModeSymbol(currentMode)} ${permissionModeTitle(currentMode).toLowerCase()} on` : '⏵ simple mode'}
         {shouldShowModeHint && <Text dimColor>

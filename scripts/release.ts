@@ -89,7 +89,7 @@ function main(): void {
   // Local calendar date (toISOString is UTC and slips a day around midnight).
   const date = new Date().toLocaleDateString('es-ES', { day: '2-digit', month: '2-digit', year: 'numeric' })
 
-  const header = '# Changelog de FnHarness\n\n'
+  const header = '# Changelog de EmberHarness\n\n'
   const previous = existsSync('CHANGELOG.md')
     ? readFileSync('CHANGELOG.md', 'utf8').replace(header, '')
     : ''
@@ -98,8 +98,8 @@ function main(): void {
 
   git(['add', 'package.json', 'CHANGELOG.md'])
   git(['commit', '-m', `chore(release): v${next}`])
-  git(['tag', '-a', `v${next}`, '-m', `FnHarness v${next}`])
-  console.log(`FnHarness ${pkg.version} → ${next} (tag v${next}). Recompila con: bun run build`)
+  git(['tag', '-a', `v${next}`, '-m', `EmberHarness v${next}`])
+  console.log(`EmberHarness ${pkg.version} → ${next} (tag v${next}). Recompila con: bun run build`)
 }
 
 if (import.meta.main) main()

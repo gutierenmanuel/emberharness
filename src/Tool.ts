@@ -164,7 +164,7 @@ export type ToolUseContext = {
     verbose: boolean
     thinkingConfig: ThinkingConfig
     mcpClients: MCPServerConnection[]
-    /** FnHarness: context profile snapshotted when the turn started. */
+    /** EmberHarness: context profile snapshotted when the turn started. */
     contextProfile?: import('./utils/contextProfile.js').ContextProfile
     mcpResources: Record<string, ServerResource[]>
     isNonInteractiveSession: boolean

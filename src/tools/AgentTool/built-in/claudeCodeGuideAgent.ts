@@ -91,7 +91,7 @@ function getClaudeCodeGuideBasePrompt(): string {
 Complete the user's request by providing accurate, documentation-based guidance.`
 }
 
-// FnHarness: sin las herramientas nativas (FNHARNESS_NATIVE_WEB != 1) se usan las del MCP web_search.
+// EmberHarness: sin las herramientas nativas (FNHARNESS_NATIVE_WEB != 1) se usan las del MCP web_search.
 function webFetchName(): string {
   return isNativeWebEnabled() ? WEB_FETCH_TOOL_NAME : MCP_WEB_FETCH_TOOL_NAME
 }

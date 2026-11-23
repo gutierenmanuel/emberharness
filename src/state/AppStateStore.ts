@@ -230,9 +230,9 @@ export type AppState = DeepImmutable<{
     queue: ElicitationRequestEvent[]
   }
   thinkingEnabled: boolean | undefined
-  /** FnHarness: what reaches the model (MCP, skills, tools). Undefined = Full. */
+  /** EmberHarness: what reaches the model (MCP, skills, tools). Undefined = Full. */
   contextProfile?: ContextProfile
-  /** FnHarness: perfil de /perfil activo (undefined = ninguno, manda el scope de la cuenta). */
+  /** EmberHarness: perfil de /perfil activo (undefined = ninguno, manda el scope de la cuenta). */
   perfil?: ActivePerfil
   promptSuggestionEnabled: boolean
   sessionHooks: SessionHooksState

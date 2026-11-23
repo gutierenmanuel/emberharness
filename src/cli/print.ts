@@ -1497,7 +1497,7 @@ function runHeadlessStreaming(
         tool => !toolMatchesName(tool, options.permissionPromptToolName!),
       )
     }
-    // FnHarness context profile (/scope, FNHARNESS_CONTEXT_PROFILE).
+    // EmberHarness context profile (/scope, FNHARNESS_CONTEXT_PROFILE).
     allTools = filterToolsByProfile(
       allTools,
       appState.contextProfile,

@@ -127,7 +127,7 @@ const SnipTool = feature('HISTORY_SNIP')
 const ListPeersTool = feature('UDS_INBOX')
   ? require('./tools/ListPeersTool/ListPeersTool.js').ListPeersTool
   : null
-// FnHarness: la tool SessionConfig solo existe con FNHARNESS_SESSION_CONFIG=1 (utils/sessionConfig.ts).
+// EmberHarness: la tool SessionConfig solo existe con FNHARNESS_SESSION_CONFIG=1 (utils/sessionConfig.ts).
 // Se evalúa al listar las tools, no al importar: el env de settings.json se aplica después.
 const getSessionConfigTool = () =>
   process.env.FNHARNESS_SESSION_CONFIG === '1'
@@ -216,7 +216,7 @@ export function getAllBaseTools(): Tools {
     FileEditTool,
     FileWriteTool,
     NotebookEditTool,
-    // FnHarness: WebFetch y WebSearch solo con FNHARNESS_NATIVE_WEB=1 (ver utils/nativeWeb.ts).
+    // EmberHarness: WebFetch y WebSearch solo con FNHARNESS_NATIVE_WEB=1 (ver utils/nativeWeb.ts).
     ...(isNativeWebEnabled() ? [WebFetchTool] : []),
     TodoWriteTool,
     ...(isNativeWebEnabled() ? [WebSearchTool] : []),
@@ -301,7 +301,7 @@ export const getTools = (permissionContext: ToolPermissionContext): Tools => {
     }
     // Perfil bare con `exactTools`: solo las que nombra la lista, nada de Bash/Read/Edit de serie.
     const simpleTools: Tool[] = isSimpleModeToolsExact() ? [] : [BashTool, FileReadTool, FileEditTool]
-    // FnHarness: un perfil bare con lista de herramientas (/perfil, --perfil) pide además las que nombra.
+    // EmberHarness: un perfil bare con lista de herramientas (/perfil, --perfil) pide además las que nombra.
     const extra = getSimpleModeExtraTools()
     if (extra.size > 0) {
       for (const t of getAllBaseTools()) {

@@ -67,19 +67,19 @@ export const DEFAULT_BINDINGS: KeybindingBlock[] = [
       // ctrl+x chord prefix avoids shadowing readline editing keys (ctrl+a/b/e/f/...).
       'ctrl+x ctrl+k': 'chat:killAgents',
       [MODE_CYCLE_KEY]: 'chat:cycleMode',
-      // FnHarness: rotate the context profile (/scope presets).
+      // EmberHarness: rotate the context profile (/scope presets).
       'ctrl+tab': 'chat:cycleContextProfile',
       'ctrl+shift+tab': 'chat:cycleContextProfileBack',
       'meta+p': 'chat:modelPicker',
       'meta+o': 'chat:fastMode',
       'meta+t': 'chat:thinkingToggle',
       enter: 'chat:submit',
-      // FnHarness: send the prompt right now, interrupting the running turn
+      // EmberHarness: send the prompt right now, interrupting the running turn
       // instead of queueing it for the next tool boundary. ctrl+enter needs the
       // kitty keyboard protocol; the chord works in any terminal.
       'ctrl+enter': 'chat:sendNow',
       'ctrl+x ctrl+n': 'chat:sendNow',
-      // FnHarness: ← on an empty prompt opens the session switcher (all sessions on the
+      // EmberHarness: ← on an empty prompt opens the session switcher (all sessions on the
       // machine); the chord opens it from anywhere, also with text in the prompt.
       left: 'chat:agentsView',
       'ctrl+x ctrl+w': 'chat:sessionSwitcher',

@@ -8,9 +8,9 @@ tags: [harness, agent, cli, llm, multimodel, openai-compatible, llama-cpp, ollam
 uses_functions: []
 uses_types: []
 framework: "bun-ink"
-entry_point: "bin/fnharness"
+entry_point: "bin/emberh"
 dir_path: "apps/fnharness"
-repo_url: "https://github.com/gutierenmanuel/fnharness"
+repo_url: "https://gitea-dgg044oo04woo4ggcsws4gk0.organic-machine.com/dataforge/emberharness"
 e2e_checks:
   - id: unit
     cmd: "cd apps/fnharness && PATH=$HOME/.local/bun-npm/node_modules/.bin:$PATH bun test src scripts"
@@ -19,14 +19,14 @@ e2e_checks:
     cmd: "cd apps/fnharness && PATH=$HOME/.local/bun-npm/node_modules/.bin:$PATH bun run test:e2e"
     timeout_s: 400
   - id: accounts
-    cmd: "apps/fnharness/bin/fnharness --accounts"
+    cmd: "apps/fnharness/bin/emberh --accounts"
     expect_stdout_contains: "llamacpp"
     timeout_s: 20
 ---
 
 # fnharness
 
-Lanzador: `fnharness` (symlink en `~/.local/bin` a `bin/fnharness`).
+Lanzador: `emberh` (symlink en `~/.local/bin` a `bin/emberh`; `fnharness` queda como alias).
 
 ```bash
 fnharness                          # sesión interactiva con la última cuenta usada
