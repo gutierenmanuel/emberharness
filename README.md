@@ -2,6 +2,8 @@
 
 Comando `emberh` (`fnharness` sigue funcionando como alias). Antes se llamaba FnHarness.
 
+![Arranque de EmberHarness con el logo de fuego](assets/01-arranque.png)
+
 Arnés de agente de terminal (fork de Claude Code sobre Bun e Ink) que funciona con cualquier
 proveedor de LLM, no solo Anthropic. Un adaptador traduce la API Messages de Anthropic a OpenAI Chat
 Completions (streaming, tool calls, imágenes y razonamiento), de modo que herramientas, subagentes,
@@ -13,6 +15,11 @@ fn_registry (ver [plan de arnés por defecto en Matrix](docs/plans/matrix_defaul
 
 Estado propio en `~/.fnharness`, separado de `~/.claude`. Repo privado: el origen es un snapshot
 reconstruido de Claude Code y no se publica ni se redistribuye.
+
+Con `/model` se elige el modelo entre todas las cuentas conectadas; escoger uno de otra cuenta
+cambia la sesión a esa cuenta:
+
+![Selector de modelos con varias cuentas](assets/02-model.png)
 
 ## Instalación
 
@@ -102,6 +109,8 @@ informa el servidor local > `models` de `providers.json` > la del preset > el ca
 Las capacidades (pensamiento adaptativo, esfuerzo) siguen en el código.
 
 ## Barra de estado
+
+![Barra de estado con una cuenta local de Ollama](assets/03-statusline.png)
 
 `statusline.sh` recibe por stdin el JSON de siempre más un bloque `fnharness` que se calcula con la
 cuenta activa (nada de supuestos de Claude): `account` (id, etiqueta, proveedor, URL, modelo, nombre
