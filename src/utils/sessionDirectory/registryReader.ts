@@ -31,7 +31,11 @@ export async function candidateConfigDirs(): Promise<string[]> {
     getClaudeConfigHomeDir(),
     join(home, '.fnharness'),
     join(home, '.claude'),
-    join(home, '.claude-work'),
+    // Cuentas Claude extra viven en ~/.claude-<id> (p. ej. ~/.claude-work).
+    ...(await readdir(home).catch(() => [] as string[]))
+      .filter(name => name.startsWith('.claude-'))
+      .sort()
+      .map(name => join(home, name)),
   ]
   const seen = new Set<string>()
   const out: string[] = []

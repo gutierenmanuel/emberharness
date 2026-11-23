@@ -6,3 +6,7 @@ openclaw/
 
 .claude/worktrees/
 /vendor/
+
+# Copias locales de binarios compilados
+/cli.prev*
+/src/vendor/

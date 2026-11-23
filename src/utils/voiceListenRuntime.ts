@@ -29,7 +29,7 @@
 
 import { spawn as nodeSpawn, type ChildProcess } from 'child_process'
 import { closeSync, openSync, readFileSync, unlinkSync, writeSync } from 'fs'
-import { tmpdir } from 'os'
+import { homedir, tmpdir } from 'os'
 import { join } from 'path'
 import { createInterface } from 'readline'
 import type { QueuedCommand } from '../types/textInputTypes.js'
@@ -44,8 +44,8 @@ import {
   voiceLiveSent,
 } from './voiceLiveState.js'
 
-export const DEFAULT_VOICE_CMD =
-  '/home/user/fn_registry/python/.venv/bin/python3 -u /home/user/fn_registry/python/functions/pipelines/stream_voice_dictation.py'
+const REGISTRY_ROOT = process.env.FN_REGISTRY_ROOT ?? join(homedir(), 'fn_registry')
+export const DEFAULT_VOICE_CMD = `${REGISTRY_ROOT}/python/.venv/bin/python3 -u ${REGISTRY_ROOT}/python/functions/pipelines/stream_voice_dictation.py`
 
 /** Hard cap on one utterance: anything longer is a runaway producer, not speech. */
 export const MAX_UTTERANCE_CHARS = 8000

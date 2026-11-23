@@ -90,7 +90,7 @@ EST_IN=0; EST_CACHE_R=0; EST_OUT=0; EST_CR=0
 # Element via agentsadmin. No imprime nada ni puede romper el statusline.
 SL_DIR=$(dirname "$(readlink -f "${BASH_SOURCE[0]}" 2>/dev/null)")
 if [ "$IS_GLM" = "1" ]; then SL_PROFILE=zai
-elif printf '%s' "${CLAUDE_CONFIG_DIR:-}" | grep -q 'claude-work'; then SL_PROFILE=work
+elif printf '%s' "${CLAUDE_CONFIG_DIR:-}" | grep -q '\.claude-'; then SL_PROFILE=work
 else SL_PROFILE=personal; fi
 # fnharness: sin usage_sidecar (alimenta agentsadmin con cuentas Claude, no con esta).
 

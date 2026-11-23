@@ -17,7 +17,7 @@ reconstruido de Claude Code y no se publica ni se redistribuye.
 Requisitos: Linux, `git`, `bun` >= 1.3.11 y acceso al repo de Gitea.
 
 ```bash
-git clone https://github.com/gutierenmanuel/fnharness$1
+git clone https://github.com/gutierenmanuel/fnharness.git
 cd fnharness
 ./install.sh        # bun install, build de ./cli y enlace en ~/.local/bin/fnharness
 ```

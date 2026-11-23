@@ -51,8 +51,9 @@ import { getOwnSessionAlias } from './peerAlias.js'
 import { isVoiceOrigin, unwrapVoiceText } from './voiceOrigin.js'
 import { noteSpoken as realNoteSpoken, setSpeechStartHandler, setStopHandler, voiceListenActive } from './voiceListenRuntime.js'
 
-const PY = '/home/user/fn_registry/python/.venv/bin/python3'
-const INFRA = '/home/user/fn_registry/python/functions/infra'
+const REGISTRY_ROOT = process.env.FN_REGISTRY_ROOT ?? join(homedir(), 'fn_registry')
+const PY = join(REGISTRY_ROOT, 'python/.venv/bin/python3')
+const INFRA = join(REGISTRY_ROOT, 'python/functions/infra')
 export const ENQUEUE_SPEECH_ARGV = [PY, `${INFRA}/enqueue_speech.py`]
 export const SERVE_SPEECH_ARGV = [PY, '-u', `${INFRA}/serve_speech_queue.py`]
 
