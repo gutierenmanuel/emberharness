@@ -21,6 +21,8 @@ import { appendFileSync } from 'fs'
 
 const port = Number(process.argv[2] ?? 8799)
 const logPath = process.env.MOCK_LOG ?? '/tmp/mock_openai.log'
+// The Agent tool requires an explicit cuenta:modelo; the e2e sessions run on the `custom` account.
+const MOCK_AGENT_MODEL = process.env.MOCK_AGENT_MODEL ?? 'custom:mock-model'
 
 type Msg = { role: string; content?: unknown }
 
@@ -44,10 +46,10 @@ function plan(messages: Msg[]): Plan {
   if (userText.includes('<fork-boilerplate>')) return { text: 'fork child done' }
   if (last?.role === 'user' && t.includes('SUBTASK_SUB')) return { text: 'subtask child done' }
   if (last?.role === 'user' && t.includes('The user ran /fork') && t.includes('FORK_DEMO')) {
-    return { tool: { name: 'Agent', args: { description: 'fork demo', prompt: 'FORK_DEMO work', subagent_type: 'fork', run_in_background: true } } }
+    return { tool: { name: 'Agent', args: { description: 'fork demo', prompt: 'FORK_DEMO work', subagent_type: 'fork', run_in_background: true, model: MOCK_AGENT_MODEL } } }
   }
   if (last?.role === 'user' && t.includes('The user ran /subtask') && t.includes('SUBTASK_DEMO')) {
-    return { tool: { name: 'Agent', args: { description: 'subtask demo', prompt: 'SUBTASK_SUB work', subagent_type: 'general-purpose', run_in_background: true } } }
+    return { tool: { name: 'Agent', args: { description: 'subtask demo', prompt: 'SUBTASK_SUB work', subagent_type: 'general-purpose', run_in_background: true, model: MOCK_AGENT_MODEL } } }
   }
   if (userText.includes('AGENT_SUB') && !userText.includes('AGENT_DEMO')) {
     // The delay in fetch() keeps the sub-agent alive long enough to see it in the panel.
@@ -78,7 +80,7 @@ function plan(messages: Msg[]): Plan {
   if (last?.role === 'user' && t.includes('AGENT_PAR')) {
     const agent = (description: string) => ({
       name: 'Agent',
-      args: { description, prompt: 'AGENT_SUB count files', subagent_type: 'Explore', run_in_background: true },
+      args: { description, prompt: 'AGENT_SUB count files', subagent_type: 'Explore', run_in_background: true, model: MOCK_AGENT_MODEL },
     })
     return { tools: [agent('count src'), agent('count utils')] }
   }
@@ -102,6 +104,7 @@ function plan(messages: Msg[]): Plan {
             prompt: 'AGENT_SUB count files',
             subagent_type: 'general-purpose',
             run_in_background: true,
+            model: MOCK_AGENT_MODEL,
           },
         },
       }

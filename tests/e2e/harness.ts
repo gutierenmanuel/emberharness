@@ -93,9 +93,18 @@ export function makeSandbox(): { configDir: string; cwd: string } {
   return { configDir, cwd }
 }
 
+/**
+ * Account variables a parent fnharness session exports to its children: run
+ * from inside one, the e2e CLI would otherwise open on that session's account
+ * (e.g. `claude`) instead of the sandbox's.
+ */
+const INHERITED_SESSION_VARS = ['CLAUDE_MULTIMODEL_ACCOUNT', 'FNHARNESS_ACCOUNT', 'FNHARNESS_ACCOUNT_LABEL', 'FNHARNESS_MODEL_BACKEND', 'FNHARNESS_ACCOUNT_FLAG', 'FNHARNESS_LAUNCHER_PID', 'FNHARNESS_SESSION_CONFIG']
+
 export function fakeEnv(baseUrl: string, configDir: string, extra: Record<string, string> = {}) {
+  const inherited: Record<string, string | undefined> = { ...process.env }
+  for (const k of INHERITED_SESSION_VARS) delete inherited[k]
   return {
-    ...process.env,
+    ...inherited,
     CLAUDE_CONFIG_DIR: configDir,
     CLAUDE_MULTIMODEL_PROVIDER: 'custom',
     CLAUDE_MULTIMODEL_BASE_URL: baseUrl,

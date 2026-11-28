@@ -53,7 +53,7 @@ const serverA = fakeServer('model-a', b => {
   const msgs = b.messages ?? []
   if (msgs.some(m => m.role === 'tool')) return { text: 'MAIN_DONE' }
   if (msgs.some(m => m.role === 'user' && text(m).includes('LANZA_SUB'))) {
-    return { tool: { name: 'Agent', args: { description: 'sub en B', prompt: 'SUB_TASK di hola', subagent_type: 'general-purpose', model: 'acctb:model-b' } } }
+    return { tool: { name: 'Agent', args: { description: 'sub en B', prompt: 'SUB_TASK di hola', subagent_type: 'general-purpose', model: 'acctb:model-b', run_in_background: false } } }
   }
   return { text: 'ok' }
 })

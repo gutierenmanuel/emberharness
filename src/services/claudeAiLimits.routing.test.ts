@@ -56,4 +56,19 @@ describe('5h/7d limits are not overwritten by another account', () => {
     expect(currentLimits).toEqual(sessionLimits)
     expect(getRawUtilization()).toEqual({})
   })
+
+  test('session on an OpenAI-compatible account: a claude:opus child response never becomes the session windows', () => {
+    resetAccountUtilizationForTesting()
+    process.env.FNHARNESS_ACCOUNT = 'zcode'
+    try {
+      const sessionLimits = { status: 'allowed' as const, unifiedRateLimitFallbackAvailable: false, isUsingOverage: false }
+      emitStatusChange(sessionLimits)
+      runInProfileScope({ accountId: 'claude', profile: null, live: true }, () => extractQuotaStatusFromHeaders(headers))
+      expect(currentLimits).toEqual(sessionLimits)
+      expect(getRawUtilization()).toEqual({})
+      expect(getRawUtilization('zcode')).toEqual({})
+    } finally {
+      delete process.env.FNHARNESS_ACCOUNT
+    }
+  })
 })

@@ -12,6 +12,9 @@ const strip = (s: string) => s.replace(/\x1b\[[0-9;]*m/g, '')
 
 function render(input: object, env: Record<string, string> = {}): string[] {
   const proc = Bun.spawnSync(['bash', SCRIPT], {
+    // Outside any repo: the script shows the git branch of its cwd, and a branch
+    // name (e.g. quick/…-opus) must not leak into the assertions.
+    cwd: mkdtempSync(join(tmpdir(), 'fnh-sl-cwd-')),
     stdin: new TextEncoder().encode(JSON.stringify(input)),
     env: { ...process.env, CLAUDE_CONFIG_DIR: mkdtempSync(join(tmpdir(), 'fnh-sl-')), ...env },
   })
