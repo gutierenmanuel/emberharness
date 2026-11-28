@@ -18,8 +18,9 @@ import { enterTeammateView, exitTeammateView } from '../state/teammateViewHelper
 import { AGENT_PANEL_ENABLED, isPanelAgentTask, type LocalAgentTaskState } from '../tasks/LocalAgentTask/LocalAgentTask.js';
 import { formatDuration, formatNumber } from '../utils/format.js';
 import { evictTerminalTask } from '../utils/task/framework.js';
-import { layoutAgentRow } from './agentPanelRow.js';
-import { accountTag, sessionAccountId, tryRouteForModel } from '../services/api/accountRouting.js';
+import { agentModelSpec, layoutAgentRow } from './agentPanelRow.js';
+import { sessionAccountId, tryRouteForModel } from '../services/api/accountRouting.js';
+import { getMultimodelProfile } from '../services/api/openai-compat/profiles.js';
 import { isTerminalStatus } from './tasks/taskStatusUtils.js';
 
 /**
@@ -155,9 +156,16 @@ function AgentLine({
   const pausedMs = task.totalPausedMs ?? 0;
   const elapsedMs = Math.max(0, isRunning ? Date.now() - task.startTime - pausedMs : (task.endTime ?? task.startTime) - task.startTime - pausedMs);
   const tokenCount = task.progress?.tokenCount;
+  // Every row names its account and resolved model, also the session's own.
+  const route = tryRouteForModel(task.model);
+  const sessionAccount = sessionAccountId();
+  const accountLabel = route ? route.profile?.label ?? 'Claude' : task.model ? getMultimodelProfile()?.label ?? 'Claude' : undefined;
+  const label = task.agentType && task.agentType !== 'main-session' ? task.agentType : name ?? 'agent';
   const parts = layoutAgentRow({
-    label: task.agentType && task.agentType !== 'main-session' ? task.agentType : name ?? 'agent',
-    account: accountTag(tryRouteForModel(task.model), sessionAccountId()),
+    label,
+    alias: name,
+    model: agentModelSpec(task.model, route, sessionAccount),
+    accountLabel,
     description: task.progress?.summary || task.description,
     selected: !!isSelected || hover,
     viewed: !!isViewed,

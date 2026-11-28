@@ -79,8 +79,8 @@ describe.skipIf(!hasCli)('agents panel e2e', () => {
     const out = stripAnsi(await new Response(proc.stdout).text())
     await proc.exited
     expect(out).toContain('● main')
-    expect(out).toMatch(/◯ general-purpose\s+count src\s+\d+s/)
-    expect(out).toMatch(/◯ general-purpose\s+count utils\s+\d+s/)
+    expect(out).toMatch(/◯ general-purpose · [^·\s]+:[^·]+ · count src\s+\d+s/)
+    expect(out).toMatch(/◯ general-purpose · [^·\s]+:[^·]+ · count utils\s+\d+s/)
     expect(out).toContain('↓ to manage')
   }, 40_000)
 
@@ -90,12 +90,12 @@ describe.skipIf(!hasCli)('agents panel e2e', () => {
     expect(out).toContain('2 background agents launched')
     expect(out).toMatch(/├ count src/)
     expect(out).toMatch(/└ count utils/)
-    expect(out).toMatch(/◯ Explore\s+count src/)
+    expect(out).toMatch(/◯ Explore · [^·\s]+:[^·]+ · count src/)
     expect(out).toContain('Message @Explore…')
     const out2 = await runTui(PORT_FAST, [[6000, 'AGENT_PAR\r']], 28)
     expect(out2).toMatch(/Agent "count src" finished · \d+s/)
     expect(out2).toMatch(/Agent "count utils" finished · \d+s/)
-    expect(out2).toMatch(/◯ Explore\s+count src/) // visible while running
+    expect(out2).toMatch(/◯ Explore · [^·\s]+:[^·]+ · count src/) // visible while running
     // Last frame: panel rows are gone after the grace period.
     const tail = out2.slice(out2.lastIndexOf('❯'))
     expect(tail).not.toContain('◯ Explore')
