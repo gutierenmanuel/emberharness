@@ -1,193 +1,30 @@
 import { feature } from 'bun:bundle';
-import { getMocks } from '../dev/mocks.js';
 import * as React from 'react';
 import { memo, useCallback, useEffect, useRef } from 'react';
 import { logEvent } from 'src/services/analytics/index.js';
 import { useAppState, useSetAppState } from 'src/state/AppState.js';
 import type { PermissionMode } from 'src/utils/permissions/PermissionMode.js';
-import { getIsRemoteMode, getKairosActive, getMainThreadAgentType, getOriginalCwd, getSdkBetas, getSessionId } from '../bootstrap/state.js';
-import { DEFAULT_OUTPUT_STYLE_NAME } from '../constants/outputStyles.js';
+import { getKairosActive } from '../bootstrap/state.js';
 import { useNotifications } from '../context/notifications.js';
-import { getTotalAPIDuration, getTotalCost, getTotalDuration, getTotalInputTokens, getTotalLinesAdded, getTotalLinesRemoved, getTotalOutputTokens } from '../cost-tracker.js';
 import { useMainLoopModel } from '../hooks/useMainLoopModel.js';
 import { type ReadonlySettings, useSettings } from '../hooks/useSettings.js';
 import { Ansi, Box, Text } from '../ink.js';
-import { getRawUtilization } from '../services/claudeAiLimits.js';
 import type { Message } from '../types/message.js';
-import type { StatusLineCommandInput } from '../types/statusLine.js';
 import type { VimMode } from '../types/textInputTypes.js';
 import { checkHasTrustDialogAccepted } from '../utils/config.js';
-import { calculateContextPercentages, getContextWindowForModel } from '../utils/context.js';
-import { getCwd } from '../utils/cwd.js';
 import { logForDebugging } from '../utils/debug.js';
 import { isFullscreenEnvEnabled } from '../utils/fullscreen.js';
-import { createBaseHookInput, executeStatusLineCommand } from '../utils/hooks.js';
+import { executeStatusLineCommand } from '../utils/hooks.js';
 import { getLastAssistantMessage } from '../utils/messages.js';
-import { getRuntimeMainLoopModel, type ModelName, renderModelName } from '../utils/model/model.js';
-import { getCurrentSessionTitle } from '../utils/sessionStorage.js';
-import { doesMostRecentAssistantMessageExceed200k, getCurrentUsage } from '../utils/tokens.js';
-import { getCurrentWorktreeSession } from '../utils/worktree.js';
-import { isVimModeEnabled } from './PromptInput/utils.js';
-import { getAutoCompactThreshold, isAutoCompactEnabled } from '../services/compact/autoCompact.js';
-import { findProvider } from '../services/api/openai-compat/catalog.js';
-import { loadCatalog } from '../services/api/openai-compat/catalogStore.js';
-import { getModelLimits, getMultimodelProfile } from '../services/api/openai-compat/profiles.js';
-import { getLastSpeedSummary } from '../services/api/openai-compat/speedStats.js';
-import { buildAccountStatus, contextSource, getServerInfo, refreshServerInfo } from '../services/api/openai-compat/statusInfo.js';
-import { getModelMaxOutputTokens } from '../utils/context.js';
-import { getOauthAccountInfo } from '../utils/auth.js';
-import { voiceListenStatus, voiceStatusJson } from '../utils/voiceListenRuntime.js';
+import type { ModelName } from '../utils/model/model.js';
+import { doesMostRecentAssistantMessageExceed200k } from '../utils/tokens.js';
+import { buildStatusLineCommandInput, selectStatusLineView, viewedAgentFromTask, type ViewedAgent } from './statusLineInput.js';
 
-/** The `fnharness` block of the status bar input: account, real window, server and speed. */
-function buildFnharnessStatus(runtimeModel: string, contextWindowSize: number, perfil?: {
-  name: string;
-  modified: boolean;
-}) {
-  const profile = getMultimodelProfile();
-  refreshServerInfo(profile?.baseUrl);
-  const server = getServerInfo(profile?.baseUrl);
-  const limits = profile ? getModelLimits(profile, runtimeModel) : {};
-  const priced = profile?.catalogProvider ? findProvider(loadCatalog(), profile.catalogProvider)?.models.find(m => m.id === runtimeModel) : undefined;
-  let maxOutput: number | null = null;
-  try {
-    maxOutput = getModelMaxOutputTokens(runtimeModel).default;
-  } catch {}
-  let autoCompactAt: number | null = null;
-  try {
-    autoCompactAt = isAutoCompactEnabled() ? getAutoCompactThreshold(runtimeModel) : null;
-  } catch {}
-  // Titular de la cuenta: solo la cuenta Anthropic nativa (OAuth) lo expone; las OpenAI-compatibles no.
-  const holder = profile ? undefined : getOauthAccountInfo();
-  const account = buildAccountStatus({
-    email: holder?.emailAddress ?? null,
-    org: holder?.organizationName ?? null,
-    accountId: process.env.FNHARNESS_ACCOUNT ?? 'claude',
-    accountLabel: profile?.label ?? 'Claude',
-    provider: profile?.provider ?? null,
-    baseUrl: profile?.baseUrl ?? null,
-    model: runtimeModel,
-    contextWindow: contextWindowSize,
-    contextSource: contextSource({
-      native: !profile,
-      serverNCtx: server?.nCtx ?? null,
-      presetWindow: profile?.contextWindow,
-      catalogWindow: limits.contextWindow
-    }),
-    autoCompactAt,
-    maxOutputTokens: maxOutput,
-    server,
-    speed: getLastSpeedSummary(),
-    profile: perfil ?? null,
-    pricePerMtok: priced?.costInput !== undefined && priced.costOutput !== undefined ? { input: priced.costInput, output: priced.costOutput } : null,
-    now: Date.now()
-  });
-  // Estado del micrófono (/escucha): listening, speaking y last (mic + hora); nunca el texto oído.
-  return {
-    ...account,
-    voice: voiceStatusJson(voiceListenStatus())
-  };
-}
 export function statusLineShouldDisplay(settings: ReadonlySettings): boolean {
   // Assistant mode: statusline fields (model, permission mode, cwd) reflect the
   // REPL/daemon process, not what the agent child is actually running. Hide it.
   if (feature('KAIROS') && getKairosActive()) return false;
   return settings?.statusLine !== undefined;
-}
-function buildStatusLineCommandInput(permissionMode: PermissionMode, exceeds200kTokens: boolean, settings: ReadonlySettings, messages: Message[], addedDirs: string[], mainLoopModel: ModelName, vimMode?: VimMode, perfil?: {
-  name: string;
-  modified: boolean;
-}): StatusLineCommandInput {
-  const agentType = getMainThreadAgentType();
-  const worktreeSession = getCurrentWorktreeSession();
-  const runtimeModel = getRuntimeMainLoopModel({
-    permissionMode,
-    mainLoopModel,
-    exceeds200kTokens
-  });
-  const outputStyleName = settings?.outputStyle || DEFAULT_OUTPUT_STYLE_NAME;
-  const currentUsage = getCurrentUsage(messages);
-  const contextWindowSize = getContextWindowForModel(runtimeModel, getSdkBetas());
-  const contextPercentages = calculateContextPercentages(currentUsage, contextWindowSize);
-  const sessionId = getSessionId();
-  const sessionName = getCurrentSessionTitle(sessionId);
-  const rawUtil = getRawUtilization();
-  const rateLimits: StatusLineCommandInput['rate_limits'] = {
-    ...(rawUtil.five_hour && {
-      five_hour: {
-        used_percentage: rawUtil.five_hour.utilization * 100,
-        resets_at: rawUtil.five_hour.resets_at
-      }
-    }),
-    ...(rawUtil.seven_day && {
-      seven_day: {
-        used_percentage: rawUtil.seven_day.utilization * 100,
-        resets_at: rawUtil.seven_day.resets_at
-      }
-    })
-  };
-  return {
-    ...createBaseHookInput(),
-    ...(sessionName && {
-      session_name: sessionName
-    }),
-    model: {
-      id: runtimeModel,
-      display_name: renderModelName(runtimeModel)
-    },
-    workspace: {
-      current_dir: getCwd(),
-      project_dir: getOriginalCwd(),
-      added_dirs: addedDirs
-    },
-    version: MACRO.VERSION,
-    output_style: {
-      name: outputStyleName
-    },
-    cost: {
-      total_cost_usd: getTotalCost(),
-      total_duration_ms: getTotalDuration(),
-      total_api_duration_ms: getTotalAPIDuration(),
-      total_lines_added: getTotalLinesAdded(),
-      total_lines_removed: getTotalLinesRemoved()
-    },
-    context_window: {
-      total_input_tokens: getTotalInputTokens(),
-      total_output_tokens: getTotalOutputTokens(),
-      context_window_size: contextWindowSize,
-      current_usage: currentUsage,
-      used_percentage: getMocks().contextPct ?? contextPercentages.used,
-      remaining_percentage: getMocks().contextPct != null ? 100 - getMocks().contextPct! : contextPercentages.remaining
-    },
-    exceeds_200k_tokens: exceeds200kTokens,
-    fnharness: buildFnharnessStatus(runtimeModel, contextWindowSize, perfil),
-    ...((rateLimits.five_hour || rateLimits.seven_day) && {
-      rate_limits: rateLimits
-    }),
-    ...(isVimModeEnabled() && {
-      vim: {
-        mode: vimMode ?? 'INSERT'
-      }
-    }),
-    ...(agentType && {
-      agent: {
-        name: agentType
-      }
-    }),
-    ...(getIsRemoteMode() && {
-      remote: {
-        session_id: getSessionId()
-      }
-    }),
-    ...(worktreeSession && {
-      worktree: {
-        name: worktreeSession.worktreeName,
-        path: worktreeSession.worktreePath,
-        branch: worktreeSession.worktreeBranch,
-        original_cwd: worktreeSession.originalCwd,
-        original_branch: worktreeSession.originalBranch
-      }
-    })
-  };
 }
 type Props = {
   // messages stays behind a ref (read only in the debounced callback);
@@ -241,6 +78,13 @@ function StatusLineInner({
   addedDirsRef.current = additionalWorkingDirectories;
   const mainLoopModelRef = useRef(mainLoopModel);
   mainLoopModelRef.current = mainLoopModel;
+  // The agent whose transcript is on screen (local agent or teammate), if any.
+  const viewingAgentTaskId = useAppState(s => s.viewingAgentTaskId);
+  const viewedTask = useAppState(s => s.viewingAgentTaskId ? s.tasks[s.viewingAgentTaskId] : undefined);
+  const viewedAgent = viewedAgentFromTask(viewedTask);
+  const viewedAgentRef = useRef<ViewedAgent | undefined>(viewedAgent);
+  viewedAgentRef.current = viewedAgent;
+  const viewedKey = viewedAgent ? `${viewingAgentTaskId}:${viewedAgent.model ?? ''}:${getLastAssistantMessageId(viewedAgent.messages) ?? ''}` : '';
 
   // Track previous state to detect changes and cache expensive calculations
   const previousStateRef = useRef<{
@@ -250,13 +94,15 @@ function StatusLineInner({
     vimMode: VimMode | undefined;
     mainLoopModel: ModelName;
     perfilKey: string;
+    viewedKey: string;
   }>({
     messageId: null,
     exceeds200kTokens: false,
     permissionMode,
     vimMode,
     mainLoopModel,
-    perfilKey
+    perfilKey,
+    viewedKey: ''
   });
 
   // Debounce timer ref
@@ -271,20 +117,35 @@ function StatusLineInner({
     abortControllerRef.current?.abort();
     const controller = new AbortController();
     abortControllerRef.current = controller;
-    const msgs = messagesRef.current;
+    // Viewing a subagent's transcript: the status line describes THAT agent
+    // (its model, account, context, cost, limits); otherwise the session.
+    const viewed = viewedAgentRef.current;
+    const view = selectStatusLineView({
+      mainLoopModel: mainLoopModelRef.current,
+      messages: messagesRef.current
+    }, viewed);
+    const msgs = view.messages;
     const logResult = logNextResultRef.current;
     logNextResultRef.current = false;
     try {
       let exceeds200kTokens = previousStateRef.current.exceeds200kTokens;
 
       // Only recalculate 200k check if messages changed
-      const currentMessageId = getLastAssistantMessageId(msgs);
+      const currentMessageId = `${viewed?.id ?? 'session'}:${getLastAssistantMessageId(msgs)}`;
       if (currentMessageId !== previousStateRef.current.messageId) {
         exceeds200kTokens = doesMostRecentAssistantMessageExceed200k(msgs);
         previousStateRef.current.messageId = currentMessageId;
         previousStateRef.current.exceeds200kTokens = exceeds200kTokens;
       }
-      const statusInput = buildStatusLineCommandInput(permissionModeRef.current, exceeds200kTokens, settingsRef.current, msgs, Array.from(addedDirsRef.current.keys()), mainLoopModelRef.current, vimModeRef.current, perfilRef.current);
+      const statusInput = buildStatusLineCommandInput({
+        view,
+        permissionMode: permissionModeRef.current,
+        exceeds200kTokens,
+        settings: settingsRef.current,
+        addedDirs: Array.from(addedDirsRef.current.keys()),
+        vimMode: vimModeRef.current,
+        perfil: perfilRef.current
+      });
       const text = await executeStatusLineCommand(statusInput, controller.signal, undefined, logResult);
       if (!controller.signal.aborted) {
         setAppState(prev => {
@@ -313,16 +174,17 @@ function StatusLineInner({
 
   // Only trigger update when assistant message, permission mode, vim mode, or model actually changes
   useEffect(() => {
-    if (lastAssistantMessageId !== previousStateRef.current.messageId || permissionMode !== previousStateRef.current.permissionMode || vimMode !== previousStateRef.current.vimMode || mainLoopModel !== previousStateRef.current.mainLoopModel || perfilKey !== previousStateRef.current.perfilKey) {
+    if (lastAssistantMessageId !== previousStateRef.current.messageId || permissionMode !== previousStateRef.current.permissionMode || vimMode !== previousStateRef.current.vimMode || mainLoopModel !== previousStateRef.current.mainLoopModel || perfilKey !== previousStateRef.current.perfilKey || viewedKey !== previousStateRef.current.viewedKey) {
       // Don't update messageId here — let doUpdate handle it so
       // exceeds200kTokens is recalculated with the latest messages
       previousStateRef.current.permissionMode = permissionMode;
       previousStateRef.current.vimMode = vimMode;
       previousStateRef.current.mainLoopModel = mainLoopModel;
       previousStateRef.current.perfilKey = perfilKey;
+      previousStateRef.current.viewedKey = viewedKey;
       scheduleUpdate();
     }
-  }, [lastAssistantMessageId, permissionMode, vimMode, mainLoopModel, perfilKey, scheduleUpdate]);
+  }, [lastAssistantMessageId, permissionMode, vimMode, mainLoopModel, perfilKey, viewedKey, scheduleUpdate]);
 
   // When the statusLine command changes (hot reload), log the next result
   const statusLineCommand = settings?.statusLine?.command;
