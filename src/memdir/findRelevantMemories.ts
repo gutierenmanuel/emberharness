@@ -2,6 +2,7 @@ import { feature } from 'bun:bundle'
 import { logForDebugging } from '../utils/debug.js'
 import { errorMessage } from '../utils/errors.js'
 import { getDefaultSonnetModel } from '../utils/model/model.js'
+import { agentSideModel } from '../services/api/accountRouting.js'
 import { sideQuery } from '../utils/sideQuery.js'
 import { jsonParse } from '../utils/slowOperations.js'
 import {
@@ -96,7 +97,8 @@ async function selectRelevantMemories(
 
   try {
     const result = await sideQuery({
-      model: getDefaultSonnetModel(),
+      // Inside a routed subagent the selection runs on the agent's account.
+      model: agentSideModel('main', getDefaultSonnetModel),
       system: SELECT_MEMORIES_SYSTEM_PROMPT,
       skipSystemPromptPrefix: true,
       messages: [

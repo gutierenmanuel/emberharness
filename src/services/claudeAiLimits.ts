@@ -6,12 +6,16 @@ import { isClaudeAISubscriber } from '../utils/auth.js'
 import { getModelBetas } from '../utils/betas.js'
 import { getGlobalConfig, saveGlobalConfig } from '../utils/config.js'
 import { logError } from '../utils/log.js'
-import { getSmallFastModel } from '../utils/model/model.js'
+import { getSessionSmallFastModel } from '../utils/model/model.js'
 import { isEssentialTrafficOnly } from '../utils/privacyLevel.js'
 import type { AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS } from './analytics/index.js'
 import { logEvent } from './analytics/index.js'
 import { getAPIMetadata } from './api/claude.js'
 import { getAnthropicClient } from './api/client.js'
+import {
+  currentAccountId,
+  sessionAccountId,
+} from './api/accountRouting.js'
 import {
   processRateLimitHeaders,
   shouldProcessRateLimits,
@@ -156,9 +160,53 @@ type RawUtilization = {
   seven_day?: RawWindowUtilization
 }
 let rawUtilization: RawUtilization = {}
+/** Utilization seen on responses from accounts other than the session's (routed requests). */
+const rawUtilizationByAccount = new Map<string, RawUtilization>()
 
-export function getRawUtilization(): RawUtilization {
-  return rawUtilization
+/**
+ * The session's utilization, or that of `accountId` when it names another
+ * account (a subagent routed with `cuenta:modelo`): each account's 5h/7d
+ * windows are its own and never overwrite the session's.
+ */
+export function getRawUtilization(accountId?: string): RawUtilization {
+  if (accountId === undefined || accountId === sessionAccountId()) {
+    return rawUtilization
+  }
+  return rawUtilizationByAccount.get(accountId) ?? {}
+}
+
+/**
+ * Pure: a response may update the session-wide limits (currentLimits, the
+ * raw 5h/7d windows, the cached extra-usage reason) only when it was served
+ * by the session's own account. A routed request to another account (an
+ * OpenAI-compatible one, or another Claude account) must not clear or
+ * overwrite them.
+ */
+export function updatesSessionLimits(
+  responseAccount: string,
+  sessionAccount: string,
+): boolean {
+  return responseAccount === sessionAccount
+}
+
+/** A routed response from another account: keep its windows under its id, nothing else. */
+function recordOtherAccountQuota(
+  accountId: string,
+  headers: globalThis.Headers | undefined,
+): void {
+  if (!headers || !shouldProcessRateLimits(isClaudeAISubscriber())) {
+    rawUtilizationByAccount.delete(accountId)
+    return
+  }
+  rawUtilizationByAccount.set(
+    accountId,
+    extractRawUtilization(processRateLimitHeaders(headers)),
+  )
+}
+
+export function resetAccountUtilizationForTesting(): void {
+  rawUtilizationByAccount.clear()
+  rawUtilization = {}
 }
 
 function extractRawUtilization(headers: globalThis.Headers): RawUtilization {
@@ -197,7 +245,7 @@ export function emitStatusChange(limits: ClaudeAILimits) {
 }
 
 async function makeTestQuery() {
-  const model = getSmallFastModel()
+  const model = getSessionSmallFastModel()
   const anthropic = await getAnthropicClient({
     maxRetries: 0,
     model,
@@ -453,7 +501,12 @@ function cacheExtraUsageDisabledReason(headers: globalThis.Headers): void {
 
 export function extractQuotaStatusFromHeaders(
   headers: globalThis.Headers,
+  responseAccount: string = currentAccountId(),
 ): void {
+  if (!updatesSessionLimits(responseAccount, sessionAccountId())) {
+    recordOtherAccountQuota(responseAccount, headers)
+    return
+  }
   // Check if we need to process rate limits
   const isSubscriber = isClaudeAISubscriber()
 
@@ -484,7 +537,16 @@ export function extractQuotaStatusFromHeaders(
   }
 }
 
-export function extractQuotaStatusFromError(error: APIError): void {
+export function extractQuotaStatusFromError(
+  error: APIError,
+  responseAccount: string = currentAccountId(),
+): void {
+  if (!updatesSessionLimits(responseAccount, sessionAccountId())) {
+    if (error.status === 429) {
+      recordOtherAccountQuota(responseAccount, error.headers ?? undefined)
+    }
+    return
+  }
   if (
     !shouldProcessRateLimits(isClaudeAISubscriber()) ||
     error.status !== 429

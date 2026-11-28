@@ -26,6 +26,7 @@ import type { CacheSafeParams } from '../../utils/forkedAgent.js';
 import { lazySchema } from '../../utils/lazySchema.js';
 import { createUserMessage, extractTextContent, isSyntheticMessage, normalizeMessages } from '../../utils/messages.js';
 import { getAgentModel } from '../../utils/model/agent.js';
+import { persistableAgentModel } from './agentModelPersistence.js';
 import { agentAccountsPromptSection, validateAgentModelParam } from '../../utils/model/routedModels.js';
 import { permissionModeSchema } from '../../utils/permissions/PermissionMode.js';
 import type { PermissionResult } from '../../utils/permissions/PermissionResult.js';
@@ -691,8 +692,12 @@ export const AgentTool = buildTool({
           // Clear worktreePath from metadata so resume doesn't try to use
           // a deleted directory. Fire-and-forget to match runAgent's
           // writeAgentMetadata handling.
+          const persistedModel = persistableAgentModel(resolvedAgentModel);
           void writeAgentMetadata(asAgentId(earlyAgentId), {
             agentType: selectedAgent.agentType,
+            ...(persistedModel && {
+              model: persistedModel
+            }),
             description,
             ...(toolUseContext.toolUseId && { toolUseId: toolUseContext.toolUseId })
           }).catch(_err => logForDebugging(`Failed to clear worktree metadata: ${_err}`));

@@ -45,6 +45,7 @@ import {
   type MultimodelProfile,
   type ProfileScope,
 } from './openai-compat/profiles.js'
+import { getAgentScopeModel } from '../../utils/model/agentModelScope.js'
 
 type Env = Record<string, string | undefined>
 
@@ -329,4 +330,65 @@ export function withModelRouteGenerator<T, R>(
 export function canonicalRoutedModel(spec: string | undefined, deps: RouteDeps = {}): string | undefined {
   const route = spec ? routeForModel(spec, deps) : null
   return route ? `${route.accountId}:${route.model}` : undefined
+}
+
+// ── side calls of a routed agent ────────────────────────────────────────
+
+/**
+ * The route of the agent in force when it runs on an account other than the
+ * session's, else null (main session, an agent without account prefix, or
+ * one routed to the session's own account). `agentModel` defaults to the
+ * agent model scope (agentModelScope.ts). Never throws.
+ */
+export function agentAccountRoute(
+  agentModel: string | undefined = getAgentScopeModel(),
+  deps: RouteDeps = {},
+): ModelRoute | null {
+  const env = deps.env ?? process.env
+  const route = tryRouteForModel(agentModel, {
+    ...deps,
+    currentAccount: deps.currentAccount ?? sessionAccountId(env),
+  })
+  return route && !route.current ? route : null
+}
+
+export type SideModelTier = 'small' | 'main'
+
+/**
+ * Model for a side call (small-fast helper, memory search, ...) made from the
+ * current context. Inside an agent routed to another account it is a
+ * `cuenta:modelo` of THAT account, so the call is billed where the agent
+ * runs: a Claude account gets its Haiku (small) or Sonnet (main); an
+ * OpenAI-compatible account gets its smallModel (small) or the agent's own
+ * model (main). Anywhere else, `fallback()` (the session's choice).
+ */
+export function agentSideModel(
+  tier: SideModelTier,
+  fallback: () => string,
+  deps: RouteDeps & { agentModel?: string } = {},
+): string {
+  const route = agentAccountRoute(
+    'agentModel' in deps ? deps.agentModel : getAgentScopeModel(),
+    deps,
+  )
+  if (!route) return fallback()
+  if (route.profile === null) {
+    const alias = tier === 'small' ? 'haiku' : 'sonnet'
+    try {
+      return canonicalRoutedModel(`${route.accountId}:${alias}`, deps) ?? fallback()
+    } catch {
+      // The account cannot serve now: keep it on that account anyway so the
+      // request fails there with its own error instead of reaching the session.
+      return `${route.accountId}:${alias}`
+    }
+  }
+  if (tier === 'main') return `${route.accountId}:${route.model}`
+  const env = deps.env ?? process.env
+  let small: string | undefined
+  try {
+    small = profileForAccount(route.accountId, deps.store ?? cachedStore(env), env)?.smallModel
+  } catch {
+    small = undefined
+  }
+  return `${route.accountId}:${small || route.model}`
 }

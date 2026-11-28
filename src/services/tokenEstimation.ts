@@ -18,9 +18,17 @@ import {
 import {
   getDefaultSonnetModel,
   getMainLoopModel,
+  getSessionSmallFastModel,
   getSmallFastModel,
   normalizeModelStringForAPI,
 } from '../utils/model/model.js'
+import {
+  agentAccountRoute,
+  tryRouteForModel,
+  withModelRoute,
+  type ModelRoute,
+  type RouteDeps,
+} from './api/accountRouting.js'
 import { jsonStringify } from '../utils/slowOperations.js'
 import { isToolReferenceBlock } from '../utils/toolSearch.js'
 import { getAPIMetadata, getExtraBodyParams } from './api/claude.js'
@@ -137,13 +145,60 @@ export async function countTokensWithAPI(
   return countMessagesTokensWithAPI([message], [])
 }
 
+export type TokenCountPlan =
+  | { kind: 'local' }
+  | { kind: 'api'; model: string; route: ModelRoute | null }
+
+/**
+ * Where a token count may be asked from the current context. Inside a
+ * subagent routed to an OpenAI-compatible account the answer is 'local':
+ * no API is called (that account has no count endpoint and the session's
+ * Anthropic account must not be used for it). Inside one routed to another
+ * Claude account, the count goes to that account with the agent's model.
+ * Anywhere else, the session's model as before.
+ */
+export function tokenCountPlan(
+  sessionModel: () => string,
+  deps: RouteDeps & { agentModel?: string } = {},
+): TokenCountPlan {
+  const route =
+    'agentModel' in deps ? agentAccountRoute(deps.agentModel, deps) : agentAccountRoute(undefined, deps)
+  if (!route) return { kind: 'api', model: sessionModel(), route: null }
+  if (route.profile !== null) return { kind: 'local' }
+  return { kind: 'api', model: route.model, route }
+}
+
+/** ~4 chars/token over the request JSON, the same estimate the OpenAI-compatible adapter answers with. */
+export function localTokenCountEstimate(
+  messages: Anthropic.Beta.Messages.BetaMessageParam[],
+  tools: Anthropic.Beta.Messages.BetaToolUnion[],
+): number {
+  return Math.ceil(jsonStringify([messages, tools]).length / 4)
+}
+
 export async function countMessagesTokensWithAPI(
+  messages: Anthropic.Beta.Messages.BetaMessageParam[],
+  tools: Anthropic.Beta.Messages.BetaToolUnion[],
+): Promise<number | null> {
+  const plan = tokenCountPlan(getMainLoopModel)
+  if (plan.kind === 'local') return localTokenCountEstimate(messages, tools)
+  if (plan.route) {
+    return withModelRoute(
+      plan.model,
+      model => countMessagesTokensForModel(model, messages, tools),
+      plan.route,
+    )
+  }
+  return countMessagesTokensForModel(plan.model, messages, tools)
+}
+
+function countMessagesTokensForModel(
+  model: string,
   messages: Anthropic.Beta.Messages.BetaMessageParam[],
   tools: Anthropic.Beta.Messages.BetaToolUnion[],
 ): Promise<number | null> {
   return withTokenCountVCR(messages, tools, async () => {
     try {
-      const model = getMainLoopModel()
       const betas = getModelBetas(model)
       const containsThinking = hasThinkingBlocks(messages)
 
@@ -252,13 +307,35 @@ export async function countTokensViaHaikuFallback(
   messages: Anthropic.Beta.Messages.BetaMessageParam[],
   tools: Anthropic.Beta.Messages.BetaToolUnion[],
 ): Promise<number | null> {
+  // Inside a routed subagent: never the session's account. An
+  // OpenAI-compatible account answers with the local estimate; another
+  // Claude account counts with its own Haiku.
+  const plan = tokenCountPlan(getSessionSmallFastModel)
+  if (plan.kind === 'local') return localTokenCountEstimate(messages, tools)
+  if (plan.route) {
+    const small = getSmallFastModel()
+    const smallRoute = tryRouteForModel(small)
+    if (!smallRoute) return null
+    return withModelRoute(
+      small,
+      model => countTokensViaHaikuWithModel(model, messages, tools),
+      smallRoute,
+    )
+  }
+  return countTokensViaHaikuSession(messages, tools)
+}
+
+async function countTokensViaHaikuSession(
+  messages: Anthropic.Beta.Messages.BetaMessageParam[],
+  tools: Anthropic.Beta.Messages.BetaToolUnion[],
+): Promise<number | null> {
   // Check if messages contain thinking blocks
   const containsThinking = hasThinkingBlocks(messages)
 
   // If we're on Vertex and using global region, always use Sonnet since Haiku is not available there.
   const isVertexGlobalEndpoint =
     isEnvTruthy(process.env.CLAUDE_CODE_USE_VERTEX) &&
-    getVertexRegionForModel(getSmallFastModel()) === 'global'
+    getVertexRegionForModel(getSessionSmallFastModel()) === 'global'
   // If we're on Bedrock with thinking blocks, use Sonnet since Haiku 3.5 doesn't support thinking
   const isBedrockWithThinking =
     isEnvTruthy(process.env.CLAUDE_CODE_USE_BEDROCK) && containsThinking
@@ -274,7 +351,16 @@ export async function countTokensViaHaikuFallback(
   const model =
     isVertexGlobalEndpoint || isBedrockWithThinking || isVertexWithThinking
       ? getDefaultSonnetModel()
-      : getSmallFastModel()
+      : getSessionSmallFastModel()
+  return countTokensViaHaikuWithModel(model, messages, tools)
+}
+
+async function countTokensViaHaikuWithModel(
+  model: string,
+  messages: Anthropic.Beta.Messages.BetaMessageParam[],
+  tools: Anthropic.Beta.Messages.BetaToolUnion[],
+): Promise<number | null> {
+  const containsThinking = hasThinkingBlocks(messages)
   const anthropic = await getAnthropicClient({
     maxRetries: 1,
     model,

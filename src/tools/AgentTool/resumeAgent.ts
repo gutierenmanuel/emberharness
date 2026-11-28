@@ -4,7 +4,10 @@ import { getSystemPrompt } from '../../constants/prompts.js'
 import { isCoordinatorMode } from '../../coordinator/coordinatorMode.js'
 import type { CanUseToolFn } from '../../hooks/useCanUseTool.js'
 import type { ToolUseContext } from '../../Tool.js'
-import { registerAsyncAgent } from '../../tasks/LocalAgentTask/LocalAgentTask.js'
+import {
+  isLocalAgentTask,
+  registerAsyncAgent,
+} from '../../tasks/LocalAgentTask/LocalAgentTask.js'
 import { assembleToolPool } from '../../tools.js'
 import { filterWorkerToolsByProfile } from '../../utils/contextProfile.js'
 import { asAgentId } from '../../types/ids.js'
@@ -18,6 +21,8 @@ import {
   filterWhitespaceOnlyAssistantMessages,
 } from '../../utils/messages.js'
 import { getAgentModel } from '../../utils/model/agent.js'
+import type { ModelAlias } from '../../utils/model/aliases.js'
+import { resumeAgentModel } from './agentModelPersistence.js'
 import { getQuerySourceForAgent } from '../../utils/promptCategory.js'
 import {
   getAgentTranscript,
@@ -148,11 +153,21 @@ export async function resumeAgentBackground({
     }
   }
 
+  // A routed agent (`cuenta:modelo`) resumes on the same account: the model
+  // persisted in its metadata (or recorded on its in-memory task) is passed
+  // as the explicit model, so getAgentModel keeps the prefix. Unrouted
+  // agents and old metadata resolve as before.
+  const existingTask = appState.tasks[agentId]
+  const resumeModel = resumeAgentModel(
+    meta?.model,
+    isLocalAgentTask(existingTask) ? existingTask.model : undefined,
+  )
+
   // Resolve model for analytics metadata (runAgent resolves its own internally)
   const resolvedAgentModel = getAgentModel(
     selectedAgent.model,
     toolUseContext.options.mainLoopModel,
-    undefined,
+    resumeModel,
     permissionMode,
   )
 
@@ -181,7 +196,7 @@ export async function resumeAgentBackground({
       selectedAgent.agentType,
       isBuiltInAgent(selectedAgent),
     ),
-    model: undefined,
+    model: resumeModel as ModelAlias | undefined,
     // Fork resume: pass parent's system prompt (cache-identical prefix).
     // Non-fork: undefined → runAgent recomputes under wrapWithCwd so
     // getCwd() sees resumedWorktreePath.
@@ -205,6 +220,7 @@ export async function resumeAgentBackground({
     description: uiDescription,
     prompt,
     selectedAgent,
+    model: resolvedAgentModel,
     setAppState: rootSetAppState,
     toolUseId: toolUseContext.toolUseId,
   })

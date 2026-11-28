@@ -89,6 +89,7 @@ import {
   getDefaultOpusModel,
   getDefaultSonnetModel,
   getSmallFastModel,
+  getSessionSmallFastModel,
   isNonCustomOpusModel,
 } from '../../utils/model/model.js'
 import {
@@ -347,7 +348,7 @@ export function getPromptCachingEnabled(model: string): boolean {
 
   // Check if we should disable for small/fast model
   if (isEnvTruthy(process.env.DISABLE_PROMPT_CACHING_HAIKU)) {
-    const smallFastModel = getSmallFastModel()
+    const smallFastModel = getSessionSmallFastModel()
     if (model === smallFastModel) return false
   }
 
@@ -549,7 +550,7 @@ export async function verifyApiKey(
 
   try {
     // WARNING: if you change this to use a non-Haiku model, this request will fail in 1P unless it uses getCLISyspromptPrefix.
-    const model = getSmallFastModel()
+    const model = getSessionSmallFastModel()
     const betas = getModelBetas(model)
     return await returnValue(
       withRetry(

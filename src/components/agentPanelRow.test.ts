@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import { layoutAgentRow, selectionHint, type AgentRowInput } from './agentPanelRow.js'
+import { agentModelSpec, layoutAgentRow, selectionHint, type AgentRowInput } from './agentPanelRow.js'
 
 const w = (s: string) => [...s].length
 const cut = (s: string, max: number) => (w(s) <= max ? s : max <= 0 ? '' : [...s].slice(0, max - 1).join('') + '…')
@@ -52,5 +52,42 @@ describe('layoutAgentRow', () => {
   test('queued messages and no tokens', () => {
     const l = line({ ...base, tokens: undefined, queued: 2 })
     expect(l.endsWith('7s · 2 queued')).toBe(true)
+  })
+})
+
+describe('agent rows always show name, account and resolved model', () => {
+  test('agentModelSpec: routed agent shows its account; unrouted, the session account with the resolved id', () => {
+    expect(agentModelSpec('zcode:glm-5.3-flash', { accountId: 'zcode', model: 'glm-5.3-flash' }, 'claude')).toBe('zcode:glm-5.3-flash')
+    expect(agentModelSpec('claude-sonnet-5-5', null, 'claude')).toBe('claude:claude-sonnet-5-5')
+    expect(agentModelSpec('claude:claude-haiku-4-5', { accountId: 'claude', model: 'claude-haiku-4-5' }, 'claude')).toBe('claude:claude-haiku-4-5')
+    expect(agentModelSpec(undefined, null, 'claude')).toBeUndefined()
+  })
+
+  test('row format: name · cuenta:modelo · description, also for the session account', () => {
+    const l = line({ ...base, label: 'lab-operator', model: 'zcode:glm-5.3-flash', description: 'Mapa mejoras NVIDIA' })
+    expect(l.startsWith('  ◯ lab-operator · zcode:glm-5.3-flash · Mapa mejoras NVIDIA')).toBe(true)
+    const same = line({ ...base, label: 'general-purpose', model: 'claude:claude-sonnet-5-5', description: 'Plan fork' })
+    expect(same.startsWith('  ◯ general-purpose · claude:claude-sonnet-5-5 · Plan fork')).toBe(true)
+  })
+
+  test('the alias follows the agent type when it differs', () => {
+    const l = line({ ...base, label: 'Explore', alias: 'buscador', model: 'claude:claude-haiku-4-5' })
+    expect(l).toContain('◯ Explore (buscador) · claude:claude-haiku-4-5 · Count')
+    expect(line({ ...base, label: 'Explore', alias: 'Explore', model: 'claude:x' })).not.toContain('(Explore)')
+  })
+
+  test('the account label is shown when it fits and dropped before the description is squeezed', () => {
+    const wide = line({ ...base, label: 'lab-operator', model: 'zcode:glm-5.3-flash', accountLabel: 'Z.ai Coding', columns: 140 })
+    expect(wide).toContain('lab-operator · zcode:glm-5.3-flash (Z.ai Coding) · Count .ts files in src/')
+    const narrow = line({ ...base, label: 'lab-operator', model: 'zcode:glm-5.3-flash', accountLabel: 'Z.ai Coding', description: 'x'.repeat(200), columns: 90 })
+    expect(narrow).not.toContain('Z.ai Coding')
+  })
+
+  test('only the description is truncated: name, account and model survive a narrow terminal', () => {
+    const l = line({ ...base, label: 'lab-operator', model: 'zcode:glm-5.3-flash', description: 'y'.repeat(300), columns: 70 })
+    expect(l.startsWith('  ◯ lab-operator · zcode:glm-5.3-flash · ')).toBe(true)
+    expect(l).toContain('…')
+    expect(w(l)).toBeLessThanOrEqual(68)
+    expect(l.endsWith('7s · ↓ 16.9k tokens')).toBe(true)
   })
 })
