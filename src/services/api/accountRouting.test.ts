@@ -13,7 +13,9 @@ import {
   getMultimodelProfile,
   getScopedAccountId,
   isMultimodelActive,
+  resetActiveProfileForTesting,
   resolveProfile,
+  setActiveProfile,
   type MultimodelProfile,
 } from './openai-compat/profiles.js'
 
@@ -63,6 +65,27 @@ describe('routeForModel', () => {
     const r = routeForModel('claude:haiku', { ...deps, currentAccount: 'qwen36' })!
     expect(r).toEqual({ accountId: 'claude', profile: null, model: 'claude-haiku-x', current: false })
     expect(routeForModel('claude:haiku', { ...deps, currentAccount: 'claude' })!.current).toBe(true)
+  })
+
+  test('session on an OpenAI-compatible account: claude:opus resolves against the slots saved before the account rewrote them', () => {
+    resetActiveProfileForTesting()
+    // The real user env: no opus pin. The zcode account then rewrites every slot to GLM.
+    const env: Record<string, string | undefined> = { CLAUDE_CONFIG_DIR: '/nonexistent-fnh-test' }
+    const glm = { ...resolveProfile({ CLAUDE_MULTIMODEL_PROVIDER: 'custom', CLAUDE_MULTIMODEL_BASE_URL: 'http://127.0.0.1:9/v1', CLAUDE_MULTIMODEL_MODEL: 'glm-5.3-flash' })! }
+    try {
+      setActiveProfile(glm, 'zcode', env)
+      expect(env.ANTHROPIC_DEFAULT_OPUS_MODEL).toBe('glm-5.3-flash')
+      const r = routeForModel('claude:opus', { env, store, claudeDefaults: DEFAULTS, currentAccount: 'zcode' })!
+      expect(r).toEqual({ accountId: 'claude', profile: null, model: 'claude-opus-x', current: false })
+      // Same account, another model: no scope (current), the child model only.
+      const same = routeForModel('zcode:glm-5.4', { env, store: { accounts: { zcode: { provider: 'custom', baseUrl: 'http://127.0.0.1:9/v1', model: 'glm-5.3-flash' } } }, currentAccount: 'zcode', currentProfile: glm })!
+      expect(same).toMatchObject({ accountId: 'zcode', model: 'glm-5.4', current: true })
+      // Routing never touched the session's env slots.
+      expect(env.ANTHROPIC_MODEL).toBe('glm-5.3-flash')
+      expect(env.FNHARNESS_ACCOUNT).toBe('zcode')
+    } finally {
+      resetActiveProfileForTesting()
+    }
   })
 
   test('an OpenAI-compatible account gets its profile with the model pinned', () => {
