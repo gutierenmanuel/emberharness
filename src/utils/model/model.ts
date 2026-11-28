@@ -34,12 +34,25 @@ import { type ModelAlias, isModelAlias } from './aliases.js'
 import { getModelIdentity } from './modelIdentity.js'
 import { claudeAliasApiId, claudeAliasName } from '../../services/config/claudeModels.js'
 import { capitalize } from '../stringUtils.js'
+import { agentSideModel } from '../../services/api/accountRouting.js'
 
 export type ModelShortName = string
 export type ModelName = string
 export type ModelSetting = ModelName | ModelAlias | null
 
+/**
+ * The small-fast model for side calls (WebFetch, prompt hooks, summaries...).
+ * Inside a subagent routed to another account (`cuenta:modelo`) it is that
+ * account's small model, written with its prefix, so the call is served and
+ * billed by the agent's account rather than the session's. Callers that hand
+ * the model to a raw client (no routing) use getSessionSmallFastModel().
+ */
 export function getSmallFastModel(): ModelName {
+  return agentSideModel('small', getSessionSmallFastModel)
+}
+
+/** The session's small-fast model, ignoring any routed agent in force. */
+export function getSessionSmallFastModel(): ModelName {
   return process.env.ANTHROPIC_SMALL_FAST_MODEL || getDefaultHaikuModel()
 }
 

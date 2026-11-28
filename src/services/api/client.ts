@@ -13,7 +13,7 @@ import {
   refreshGcpCredentialsIfNeeded,
 } from 'src/utils/auth.js'
 import { getUserAgent } from 'src/utils/http.js'
-import { getSmallFastModel } from 'src/utils/model/model.js'
+import { getSessionSmallFastModel } from 'src/utils/model/model.js'
 import {
   getAPIProvider,
   isFirstPartyAnthropicBaseUrl,
@@ -173,7 +173,7 @@ export async function getAnthropicClient({
     const { AnthropicBedrock } = await import('@anthropic-ai/bedrock-sdk')
     // Use region override for small fast model if specified
     const awsRegion =
-      model === getSmallFastModel() &&
+      model === getSessionSmallFastModel() &&
       process.env.ANTHROPIC_SMALL_FAST_MODEL_AWS_REGION
         ? process.env.ANTHROPIC_SMALL_FAST_MODEL_AWS_REGION
         : getAWSRegion()

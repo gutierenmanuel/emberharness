@@ -58,6 +58,7 @@ import { clearSessionHooks } from '../../utils/hooks/sessionHooks.js'
 import { executeSubagentStartHooks } from '../../utils/hooks.js'
 import { createUserMessage } from '../../utils/messages.js'
 import { getAgentModel } from '../../utils/model/agent.js'
+import { withAgentModelGenerator } from '../../utils/model/agentModelScope.js'
 import { persistableAgentModel } from './agentModelPersistence.js'
 import type { ModelAlias } from '../../utils/model/aliases.js'
 import {
@@ -247,7 +248,33 @@ function isRecordableMessage(
   )
 }
 
-export async function* runAgent({
+export type RunAgentParams = Parameters<typeof runAgentInner>[0]
+
+/**
+ * Runs a subagent. The body (runAgentInner) runs inside the agent model scope
+ * (agentModelScope.ts) with the agent's resolved model, so side calls made on
+ * its behalf (small-fast helpers, token counting, prompt hooks, memory search)
+ * are served by the agent's account when it is `cuenta:modelo`, not by the
+ * session's.
+ */
+export function runAgent(params: RunAgentParams): AsyncGenerator<Message, void> {
+  let resolved: string | undefined
+  try {
+    resolved = getAgentModel(
+      params.agentDefinition.model,
+      params.toolUseContext.options.mainLoopModel,
+      params.model,
+      params.toolUseContext.getAppState().toolPermissionContext.mode,
+    )
+  } catch {
+    // runAgentInner resolves again and throws the same error on its first step.
+    resolved = undefined
+  }
+  const gen = runAgentInner(params)
+  return resolved === undefined ? gen : withAgentModelGenerator(resolved, gen)
+}
+
+async function* runAgentInner({
   agentDefinition,
   promptMessages,
   toolUseContext,

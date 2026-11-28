@@ -14,6 +14,10 @@ import { logEvent } from '../services/analytics/index.js'
 import type { AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS } from '../services/analytics/metadata.js'
 import { getAPIMetadata } from '../services/api/claude.js'
 import { getAnthropicClient } from '../services/api/client.js'
+import {
+  routeForModel,
+  withRequestRoute,
+} from '../services/api/accountRouting.js'
 import { getModelBetas, modelSupportsStructuredOutputs } from './betas.js'
 import { computeFingerprint } from './fingerprint.js'
 import { normalizeModelStringForAPI } from './model/model.js'
@@ -105,6 +109,16 @@ function extractFirstUserMessageText(messages: MessageParam[]): string {
  * await sideQuery({ querySource: 'model_validation', model, max_tokens: 1, messages: [{ role: 'user', content: 'Hi' }] })
  */
 export async function sideQuery(opts: SideQueryOptions): Promise<BetaMessage> {
+  // `cuenta:modelo` (a routed agent's side model): the whole query runs on
+  // that account, with the prefix removed from the model sent upstream.
+  const route = routeForModel(opts.model)
+  if (route) {
+    return withRequestRoute(
+      opts.model,
+      model => sideQuery({ ...opts, model }),
+      route,
+    )
+  }
   const {
     model,
     system,
