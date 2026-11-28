@@ -27,7 +27,7 @@ function sse(model: string, delta: object, finish: string): string {
 }
 
 /** A fake backend; `plan` decides the reply (text or one tool call). */
-function fakeServer(model: string, plan: (b: Body) => { text?: string; tool?: { name: string; args: unknown } }) {
+function fakeServer(model: string, plan: (b: Body) => { text?: string; tool?: { name: string; args: unknown }; delayMs?: number }) {
   const requests: Body[] = []
   const server = Bun.serve({
     port: 0,
@@ -39,6 +39,7 @@ function fakeServer(model: string, plan: (b: Body) => { text?: string; tool?: { 
       const body = (await req.json()) as Body
       requests.push(body)
       const p = plan(body)
+      if (p.delayMs) await Bun.sleep(p.delayMs)
       const out = p.tool
         ? sse(model, { tool_calls: [{ index: 0, id: `call_${requests.length}`, type: 'function', function: { name: p.tool.name, arguments: JSON.stringify(p.tool.args) } }] }, 'tool_calls')
         : sse(model, { content: p.text ?? '' }, 'stop')
@@ -104,11 +105,69 @@ describe.skipIf(!hasCli)('account routing e2e', () => {
     // hangs each subagent thread on that id.
     const metas = [...new Bun.Glob('projects/*/*/subagents/agent-*.meta.json').scanSync({ cwd: configDir })]
     expect(metas.length).toBe(1)
-    const meta = JSON.parse(readFileSync(join(configDir, metas[0]!), 'utf8')) as { agentType: string; toolUseId?: string }
+    const meta = JSON.parse(readFileSync(join(configDir, metas[0]!), 'utf8')) as { agentType: string; toolUseId?: string; model?: string }
     expect(meta.agentType).toBe('general-purpose')
+    // The routed model is persisted so a resume stays on account B.
+    expect(meta.model).toBe('acctb:model-b')
     expect(meta.toolUseId).toMatch(/^call_/)
     const transcripts = [...new Bun.Glob('projects/*/*.jsonl').scanSync({ cwd: configDir })]
     expect(readFileSync(join(configDir, transcripts[0]!), 'utf8')).toContain(`"id":"${meta.toolUseId}"`)
+  }, 100_000)
+})
+
+describe.skipIf(!hasCli)('resume keeps the account e2e', () => {
+  test('SendMessage to a finished acctb agent resumes it on B, never on the session account A', async () => {
+    const agentIdIn = (msgs: Body['messages']) => {
+      for (const m of msgs ?? []) {
+        const hit = /agentId: (a[0-9a-f]+)/.exec(text(m))
+        if (m.role === 'tool' && hit) return hit[1]
+      }
+      return undefined
+    }
+    const a = fakeServer('model-a', b => {
+      const msgs = b.messages ?? []
+      if (!msgs.some(m => m.role === 'user' && text(m).includes('LANZA_RESUME'))) return { text: 'ok' }
+      const tools = msgs.filter(m => m.role === 'tool')
+      if (tools.length === 0) {
+        return { tool: { name: 'Agent', args: { description: 'primera en B', prompt: 'SUB_R1 di uno', subagent_type: 'general-purpose', model: 'acctb:model-b' } } }
+      }
+      const id = agentIdIn(msgs)
+      // Resume once the first run has finished (its completion notification arrived).
+      const finished = msgs.some(m => m.role === 'user' && text(m).includes('<task-notification>'))
+      // The delay lets the finished agent's transcript reach disk before the resume reads it.
+      if (tools.length === 1 && id && finished) return { tool: { name: 'SendMessage', args: { to: id, message: 'SUB_R2 di dos', summary: 'sigue' } }, delayMs: 2000 }
+      return { text: msgs.some(m => text(m).includes('B_DOS')) ? 'MAIN_DONE' : 'ESPERO' }
+    })
+    const b = fakeServer('model-b', body => ({ text: (body.messages ?? []).some(m => text(m).includes('SUB_R2')) ? 'B_DOS' : 'B_UNO' }))
+    const { configDir, cwd } = makeSandbox()
+    writeFileSync(
+      join(configDir, 'accounts.json'),
+      JSON.stringify({
+        active: 'accta',
+        accounts: {
+          accta: { provider: 'custom', baseUrl: a.baseUrl, model: 'model-a' },
+          acctb: { provider: 'custom', baseUrl: b.baseUrl, model: 'model-b' },
+        },
+      }),
+    )
+    const env: Record<string, string | undefined> = { ...process.env, CLAUDE_CONFIG_DIR: configDir, FNHARNESS_DISABLE_MODELS_FETCH: '1', FNHARNESS_CONTEXT_PROFILE: 'full' }
+    for (const k of Object.keys(env)) if (k.startsWith('CLAUDE_CODE_') || k === 'CLAUDECODE') delete env[k]
+    for (const k of ['CLAUDE_MULTIMODEL_PROVIDER', 'CLAUDE_MULTIMODEL_ACCOUNT', 'CLAUDE_MULTIMODEL_BASE_URL', 'CLAUDE_MULTIMODEL_MODEL', 'FNHARNESS_ACCOUNT', 'ANTHROPIC_MODEL', 'TMUX']) delete env[k]
+    const proc = Bun.spawn([CLI, '-p', 'LANZA_RESUME ahora'], { cwd, env, stdin: 'ignore', stdout: 'pipe', stderr: 'pipe', timeout: 90_000 })
+    const out = await new Response(proc.stdout).text()
+    const err = await new Response(proc.stderr).text()
+    await proc.exited
+    a.stop()
+    b.stop()
+    const resumed = b.requests.filter(r => (r.messages ?? []).some(m => text(m).includes('SUB_R2')))
+    if (resumed.length === 0) console.error('stdout:', out.slice(0, 2000), '\nstderr:', err.slice(0, 2000), '\nA:', JSON.stringify(a.requests.map(r => (r.messages ?? []).map(m => m.role + ':' + text(m).slice(0, 120)))).slice(0, 3000))
+    // The resumed turn reached B with its prefix stripped, and carried the first turn.
+    expect(resumed.length).toBeGreaterThan(0)
+    expect(resumed.every(r => r.model === 'model-b')).toBe(true)
+    expect(resumed[0]!.messages!.some(m => text(m).includes('SUB_R1'))).toBe(true)
+    // A never served the subagent's turns.
+    expect(a.requests.some(r => (r.messages ?? []).some(m => m.role === 'user' && text(m).startsWith('SUB_R2')))).toBe(false)
+    expect(a.requests.every(r => r.model === 'model-a')).toBe(true)
   }, 100_000)
 })
 
@@ -170,7 +229,7 @@ describe.skipIf(!hasCli)('/model across accounts e2e', () => {
 })
 
 describe.skipIf(!hasCli)('subagent panel shows the account e2e', () => {
-  test('a background agent on another account is listed with [cuenta]', async () => {
+  test('a background agent on another account is listed with cuenta:modelo', async () => {
     const tool = { name: 'Agent', args: { description: 'contar en B', prompt: 'SUB_PANEL tarea', subagent_type: 'general-purpose', model: 'acctb:model-b', run_in_background: true } }
     const a = fakeServer('model-a', b => {
       const msgs = b.messages ?? []
@@ -213,6 +272,6 @@ describe.skipIf(!hasCli)('subagent panel shows the account e2e', () => {
     await proc.exited
     a.stop()
     b.stop(true)
-    expect(out).toContain('◯general-purpose[acctb]contarenB')
+    expect(out).toMatch(/◯general-purpose·acctb:model-b(\([^)]*\))?·contarenB/)
   }, 40_000)
 })
