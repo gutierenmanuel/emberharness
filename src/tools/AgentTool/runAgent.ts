@@ -58,6 +58,7 @@ import { clearSessionHooks } from '../../utils/hooks/sessionHooks.js'
 import { executeSubagentStartHooks } from '../../utils/hooks.js'
 import { createUserMessage } from '../../utils/messages.js'
 import { getAgentModel } from '../../utils/model/agent.js'
+import { persistableAgentModel } from './agentModelPersistence.js'
 import type { ModelAlias } from '../../utils/model/aliases.js'
 import {
   clearAgentTranscriptSubdir,
@@ -744,8 +745,10 @@ export async function* runAgent({
   void recordSidechainTranscript(initialMessages, agentId).catch(_err =>
     logForDebugging(`Failed to record sidechain transcript: ${_err}`),
   )
+  const persistedModel = persistableAgentModel(resolvedAgentModel)
   void writeAgentMetadata(agentId, {
     agentType: agentDefinition.agentType,
+    ...(persistedModel && { model: persistedModel }),
     ...(worktreePath && { worktreePath }),
     ...(description && { description }),
     ...(toolUseContext.toolUseId && { toolUseId: toolUseContext.toolUseId }),

@@ -275,6 +275,10 @@ export type AgentMetadata = {
    * bridge links each subagent's transcript to the message it published for
    * that call through this field (docs/matrix_events.md). Optional. */
   toolUseId?: string
+  /** Resolved `cuenta:modelo` when the agent runs on a routed account, so a
+   * resume keeps it on that account. Absent for unrouted agents and in older
+   * metadata files (resume then resolves the model as before). */
+  model?: string
 }
 
 /**
